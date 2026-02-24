@@ -1,0 +1,15 @@
+{
+  "name": "desktop-ai-native-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node apps/gateway/server.js",
+    "start": "node apps/gateway/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0",
+    "uuid": "^11.0.3"
+  }
+}

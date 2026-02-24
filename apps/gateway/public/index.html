@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Native Runtime Debug</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; max-width: 900px; }
+    textarea { width: 100%; height: 80px; }
+    button { margin-top: 8px; padding: 8px 14px; }
+    pre { background: #111; color: #ddd; padding: 12px; border-radius: 8px; min-height: 260px; overflow: auto; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
+  </style>
+</head>
+<body>
+  <h2>P0 Debug Console (ToolLoop ReAct)</h2>
+  <p>输入示例：<code>现在几点了</code> / <code>12+35</code> / 任意文本</p>
+
+  <div class="card">
+    <textarea id="input" placeholder="输入测试问题..."></textarea>
+    <br />
+    <button id="runBtn">运行</button>
+  </div>
+
+  <div class="row" style="margin-top:16px;">
+    <div class="card">
+      <h4>事件流</h4>
+      <pre id="events"></pre>
+    </div>
+    <div class="card">
+      <h4>最终输出</h4>
+      <pre id="final"></pre>
+    </div>
+  </div>
+
+<script>
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  const eventsEl = document.getElementById('events');
+  const finalEl = document.getElementById('final');
+  const inputEl = document.getElementById('input');
+
+  function appendEvent(line) {
+    eventsEl.textContent += line + '\n';
+    eventsEl.scrollTop = eventsEl.scrollHeight;
+  }
+
+  ws.onopen = () => appendEvent('[ws] connected');
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'event') {
+      appendEvent(JSON.stringify(msg.data));
+    } else if (msg.type === 'start') {
+      eventsEl.textContent = '';
+      finalEl.textContent = '';
+      appendEvent(`[start] session=${msg.session_id}`);
+    } else if (msg.type === 'final') {
+      finalEl.textContent = JSON.stringify(msg, null, 2);
+    } else {
+      appendEvent(JSON.stringify(msg));
+    }
+  };
+
+  document.getElementById('runBtn').onclick = () => {
+    const input = inputEl.value.trim();
+    ws.send(JSON.stringify({ type: 'run', input }));
+  };
+</script>
+</body>
+</html>
