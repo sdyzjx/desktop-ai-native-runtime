@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RuntimeEvent",
+  "type": "object",
+  "required": ["trace_id", "session_id", "step_index", "event", "source", "payload"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "session_id": { "type": "string" },
+    "task_id": { "type": ["string", "null"] },
+    "step_index": { "type": "integer", "minimum": 0 },
+    "event": { "type": "string" },
+    "source": { "type": "string" },
+    "latency_budget_ms": { "type": "integer", "minimum": 0 },
+    "payload": { "type": "object" }
+  }
+}
