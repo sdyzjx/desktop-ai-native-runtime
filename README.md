@@ -163,3 +163,13 @@ See `docs/IMPLEMENTATION_PLAN.md`, `docs/ARCHITECTURE.md`, and `docs/TESTING.md`
 
 Detailed feature implementation record:
 - `docs/LONG_TERM_MEMORY_TOOL_CALL_IMPLEMENTATION.md`
+- `docs/SESSION_WORKSPACE_PERMISSION_IMPLEMENTATION.md`
+- `docs/SKILLS_RUNTIME_IMPLEMENTATION.md`
+
+Module-level runtime docs:
+- `docs/modules/runtime/session-workspace-permission.md`
+- `docs/modules/runtime/skills-runtime.md`
+
+Practical usage cases:
+- `docs/TEST_SKILL_SMOKE_GUIDE.md`
+- `docs/RUNTIME_FEATURE_USAGE_CASES.md`

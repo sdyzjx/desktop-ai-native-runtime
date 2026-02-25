@@ -13,6 +13,8 @@ class ToolCallDispatcher {
         session_id: sessionId,
         step_index: stepIndex,
         call_id: callId,
+        workspace_root: workspaceRoot,
+        permission_level: permissionLevel,
         tool,
         meta
       } = payload;
@@ -28,14 +30,18 @@ class ToolCallDispatcher {
       this.bus.publish('tool.call.dispatched', { ...base, args: tool.args });
 
       const result = await this.executor.execute(tool, {
+        permission_level: permissionLevel || null,
+        workspace_root: workspaceRoot || null,
         meta: {
           ...(meta || {}),
           trace_id: traceId,
           session_id: sessionId,
           step_index: stepIndex,
-          call_id: callId
+          call_id: callId,
+          permission_level: permissionLevel || null,
+          workspace_root: workspaceRoot || null
         },
-        workspaceRoot: process.cwd()
+        workspaceRoot: workspaceRoot || process.cwd()
       });
       if (!result.ok) {
         this.bus.publish('tool.call.result', {

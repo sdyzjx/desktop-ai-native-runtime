@@ -27,6 +27,9 @@ test('FileSessionStore persists session messages/events/runs', async () => {
   assert.equal(session.runs.length, 1);
   assert.equal(session.title, 'hello');
   assert.ok(session.memory);
+  assert.equal(session.settings.permission_level, 'medium');
+  assert.equal(session.settings.workspace.mode, 'session');
+  assert.equal(session.settings.workspace.root_dir, null);
   assert.equal(session.memory.archived_message_count, 1);
   assert.match(session.memory.summary, /hello/);
 
@@ -50,4 +53,24 @@ test('FileSessionStore isolates writes by session lock', async () => {
 
   const session = await store.getSession('s2');
   assert.equal(session.messages.length, 20);
+});
+
+test('FileSessionStore updates per-session settings', async () => {
+  const store = createStore();
+
+  await store.createSessionIfNotExists({ sessionId: 's3', title: 'New chat' });
+  const initialSettings = await store.getSessionSettings('s3');
+  assert.equal(initialSettings.permission_level, 'medium');
+
+  await store.updateSessionSettings('s3', { permission_level: 'high' });
+  await store.updateSessionSettings('s3', {
+    workspace: { root_dir: '/tmp/test-workspace-s3' }
+  });
+  const updatedSettings = await store.getSessionSettings('s3');
+  assert.equal(updatedSettings.permission_level, 'high');
+  assert.equal(updatedSettings.workspace.mode, 'session');
+  assert.equal(updatedSettings.workspace.root_dir, '/tmp/test-workspace-s3');
+
+  const session = await store.getSession('s3');
+  assert.equal(session.settings.permission_level, 'high');
 });

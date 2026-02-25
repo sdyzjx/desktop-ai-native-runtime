@@ -10,6 +10,15 @@
 ## Runtime Loop
 
 - `docs/modules/runtime/multi-tool-loop.md`
+- `docs/modules/runtime/session-workspace-permission.md`
+- `docs/modules/runtime/skills-runtime.md`
+
+## Feature Guides
+
+- `docs/SESSION_WORKSPACE_PERMISSION_IMPLEMENTATION.md`
+- `docs/SKILLS_RUNTIME_IMPLEMENTATION.md`
+- `docs/TEST_SKILL_SMOKE_GUIDE.md`
+- `docs/RUNTIME_FEATURE_USAGE_CASES.md`
 
 ## Process / SOP
 

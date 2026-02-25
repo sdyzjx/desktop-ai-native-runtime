@@ -1,0 +1,27 @@
+version: 1
+
+home:
+  envKey: YACHIYO_HOME
+  defaultPath: ~/yachiyo
+
+load:
+  workspace: true
+  global: true
+  extraDirs: []
+  watch: true
+  watchDebounceMs: 250
+
+limits:
+  maxCandidatesPerRoot: 300
+  maxSkillsLoadedPerSource: 200
+  maxSkillsInPrompt: 80
+  maxSkillsPromptChars: 24000
+  maxSkillFileBytes: 262144
+
+trigger:
+  mode: hybrid
+  maxSelectedPerTurn: 2
+  scoreThreshold: 45
+  cooldownMs: 15000
+
+entries: {}

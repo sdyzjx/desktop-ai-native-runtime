@@ -117,6 +117,11 @@ body {
   backdrop-filter: blur(4px);
 }
 
+.chat-header-main {
+  min-width: 0;
+  flex: 1;
+}
+
 .session-name {
   font-size: 15px;
   font-weight: 600;
@@ -124,6 +129,27 @@ body {
 
 .runtime-status {
   color: var(--muted);
+  font-size: 12px;
+}
+
+.session-permission-wrap {
+  display: inline-grid;
+  gap: 3px;
+}
+
+.session-permission-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.session-permission-select {
+  border: 1px solid #3b3b3b;
+  background: #262626;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 8px;
   font-size: 12px;
 }
 
@@ -287,5 +313,9 @@ body {
 
   .composer-wrap {
     padding: 12px 12px 14px;
+  }
+
+  .session-permission-wrap {
+    margin-left: auto;
   }
 }

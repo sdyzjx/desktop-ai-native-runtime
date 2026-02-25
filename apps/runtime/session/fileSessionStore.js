@@ -2,6 +2,11 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { v4: uuidv4 } = require('uuid');
 const { buildSessionLongTermMemory } = require('./longTermMemory');
+const {
+  buildDefaultSessionSettings,
+  normalizeSessionSettings,
+  mergeSessionSettings
+} = require('./sessionPermissions');
 
 const INDEX_FILE = 'index.json';
 
@@ -23,6 +28,7 @@ function defaultSession(sessionId, title = 'New chat') {
     messages: [],
     events: [],
     runs: [],
+    settings: buildDefaultSessionSettings(),
     memory: {
       version: 1,
       updated_at: createdAt,
@@ -44,6 +50,7 @@ function buildSummary(session) {
     message_count: session.messages.length,
     event_count: session.events.length,
     run_count: session.runs.length,
+    permission_level: session.settings?.permission_level || null,
     last_state: lastRun?.state || null,
     last_output_preview: lastRun?.output ? String(lastRun.output).slice(0, 120) : null
   };
@@ -149,6 +156,7 @@ class FileSessionStore {
     if (!Array.isArray(session.messages)) session.messages = [];
     if (!Array.isArray(session.events)) session.events = [];
     if (!Array.isArray(session.runs)) session.runs = [];
+    session.settings = normalizeSessionSettings(session.settings);
     if (!session.memory || typeof session.memory !== 'object') {
       session.memory = {
         version: 1,
@@ -250,7 +258,9 @@ class FileSessionStore {
         input: String(run.input || ''),
         output: String(run.output || ''),
         state: run.state || null,
-        mode: run.mode || null
+        mode: run.mode || null,
+        permission_level: run.permission_level || null,
+        workspace_root: run.workspace_root || null
       };
 
       session.runs.push(entry);
@@ -267,6 +277,23 @@ class FileSessionStore {
       session.memory = buildSessionLongTermMemory(session, options);
       await this.saveSession(session);
       return session.memory;
+    });
+  }
+
+  async getSessionSettings(sessionId) {
+    const session = await this.getSession(sessionId);
+    if (!session) return null;
+    return normalizeSessionSettings(session.settings);
+  }
+
+  async updateSessionSettings(sessionId, patch = {}) {
+    await this.ready();
+    return this.withSessionLock(sessionId, async () => {
+      const session = await this.loadSessionOrCreate(sessionId);
+      session.settings = mergeSessionSettings(session.settings, patch);
+      session.updated_at = nowIso();
+      await this.saveSession(session);
+      return session.settings;
     });
   }
 

@@ -1,4 +1,6 @@
 const STORAGE_KEY = 'yachiyo_sessions_v1';
+const SESSION_PERMISSION_LEVELS = ['low', 'medium', 'high'];
+const DEFAULT_SESSION_PERMISSION_LEVEL = 'medium';
 
 const elements = {
   sidebar: document.getElementById('sidebar'),
@@ -7,6 +9,7 @@ const elements = {
   sessionList: document.getElementById('sessionList'),
   activeSessionName: document.getElementById('activeSessionName'),
   runtimeStatus: document.getElementById('runtimeStatus'),
+  sessionPermissionSelect: document.getElementById('sessionPermissionSelect'),
   messageList: document.getElementById('messageList'),
   chatInput: document.getElementById('chatInput'),
   sendBtn: document.getElementById('sendBtn')
@@ -46,7 +49,27 @@ function createSession() {
     name: 'New chat',
     createdAt,
     updatedAt: createdAt,
+    permissionLevel: DEFAULT_SESSION_PERMISSION_LEVEL,
     messages: []
+  };
+}
+
+function normalizePermissionLevel(value) {
+  if (typeof value === 'string' && SESSION_PERMISSION_LEVELS.includes(value)) {
+    return value;
+  }
+  return DEFAULT_SESSION_PERMISSION_LEVEL;
+}
+
+function normalizeSessionShape(raw) {
+  if (!raw || typeof raw !== 'object') return createSession();
+  return {
+    id: raw.id || randomId('chat'),
+    name: typeof raw.name === 'string' ? raw.name : 'New chat',
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : nowIso(),
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : nowIso(),
+    permissionLevel: normalizePermissionLevel(raw.permissionLevel),
+    messages: Array.isArray(raw.messages) ? raw.messages : []
   };
 }
 
@@ -63,8 +86,9 @@ function loadSessions() {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('invalid');
-    state.sessions = parsed;
-    state.activeSessionId = parsed[0].id;
+    state.sessions = parsed.map((session) => normalizeSessionShape(session));
+    state.activeSessionId = state.sessions[0].id;
+    persist();
   } catch {
     const initial = createSession();
     state.sessions = [initial];
@@ -79,6 +103,10 @@ function persist() {
 
 function getActiveSession() {
   return state.sessions.find((s) => s.id === state.activeSessionId) || null;
+}
+
+function getSessionById(sessionId) {
+  return state.sessions.find((s) => s.id === sessionId) || null;
 }
 
 function sortSessions() {
@@ -180,12 +208,30 @@ function renderMessages() {
 function renderHeader() {
   const session = getActiveSession();
   elements.activeSessionName.textContent = session?.name || 'New chat';
+  elements.sessionPermissionSelect.value = normalizePermissionLevel(session?.permissionLevel);
 }
 
 function render() {
   renderSessions();
   renderHeader();
   renderMessages();
+}
+
+function resolvePendingSession() {
+  if (!state.pending) return null;
+  return getSessionById(state.pending.sessionId);
+}
+
+function finishPendingResponse({ content, statusText }) {
+  const pendingSession = resolvePendingSession();
+  if (pendingSession) {
+    updateMessage(pendingSession, state.pending.assistantMsgId, { content: String(content || '') });
+  }
+
+  state.pending = null;
+  setStatus(statusText);
+  updateComposerState();
+  render();
 }
 
 function connectWs() {
@@ -202,12 +248,24 @@ function connectWs() {
   state.ws.onclose = () => {
     state.wsReady = false;
     setStatus('Disconnected');
+    if (state.pending) {
+      finishPendingResponse({
+        content: 'Error: websocket disconnected before tool finished.',
+        statusText: 'Disconnected'
+      });
+    }
     setTimeout(connectWs, 600);
   };
 
   state.ws.onerror = () => {
     state.wsReady = false;
     setStatus('Connection error');
+    if (state.pending) {
+      finishPendingResponse({
+        content: 'Error: websocket error before tool finished.',
+        statusText: 'Connection error'
+      });
+    }
   };
 
   state.ws.onmessage = (event) => {
@@ -220,10 +278,8 @@ function connectWs() {
 
     if (!state.pending) return;
 
-    const active = getActiveSession();
-    if (!active || state.pending.sessionId !== active.id) return;
-
     if (msg.type === 'event') {
+      if (msg.data?.session_id && msg.data.session_id !== state.pending.sessionId) return;
       if (msg.data?.event === 'tool.call') {
         setStatus(`Running tool: ${msg.data.payload?.name || 'unknown'}`);
       }
@@ -231,20 +287,19 @@ function connectWs() {
     }
 
     if (msg.type === 'error') {
-      updateMessage(active, state.pending.assistantMsgId, { content: `Error: ${msg.message || 'Unknown error'}` });
-      state.pending = null;
-      setStatus('Error');
-      updateComposerState();
-      render();
+      finishPendingResponse({
+        content: `Error: ${msg.message || 'Unknown error'}`,
+        statusText: 'Error'
+      });
       return;
     }
 
-    if (msg.type === 'final' && msg.session_id === state.pending.sessionId) {
-      updateMessage(active, state.pending.assistantMsgId, { content: msg.output || '' });
-      state.pending = null;
-      setStatus('Idle');
-      updateComposerState();
-      render();
+    if (msg.type === 'final') {
+      if (msg.session_id && msg.session_id !== state.pending.sessionId) return;
+      finishPendingResponse({
+        content: msg.output || '',
+        statusText: 'Idle'
+      });
     }
   };
 }
@@ -278,7 +333,12 @@ function sendMessage() {
   render();
   setStatus('Running');
 
-  state.ws.send(JSON.stringify({ type: 'run', session_id: session.id, input: text }));
+  state.ws.send(JSON.stringify({
+    type: 'run',
+    session_id: session.id,
+    input: text,
+    permission_level: normalizePermissionLevel(session.permissionLevel)
+  }));
 }
 
 function createNewSession() {
@@ -287,6 +347,22 @@ function createNewSession() {
   state.activeSessionId = session.id;
   persist();
   render();
+}
+
+async function persistSessionPermission(session) {
+  try {
+    await fetch(`/api/sessions/${encodeURIComponent(session.id)}/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          permission_level: normalizePermissionLevel(session.permissionLevel)
+        }
+      })
+    });
+  } catch {
+    // Keep UI responsive even when network is temporarily unavailable.
+  }
 }
 
 function bindEvents() {
@@ -305,6 +381,16 @@ function bindEvents() {
   elements.menuBtn.onclick = () => {
     elements.sidebar.classList.toggle('open');
   };
+
+  elements.sessionPermissionSelect.addEventListener('change', () => {
+    const session = getActiveSession();
+    if (!session) return;
+    session.permissionLevel = normalizePermissionLevel(elements.sessionPermissionSelect.value);
+    session.updatedAt = nowIso();
+    persist();
+    renderSessions();
+    void persistSessionPermission(session);
+  });
 }
 
 function bootstrap() {

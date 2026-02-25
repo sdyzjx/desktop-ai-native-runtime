@@ -1,4 +1,5 @@
 const { ToolingError, ErrorCode } = require('../errors');
+const { isToolAllowedForPermission } = require('../../security/sessionPermissionPolicy');
 
 function toSet(values) {
   return new Set(Array.isArray(values) ? values : []);
@@ -28,6 +29,16 @@ async function enforcePolicy(ctx, next) {
 
   if (allow.size > 0 && !allow.has(ctx.tool.name)) {
     throw new ToolingError(ErrorCode.PERMISSION_DENIED, `tool not allowed: ${ctx.tool.name}`);
+  }
+
+  if (
+    typeof ctx.meta?.permission_level === 'string'
+    && !isToolAllowedForPermission(ctx.tool.name, ctx.meta.permission_level)
+  ) {
+    throw new ToolingError(
+      ErrorCode.PERMISSION_DENIED,
+      `tool not allowed for permission level ${ctx.meta.permission_level}: ${ctx.tool.name}`
+    );
   }
 
   await next();

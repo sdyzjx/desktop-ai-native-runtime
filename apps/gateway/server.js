@@ -17,6 +17,14 @@ const { FileSessionStore } = require('../runtime/session/fileSessionStore');
 const { buildRecentContextMessages } = require('../runtime/session/contextBuilder');
 const { getDefaultLongTermMemoryStore } = require('../runtime/session/longTermMemoryStore');
 const { loadMemorySop } = require('../runtime/session/memorySopLoader');
+const { getDefaultSessionWorkspaceManager } = require('../runtime/session/workspaceManager');
+const {
+  isSessionPermissionLevel,
+  normalizeSessionPermissionLevel,
+  normalizeWorkspaceSettings
+} = require('../runtime/session/sessionPermissions');
+const { canReadLongTermMemory } = require('../runtime/security/sessionPermissionPolicy');
+const { SkillRuntimeManager } = require('../runtime/skills/skillRuntimeManager');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -31,6 +39,8 @@ const providerStore = new ProviderConfigStore();
 const llmManager = new LlmProviderManager({ store: providerStore });
 const sessionStore = new FileSessionStore();
 const longTermMemoryStore = getDefaultLongTermMemoryStore();
+const workspaceManager = getDefaultSessionWorkspaceManager();
+const skillRuntimeManager = new SkillRuntimeManager({ workspaceDir: process.cwd() });
 
 const contextMaxMessages = Math.max(0, Number(process.env.CONTEXT_MAX_MESSAGES) || 12);
 const contextMaxChars = Math.max(0, Number(process.env.CONTEXT_MAX_CHARS) || 12000);
@@ -42,6 +52,7 @@ const runner = new ToolLoopRunner({
   bus,
   getReasoner: () => llmManager.getReasoner(),
   listTools: () => executor.listTools(),
+  resolveSkillsContext: ({ sessionId, input }) => skillRuntimeManager.buildTurnContext({ sessionId, input }),
   maxStep: 8,
   toolResultTimeoutMs: 10000
 });
@@ -59,7 +70,10 @@ app.get('/health', async (_, res) => {
     queue_size: queue.size(),
     llm: llmManager.getConfigSummary(),
     tools: toolConfigManager.getSummary(),
-    session_store: sessionStats
+    session_store: sessionStats,
+    workspace_store: {
+      root_dir: workspaceManager.rootDir
+    }
   });
 });
 
@@ -93,6 +107,41 @@ app.get('/api/sessions/:sessionId/memory', async (req, res) => {
     return;
   }
   res.json({ ok: true, data: session.memory || null });
+});
+
+app.get('/api/sessions/:sessionId/settings', async (req, res) => {
+  const settings = await sessionStore.getSessionSettings(req.params.sessionId);
+  if (!settings) {
+    res.status(404).json({ ok: false, error: 'session not found' });
+    return;
+  }
+  res.json({ ok: true, data: settings });
+});
+
+app.put('/api/sessions/:sessionId/settings', async (req, res) => {
+  const settings = req.body?.settings;
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    res.status(400).json({ ok: false, error: 'body.settings must be an object' });
+    return;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(settings, 'permission_level')
+    && !isSessionPermissionLevel(settings.permission_level)
+  ) {
+    res.status(400).json({ ok: false, error: 'settings.permission_level must be low|medium|high' });
+    return;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(settings, 'workspace')) {
+    if (!settings.workspace || typeof settings.workspace !== 'object' || Array.isArray(settings.workspace)) {
+      res.status(400).json({ ok: false, error: 'settings.workspace must be an object' });
+      return;
+    }
+  }
+
+  const updated = await sessionStore.updateSessionSettings(req.params.sessionId, settings);
+  res.json({ ok: true, data: updated });
 });
 
 app.get('/api/memory', async (req, res) => {
@@ -194,15 +243,49 @@ function sendSafe(ws, payload) {
 async function enqueueRpc(ws, rpcPayload, mode) {
   const requestInput = String(rpcPayload.params?.input || '');
   const requestId = rpcPayload.id ?? null;
+  const requestedPermissionLevel = rpcPayload.params?.permission_level;
+
+  if (requestedPermissionLevel !== undefined && !isSessionPermissionLevel(requestedPermissionLevel)) {
+    if (mode === 'legacy') {
+      sendSafe(ws, { type: 'error', message: 'permission_level must be low|medium|high' });
+      return;
+    }
+    sendSafe(ws, createRpcError(requestId, RpcErrorCode.INVALID_PARAMS, 'params.permission_level must be low|medium|high'));
+    return;
+  }
 
   const context = {
+    buildRunContext: async ({ session_id: sessionId }) => {
+      const existingSettings = await sessionStore.getSessionSettings(sessionId);
+      const permissionLevel = normalizeSessionPermissionLevel(
+        requestedPermissionLevel !== undefined
+          ? requestedPermissionLevel
+          : existingSettings?.permission_level
+      );
+      const workspace = await workspaceManager.getWorkspaceInfo(sessionId);
+      const normalizedWorkspace = normalizeWorkspaceSettings(workspace);
+
+      await sessionStore.updateSessionSettings(sessionId, {
+        permission_level: permissionLevel,
+        workspace: normalizedWorkspace
+      });
+
+      return {
+        permission_level: permissionLevel,
+        workspace_root: normalizedWorkspace.root_dir
+      };
+    },
     send: (payload) => sendSafe(ws, payload),
-    buildPromptMessages: async ({ session_id: sessionId }) => {
+    buildPromptMessages: async ({ session_id: sessionId, runtime_context: runtimeContext }) => {
       const session = await sessionStore.getSession(sessionId);
       const isSessionStart = !session || !Array.isArray(session.messages) || session.messages.length === 0;
+      const permissionLevel = normalizeSessionPermissionLevel(
+        runtimeContext?.permission_level || session?.settings?.permission_level
+      );
+      const allowMemoryRead = canReadLongTermMemory(permissionLevel);
       const seedMessages = [];
 
-      if (isSessionStart) {
+      if (isSessionStart && allowMemoryRead) {
         const sop = await loadMemorySop({ maxChars: memorySopMaxChars });
         if (sop) {
           seedMessages.push({
@@ -242,13 +325,17 @@ async function enqueueRpc(ws, rpcPayload, mode) {
 
       return [...seedMessages, ...recentMessages];
     },
-    onRunStart: async ({ session_id: sessionId }) => {
+    onRunStart: async ({ session_id: sessionId, runtime_context: runtimeContext }) => {
       await sessionStore.createSessionIfNotExists({ sessionId, title: 'New chat' });
       await sessionStore.appendMessage(sessionId, {
         role: 'user',
         content: requestInput,
         request_id: requestId,
-        metadata: { mode }
+        metadata: {
+          mode,
+          permission_level: runtimeContext?.permission_level || normalizeSessionPermissionLevel(requestedPermissionLevel),
+          workspace_root: runtimeContext?.workspace_root || null
+        }
       });
     },
     onRuntimeEvent: async (event) => {
@@ -256,13 +343,21 @@ async function enqueueRpc(ws, rpcPayload, mode) {
       if (!sessionId) return;
       await sessionStore.appendEvent(sessionId, event);
     },
-    onRunFinal: async ({ session_id: sessionId, trace_id: traceId, output, state }) => {
+    onRunFinal: async ({ session_id: sessionId, trace_id: traceId, output, state, runtime_context: runtimeContext }) => {
+      const settings = await sessionStore.getSessionSettings(sessionId);
+      const permissionLevel = normalizeSessionPermissionLevel(settings?.permission_level);
+
       await sessionStore.appendMessage(sessionId, {
         role: 'assistant',
         content: String(output || ''),
         trace_id: traceId,
         request_id: requestId,
-        metadata: { state, mode }
+        metadata: {
+          state,
+          mode,
+          permission_level: permissionLevel,
+          workspace_root: runtimeContext?.workspace_root || settings?.workspace?.root_dir || null
+        }
       });
       await sessionStore.appendRun(sessionId, {
         request_id: requestId,
@@ -270,7 +365,9 @@ async function enqueueRpc(ws, rpcPayload, mode) {
         input: requestInput,
         output: String(output || ''),
         state,
-        mode
+        mode,
+        permission_level: permissionLevel,
+        workspace_root: runtimeContext?.workspace_root || settings?.workspace?.root_dir || null
       });
     },
     sendEvent: (eventPayload) => {
@@ -329,7 +426,8 @@ wss.on('connection', (ws) => {
         method: 'runtime.run',
         params: {
           session_id: msg.session_id || `web-${uuidv4()}`,
-          input: msg.input || ''
+          input: msg.input || '',
+          permission_level: msg.permission_level
         }
       };
 
