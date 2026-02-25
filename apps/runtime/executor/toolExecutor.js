@@ -15,7 +15,9 @@ function buildMeta(context = {}) {
     trace_id: context.trace_id || context.meta?.trace_id || null,
     session_id: context.session_id || context.meta?.session_id || null,
     step_index: context.step_index ?? context.meta?.step_index ?? null,
-    call_id: context.call_id || context.meta?.call_id || null
+    call_id: context.call_id || context.meta?.call_id || null,
+    permission_level: context.permission_level || context.meta?.permission_level || null,
+    workspace_root: context.workspace_root || context.meta?.workspace_root || null
   };
 }
 
@@ -60,7 +62,9 @@ class ToolExecutor {
           trace_id: meta.trace_id || null,
           session_id: meta.session_id || null,
           step_index: meta.step_index ?? null,
-          call_id: meta.call_id || null
+          call_id: meta.call_id || null,
+          permission_level: meta.permission_level || null,
+          workspace_root: meta.workspace_root || null
         });
       }
     ]);

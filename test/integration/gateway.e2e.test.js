@@ -15,7 +15,9 @@ async function startMockLlmServer(port) {
     requestCount: 0,
     secondTurnSawFirstTurnContext: false,
     sawMemorySopOnNewSession: false,
-    sawBootstrapMemoryOnNewSession: false
+    sawBootstrapMemoryOnNewSession: false,
+    lowPermissionSawMemorySop: false,
+    lowPermissionSawBootstrapMemory: false
   };
 
   const server = http.createServer((req, res) => {
@@ -48,6 +50,15 @@ async function startMockLlmServer(port) {
           (msg) => msg.role === 'system' && /Long-term memory SOP/i.test(String(msg.content || ''))
         );
         state.sawBootstrapMemoryOnNewSession = messages.some(
+          (msg) => msg.role === 'system' && /favorite color is blue/i.test(String(msg.content || ''))
+        );
+      }
+
+      if (lastUserText === 'ask memory in low permission session') {
+        state.lowPermissionSawMemorySop = messages.some(
+          (msg) => msg.role === 'system' && /Long-term memory SOP/i.test(String(msg.content || ''))
+        );
+        state.lowPermissionSawBootstrapMemory = messages.some(
           (msg) => msg.role === 'system' && /favorite color is blue/i.test(String(msg.content || ''))
         );
       }
@@ -97,6 +108,8 @@ async function startMockLlmServer(port) {
             ]
           };
         }
+      } else if (lastUserText === 'ask memory in low permission session') {
+        message = { role: 'assistant', content: 'low permission memory bootstrap disabled' };
       } else if (last.role === 'tool') {
         message = { role: 'assistant', content: `final:${last.content}` };
       } else {
@@ -238,6 +251,7 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     const legacy = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
       type: 'run',
       session_id: 'legacy-s1',
+      permission_level: 'high',
       input: 'please compute'
     });
 
@@ -266,6 +280,54 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     assert.equal(legacySession.ok, true);
     assert.ok(legacySession.data.messages.length >= 2);
     assert.equal(legacySession.data.runs.length, 1);
+    assert.equal(legacySession.data.settings.permission_level, 'high');
+    assert.equal(legacySession.data.settings.workspace.mode, 'session');
+    assert.ok(typeof legacySession.data.settings.workspace.root_dir === 'string');
+    assert.ok(legacySession.data.settings.workspace.root_dir.length > 0);
+    assert.equal(legacySession.data.runs[0].permission_level, 'high');
+    assert.equal(legacySession.data.runs[0].workspace_root, legacySession.data.settings.workspace.root_dir);
+
+    const legacySettings = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/settings`).then((r) => r.json());
+    assert.equal(legacySettings.ok, true);
+    assert.equal(legacySettings.data.permission_level, 'high');
+
+    const patchedSettings = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          permission_level: 'low'
+        }
+      })
+    }).then((r) => r.json());
+    assert.equal(patchedSettings.ok, true);
+    assert.equal(patchedSettings.data.permission_level, 'low');
+
+    const invalidPermissionSettingsResp = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          permission_level: 'super-admin'
+        }
+      })
+    });
+    assert.equal(invalidPermissionSettingsResp.status, 400);
+    const invalidPermissionSettings = await invalidPermissionSettingsResp.json();
+    assert.equal(invalidPermissionSettings.ok, false);
+
+    const invalidWorkspaceSettingsResp = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          workspace: 'not-an-object'
+        }
+      })
+    });
+    assert.equal(invalidWorkspaceSettingsResp.status, 400);
+    const invalidWorkspaceSettings = await invalidWorkspaceSettingsResp.json();
+    assert.equal(invalidWorkspaceSettings.ok, false);
 
     const legacyEventsResp = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/events`).then((r) => r.json());
     assert.equal(legacyEventsResp.ok, true);
@@ -313,6 +375,7 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     const saveMemory = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
       type: 'run',
       session_id: 'memory-write-s1',
+      permission_level: 'high',
       input: 'save memory: my favorite color is blue'
     });
     assert.match(saveMemory.final.output, /saved/i);
@@ -325,6 +388,16 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     assert.match(askMemory.final.output, /blue/i);
     assert.equal(llm.state.sawMemorySopOnNewSession, true);
     assert.equal(llm.state.sawBootstrapMemoryOnNewSession, true);
+
+    const lowPermissionAskMemory = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
+      type: 'run',
+      session_id: 'memory-read-low-s3',
+      permission_level: 'low',
+      input: 'ask memory in low permission session'
+    });
+    assert.match(lowPermissionAskMemory.final.output, /bootstrap disabled/i);
+    assert.equal(llm.state.lowPermissionSawMemorySop, false);
+    assert.equal(llm.state.lowPermissionSawBootstrapMemory, false);
 
     const memoryList = await fetch(`http://127.0.0.1:${gatewayPort}/api/memory`).then((r) => r.json());
     assert.equal(memoryList.ok, true);

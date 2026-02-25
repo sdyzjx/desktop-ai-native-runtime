@@ -72,3 +72,91 @@ test('shell.exec allowlist works', async () => {
   assert.equal(denied.ok, false);
   assert.equal(denied.code, 'PERMISSION_DENIED');
 });
+
+test('memory tools are permission-gated by session permission level', async () => {
+  const executor = buildExecutor();
+
+  const lowSearch = await executor.execute(
+    { name: 'memory_search', args: { query: 'any', limit: 3 } },
+    { permission_level: 'low' }
+  );
+  assert.equal(lowSearch.ok, false);
+  assert.equal(lowSearch.code, 'PERMISSION_DENIED');
+
+  const mediumWrite = await executor.execute(
+    { name: 'memory_write', args: { content: 'should be denied', keywords: ['deny'] } },
+    { permission_level: 'medium' }
+  );
+  assert.equal(mediumWrite.ok, false);
+  assert.equal(mediumWrite.code, 'PERMISSION_DENIED');
+
+  const mediumSearch = await executor.execute(
+    { name: 'memory_search', args: { query: 'any', limit: 3 } },
+    { permission_level: 'medium' }
+  );
+  assert.equal(mediumSearch.ok, true);
+});
+
+test('shell.exec applies low/medium/high permission profiles', async () => {
+  const executor = buildExecutor();
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'tooling-shell-perm-'));
+
+  const lowDenied = await executor.execute(
+    { name: 'shell.exec', args: { command: 'curl --version' } },
+    { permission_level: 'low', workspaceRoot: tmp }
+  );
+  assert.equal(lowDenied.ok, false);
+  assert.equal(lowDenied.code, 'PERMISSION_DENIED');
+
+  const mediumAllowed = await executor.execute(
+    { name: 'shell.exec', args: { command: 'curl --version' } },
+    { permission_level: 'medium', workspaceRoot: tmp }
+  );
+  assert.equal(mediumAllowed.ok, true);
+  assert.match(mediumAllowed.result, /curl/i);
+
+  const highAllowed = await executor.execute(
+    { name: 'shell.exec', args: { command: 'whoami' } },
+    { permission_level: 'high', workspaceRoot: tmp }
+  );
+  assert.equal(highAllowed.ok, true);
+
+  const highWriteOutsideDenied = await executor.execute(
+    { name: 'shell.exec', args: { command: 'touch /tmp/yachiyo-should-not-write' } },
+    { permission_level: 'high', workspaceRoot: tmp }
+  );
+  assert.equal(highWriteOutsideDenied.ok, false);
+  assert.equal(highWriteOutsideDenied.code, 'PERMISSION_DENIED');
+
+  const externalDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tooling-shell-ext-'));
+  const externalSrc = path.join(externalDir, 'external.txt');
+  await fs.writeFile(externalSrc, 'external-content', 'utf8');
+
+  const highCopyIntoWorkspace = await executor.execute(
+    {
+      name: 'shell.exec',
+      args: { command: `cp ${externalSrc} imported.txt` }
+    },
+    { permission_level: 'high', workspaceRoot: tmp }
+  );
+  assert.equal(highCopyIntoWorkspace.ok, true);
+  const imported = await fs.readFile(path.join(tmp, 'imported.txt'), 'utf8');
+  assert.equal(imported, 'external-content');
+
+  const highCopyOutsideWorkspaceDenied = await executor.execute(
+    {
+      name: 'shell.exec',
+      args: { command: `cp imported.txt ${path.join(externalDir, 'copied-back.txt')}` }
+    },
+    { permission_level: 'high', workspaceRoot: tmp }
+  );
+  assert.equal(highCopyOutsideWorkspaceDenied.ok, false);
+  assert.equal(highCopyOutsideWorkspaceDenied.code, 'PERMISSION_DENIED');
+
+  const mediumReadOutsideWorkspaceDenied = await executor.execute(
+    { name: 'shell.exec', args: { command: `cat ${externalSrc}` } },
+    { permission_level: 'medium', workspaceRoot: tmp }
+  );
+  assert.equal(mediumReadOutsideWorkspaceDenied.ok, false);
+  assert.equal(mediumReadOutsideWorkspaceDenied.code, 'PERMISSION_DENIED');
+});
