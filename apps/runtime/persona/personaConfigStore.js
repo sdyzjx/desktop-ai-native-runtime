@@ -21,7 +21,7 @@ function normalizeConfig(raw) {
       sharedAcrossSessions: defaults.sharedAcrossSessions !== false
     },
     source: {
-      preferredRoot: String(source.preferredRoot || '~/.openclaw/workspace'),
+      preferredRoot: String(source.preferredRoot || '.'),
       allowWorkspaceOverride: source.allowWorkspaceOverride === true
     },
     modes: raw.modes || {},

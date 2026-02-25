@@ -7,7 +7,7 @@
 
 ## Implementation
 - Added `apps/runtime/persona/personaProfileStore.js`
-  - Global profile path: `~/.openclaw/workspace/persona/profile.yaml`
+  - Global profile path (repo default): `persona/profile.yaml`
   - Auto-create default profile if missing
   - Supports read/save with normalization
 - Updated `apps/runtime/persona/personaContextBuilder.js`

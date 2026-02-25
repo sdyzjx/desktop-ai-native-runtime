@@ -10,6 +10,7 @@ test('PersonaConfigStore loads config/persona.yaml', () => {
   assert.equal(cfg.defaults.mode, 'hybrid');
   assert.equal(cfg.defaults.profile, 'yachiyo');
   assert.equal(cfg.defaults.sharedAcrossSessions, true);
+  assert.equal(cfg.source.preferredRoot, '.');
 });
 
 test('normalizeConfig validates root', () => {

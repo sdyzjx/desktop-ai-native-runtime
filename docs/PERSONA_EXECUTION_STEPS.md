@@ -34,4 +34,5 @@
 ## Progress Update (latest)
 - 阶段进度：Phase 1-4 全部完成。
 - 新增回归断言：`gateway.e2e` 中 PUT 后再次 GET 校验 `custom_name` 持久化一致。
+- 加载源调整：人格核心文件与 profile 默认从仓库内加载（`SOUL.md`/`IDENTITY.md`/`USER.md`/`persona/profile.yaml`）。
 - 当前测试基线：`npm test` 通过（101+ / 0 fail，具体以本次流水线输出为准）。

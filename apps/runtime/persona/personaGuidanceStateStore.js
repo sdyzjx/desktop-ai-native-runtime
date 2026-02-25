@@ -1,8 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 
-const DEFAULT_STATE_PATH = path.join(os.homedir(), '.openclaw', 'workspace', 'persona', 'state.json');
+const DEFAULT_STATE_PATH = path.resolve(process.cwd(), 'persona', 'state.json');
 
 function readJsonSafe(filePath) {
   try {
