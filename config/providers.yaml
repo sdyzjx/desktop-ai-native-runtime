@@ -5,6 +5,7 @@ providers:
     display_name: Qwen 3.5 Plus
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     model: qwen3.5-plus
+    # api_key is intentionally omitted; use DASHSCOPE_API_KEY env var
     api_key_env: DASHSCOPE_API_KEY
     timeout_ms: 20000
   openai:

@@ -1,0 +1,81 @@
+version: 1
+
+policy:
+  allow:
+    - get_time
+    - add
+    - echo
+    - workspace.write_file
+    - shell.exec
+  deny: []
+  byProvider: {}
+
+exec:
+  security: allowlist
+  safeBins:
+    - echo
+    - pwd
+    - ls
+    - cat
+    - grep
+  timeoutSec: 20
+  maxOutputChars: 8000
+  workspaceOnly: true
+
+tools:
+  - name: get_time
+    type: local
+    adapter: builtin.get_time
+    description: Get local time.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+
+  - name: add
+    type: local
+    adapter: builtin.add
+    description: Add two numbers.
+    input_schema:
+      type: object
+      properties:
+        a: { type: number }
+        b: { type: number }
+      required: [a, b]
+      additionalProperties: false
+
+  - name: echo
+    type: local
+    adapter: builtin.echo
+    description: Echo input text.
+    input_schema:
+      type: object
+      properties:
+        text: { type: string }
+      required: [text]
+      additionalProperties: false
+
+  - name: workspace.write_file
+    type: local
+    adapter: fs.write_file
+    description: Write content to file under workspace.
+    input_schema:
+      type: object
+      properties:
+        path: { type: string }
+        content: { type: string }
+        mode: { type: string, enum: [overwrite, append] }
+      required: [path, content]
+      additionalProperties: false
+
+  - name: shell.exec
+    type: local
+    adapter: shell.exec
+    description: Execute safe shell command under workspace.
+    input_schema:
+      type: object
+      properties:
+        command: { type: string }
+        timeoutSec: { type: integer, minimum: 1, maximum: 120 }
+      required: [command]
+      additionalProperties: false

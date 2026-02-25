@@ -1,29 +1,94 @@
+const { compose } = require('../tooling/toolPipeline');
+const { ToolingError, ErrorCode } = require('../tooling/errors');
+const { resolveTool } = require('../tooling/middlewares/resolveTool');
+const { validateSchema } = require('../tooling/middlewares/validateSchema');
+const { enforcePolicy } = require('../tooling/middlewares/enforcePolicy');
+const { auditLog } = require('../tooling/middlewares/auditLog');
+
+function isRegistryObject(obj) {
+  return obj && typeof obj === 'object' && !Array.isArray(obj) && !obj.get && !obj.list;
+}
+
 class ToolExecutor {
-  constructor(registry) {
-    this.registry = registry;
+  constructor(registryOrToolRegistry, opts = {}) {
+    if (isRegistryObject(registryOrToolRegistry)) {
+      this.legacyRegistry = registryOrToolRegistry;
+      this.registry = {
+        get: (name) => {
+          const t = this.legacyRegistry[name];
+          return t ? { name, ...t } : null;
+        },
+        list: () => Object.entries(this.legacyRegistry).map(([name, tool]) => ({
+          name,
+          type: tool.type || 'local',
+          description: tool.description || '',
+          input_schema: tool.input_schema || { type: 'object', properties: {}, additionalProperties: true }
+        }))
+      };
+      this.policy = { allow: [], deny: [], byProvider: {} };
+      this.execConfig = { security: 'allowlist', safeBins: [], timeoutSec: 20, maxOutputChars: 8000, workspaceOnly: true };
+    } else {
+      this.registry = registryOrToolRegistry;
+      this.policy = opts.policy || { allow: [], deny: [], byProvider: {} };
+      this.execConfig = opts.exec || { security: 'allowlist', safeBins: [], timeoutSec: 20, maxOutputChars: 8000, workspaceOnly: true };
+    }
+
+    this.pipeline = compose([
+      auditLog,
+      resolveTool,
+      validateSchema,
+      enforcePolicy,
+      async (ctx) => {
+        ctx.result = await ctx.tool.run(ctx.request.args || {}, {
+          workspaceRoot: ctx.workspaceRoot,
+          security: this.execConfig.security,
+          safeBins: this.execConfig.safeBins,
+          timeoutSec: this.execConfig.timeoutSec,
+          maxOutputChars: this.execConfig.maxOutputChars,
+          workspaceOnly: this.execConfig.workspaceOnly
+        });
+      }
+    ]);
   }
 
   listTools() {
-    return Object.entries(this.registry).map(([name, tool]) => ({
-      name,
-      type: tool.type || 'local',
-      description: tool.description || '',
-      input_schema: tool.input_schema || { type: 'object', properties: {}, additionalProperties: true }
-    }));
+    return this.registry.list();
   }
 
-  async execute(toolCall) {
-    const tool = this.registry[toolCall.name];
-    if (!tool) {
-      return { ok: false, error: `tool not found: ${toolCall.name}` };
-    }
+  async execute(toolCall, context = {}) {
+    const ctx = {
+      request: {
+        name: toolCall.name,
+        args: toolCall.args || {}
+      },
+      meta: context.meta || {},
+      workspaceRoot: context.workspaceRoot || process.cwd(),
+      registry: this.registry,
+      policy: this.policy,
+      result: null,
+      metrics: {}
+    };
 
     try {
-      // P0: only local tools implemented
-      const result = await tool.run(toolCall.args || {});
-      return { ok: true, result: String(result) };
+      await this.pipeline(ctx);
+      return { ok: true, result: String(ctx.result), metrics: ctx.metrics };
     } catch (e) {
-      return { ok: false, error: e.message || String(e) };
+      if (e instanceof ToolingError) {
+        return {
+          ok: false,
+          error: e.message,
+          code: e.code,
+          details: e.details,
+          metrics: ctx.metrics
+        };
+      }
+
+      return {
+        ok: false,
+        error: e.message || String(e),
+        code: ErrorCode.RUNTIME_ERROR,
+        metrics: ctx.metrics
+      };
     }
   }
 }

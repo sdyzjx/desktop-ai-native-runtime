@@ -61,16 +61,22 @@ class OpenAIReasoner {
         throw new Error('LLM response missing choices[0].message');
       }
 
-      const toolCall = message.tool_calls?.[0];
-      if (toolCall?.function?.name) {
+      const toolCalls = Array.isArray(message.tool_calls)
+        ? message.tool_calls
+          .filter((tc) => tc?.function?.name)
+          .map((tc) => ({
+            call_id: tc.id || null,
+            name: tc.function.name,
+            args: parseToolArgs(tc.function.arguments)
+          }))
+        : [];
+
+      if (toolCalls.length > 0) {
         return {
           type: 'tool',
           assistantMessage: message,
-          tool: {
-            call_id: toolCall.id || null,
-            name: toolCall.function.name,
-            args: parseToolArgs(toolCall.function.arguments)
-          }
+          tool: toolCalls[0],
+          tools: toolCalls
         };
       }
 

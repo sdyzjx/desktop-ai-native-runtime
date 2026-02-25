@@ -55,6 +55,58 @@ test('ToolLoopRunner performs tool call through event bus and completes', async 
   dispatcher.stop();
 });
 
+
+
+test('ToolLoopRunner executes multiple tool calls in one step serially', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor(localTools);
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let decideCount = 0;
+  const reasoner = {
+    async decide() {
+      decideCount += 1;
+      if (decideCount === 1) {
+        return {
+          type: 'tool',
+          tools: [
+            { call_id: 'call-a', name: 'add', args: { a: 1, b: 2 } },
+            { call_id: 'call-b', name: 'echo', args: { text: 'hello' } }
+          ]
+        };
+      }
+
+      return { type: 'final', output: 'done-multi' };
+    }
+  };
+
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => reasoner,
+    listTools: () => executor.listTools(),
+    maxStep: 4,
+    toolResultTimeoutMs: 2000
+  });
+
+  const events = [];
+  const result = await runner.run({
+    sessionId: 's-multi',
+    input: 'do two calls',
+    onEvent: (event) => events.push(event)
+  });
+
+  assert.equal(result.state, 'DONE');
+  assert.equal(result.output, 'done-multi');
+  const toolCalls = events.filter((e) => e.event === 'tool.call');
+  const toolResults = events.filter((e) => e.event === 'tool.result');
+  assert.equal(toolCalls.length, 2);
+  assert.equal(toolResults.length, 2);
+  assert.equal(toolCalls[0].payload.name, 'add');
+  assert.equal(toolCalls[1].payload.name, 'echo');
+
+  dispatcher.stop();
+});
 test('ToolLoopRunner returns error when tool dispatch fails', async () => {
   const bus = new RuntimeEventBus();
   const executor = new ToolExecutor(localTools);
