@@ -13,6 +13,10 @@ const { RpcErrorCode, createRpcError } = require('../runtime/rpc/jsonRpc');
 const { ProviderConfigStore } = require('../runtime/config/providerConfigStore');
 const { LlmProviderManager } = require('../runtime/config/llmProviderManager');
 const { ToolConfigManager } = require('../runtime/config/toolConfigManager');
+const { FileSessionStore } = require('../runtime/session/fileSessionStore');
+const { buildRecentContextMessages } = require('../runtime/session/contextBuilder');
+const { LongTermMemoryStore } = require('../runtime/session/longTermMemoryStore');
+const { loadMemorySop } = require('../runtime/session/memorySopLoader');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -25,6 +29,14 @@ const toolRuntime = toolConfigManager.buildRegistry();
 const executor = new ToolExecutor(toolRuntime.registry, { policy: toolRuntime.policy, exec: toolRuntime.exec });
 const providerStore = new ProviderConfigStore();
 const llmManager = new LlmProviderManager({ store: providerStore });
+const sessionStore = new FileSessionStore();
+const longTermMemoryStore = new LongTermMemoryStore();
+
+const contextMaxMessages = Math.max(0, Number(process.env.CONTEXT_MAX_MESSAGES) || 12);
+const contextMaxChars = Math.max(0, Number(process.env.CONTEXT_MAX_CHARS) || 12000);
+const memoryBootstrapMaxEntries = Math.max(0, Number(process.env.MEMORY_BOOTSTRAP_MAX_ENTRIES) || 10);
+const memoryBootstrapMaxChars = Math.max(0, Number(process.env.MEMORY_BOOTSTRAP_MAX_CHARS) || 2400);
+const memorySopMaxChars = Math.max(0, Number(process.env.MEMORY_SOP_MAX_CHARS) || 8000);
 
 const runner = new ToolLoopRunner({
   bus,
@@ -40,13 +52,65 @@ dispatcher.start();
 const worker = new RuntimeRpcWorker({ queue, runner, bus });
 worker.start();
 
-app.get('/health', (_, res) => {
+app.get('/health', async (_, res) => {
+  const sessionStats = await sessionStore.getStats();
   res.json({
     ok: true,
     queue_size: queue.size(),
     llm: llmManager.getConfigSummary(),
-    tools: toolConfigManager.getSummary()
+    tools: toolConfigManager.getSummary(),
+    session_store: sessionStats
   });
+});
+
+app.get('/api/sessions', async (req, res) => {
+  const limit = Math.max(1, Math.min(Number(req.query.limit) || 50, 200));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  const result = await sessionStore.listSessions({ limit, offset });
+  res.json({ ok: true, data: result });
+});
+
+app.get('/api/sessions/:sessionId', async (req, res) => {
+  const session = await sessionStore.getSession(req.params.sessionId);
+  if (!session) {
+    res.status(404).json({ ok: false, error: 'session not found' });
+    return;
+  }
+  res.json({ ok: true, data: session });
+});
+
+app.get('/api/sessions/:sessionId/events', async (req, res) => {
+  const limit = Math.max(1, Math.min(Number(req.query.limit) || 200, 500));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  const events = await sessionStore.getSessionEvents(req.params.sessionId, { limit, offset });
+  res.json({ ok: true, data: events });
+});
+
+app.get('/api/sessions/:sessionId/memory', async (req, res) => {
+  const session = await sessionStore.getSession(req.params.sessionId);
+  if (!session) {
+    res.status(404).json({ ok: false, error: 'session not found' });
+    return;
+  }
+  res.json({ ok: true, data: session.memory || null });
+});
+
+app.get('/api/memory', async (req, res) => {
+  const limit = Math.max(1, Math.min(Number(req.query.limit) || 50, 200));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  const result = await longTermMemoryStore.listEntries({ limit, offset });
+  res.json({ ok: true, data: result });
+});
+
+app.get('/api/memory/search', async (req, res) => {
+  const query = String(req.query.q || '');
+  const limit = Math.max(1, Math.min(Number(req.query.limit) || 10, 50));
+  if (!query.trim()) {
+    res.status(400).json({ ok: false, error: 'query q is required' });
+    return;
+  }
+  const result = await longTermMemoryStore.searchEntries({ query, limit });
+  res.json({ ok: true, data: result });
 });
 
 app.get('/api/config/providers', (_, res) => {
@@ -64,7 +128,6 @@ app.get('/api/config/providers/config', (_, res) => {
 app.get('/api/config/providers/raw', (_, res) => {
   res.json({ ok: true, yaml: llmManager.loadYaml() });
 });
-
 
 app.get('/api/config/tools/config', (_, res) => {
   try {
@@ -113,7 +176,6 @@ app.put('/api/config/providers/raw', (req, res) => {
 });
 
 const port = Number(process.env.PORT) || 3000;
-
 const host = process.env.HOST || '0.0.0.0';
 
 const server = app.listen(port, host, () => {
@@ -130,8 +192,87 @@ function sendSafe(ws, payload) {
 }
 
 async function enqueueRpc(ws, rpcPayload, mode) {
+  const requestInput = String(rpcPayload.params?.input || '');
+  const requestId = rpcPayload.id ?? null;
+
   const context = {
     send: (payload) => sendSafe(ws, payload),
+    buildPromptMessages: async ({ session_id: sessionId }) => {
+      const session = await sessionStore.getSession(sessionId);
+      const isSessionStart = !session || !Array.isArray(session.messages) || session.messages.length === 0;
+      const seedMessages = [];
+
+      if (isSessionStart) {
+        const sop = await loadMemorySop({ maxChars: memorySopMaxChars });
+        if (sop) {
+          seedMessages.push({
+            role: 'system',
+            content: [
+              'Long-term memory SOP (Markdown). Follow this policy when calling memory tools.',
+              sop
+            ].join('\n\n')
+          });
+        }
+
+        const bootstrapEntries = await longTermMemoryStore.getBootstrapEntries({
+          limit: memoryBootstrapMaxEntries,
+          maxChars: memoryBootstrapMaxChars
+        });
+        if (bootstrapEntries.length) {
+          const lines = bootstrapEntries.map((entry, index) => {
+            const keywords = Array.isArray(entry.keywords) && entry.keywords.length
+              ? ` [keywords: ${entry.keywords.join(', ')}]`
+              : '';
+            return `${index + 1}. ${entry.content}${keywords}`;
+          });
+          seedMessages.push({
+            role: 'system',
+            content: [
+              'Bootstrap long-term memory context for this new session.',
+              ...lines
+            ].join('\n')
+          });
+        }
+      }
+
+      const recentMessages = buildRecentContextMessages(session, {
+        maxMessages: contextMaxMessages,
+        maxChars: contextMaxChars
+      });
+
+      return [...seedMessages, ...recentMessages];
+    },
+    onRunStart: async ({ session_id: sessionId }) => {
+      await sessionStore.createSessionIfNotExists({ sessionId, title: 'New chat' });
+      await sessionStore.appendMessage(sessionId, {
+        role: 'user',
+        content: requestInput,
+        request_id: requestId,
+        metadata: { mode }
+      });
+    },
+    onRuntimeEvent: async (event) => {
+      const sessionId = event.session_id || rpcPayload.params?.session_id;
+      if (!sessionId) return;
+      await sessionStore.appendEvent(sessionId, event);
+    },
+    onRunFinal: async ({ session_id: sessionId, trace_id: traceId, output, state }) => {
+      await sessionStore.appendMessage(sessionId, {
+        role: 'assistant',
+        content: String(output || ''),
+        trace_id: traceId,
+        request_id: requestId,
+        metadata: { state, mode }
+      });
+      await sessionStore.appendRun(sessionId, {
+        request_id: requestId,
+        trace_id: traceId,
+        input: requestInput,
+        output: String(output || ''),
+        state,
+        mode
+      });
+    },
     sendEvent: (eventPayload) => {
       if (mode === 'legacy') {
         if (eventPayload.method === 'runtime.start') {

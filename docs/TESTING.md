@@ -16,11 +16,17 @@ All tests are offline and deterministic. No external model API is required in CI
 - `test/runtime/eventBus.test.js`: event publish/subscribe/waitFor behavior
 - `test/runtime/toolExecutor.test.js`: local tool execution and registry contract
 - `test/runtime/providerConfigStore.test.js`: YAML config validation and persistence
+- `test/runtime/fileSessionStore.test.js`: file-backed session persistence and lock behavior
+- `test/runtime/contextBuilder.test.js`: session history to prompt-context assembly rules
+- `test/runtime/longTermMemory.test.js`: long-term memory compression and retrieval recall behavior
+- `test/runtime/longTermMemoryStore.test.js`: tool-managed long-term memory storage/search/bootstrap behavior
+- `test/runtime/memoryTools.test.js`: `memory_write` / `memory_search` tool integration
+- `test/runtime/memorySopLoader.test.js`: markdown SOP loading and clipping behavior
 - `test/runtime/llmProviderManager.test.js`: provider selection, env key resolution, cache invalidation
 - `test/runtime/openaiReasoner.test.js`: OpenAI-compatible response parsing (tool/final)
 - `test/runtime/toolLoopRunner.test.js`: event-driven tool call loop behavior
 - `test/runtime/runtimeRpcWorker.test.js`: queue consumer RPC routing and response flow
-- `test/integration/gateway.e2e.test.js`: end-to-end HTTP + WebSocket + runtime path with mock LLM
+- `test/integration/gateway.e2e.test.js`: end-to-end HTTP + WebSocket + runtime path with mock LLM, persisted session verification, tool-driven long-term memory write/search, and session-start SOP/bootstrap injection check
 
 ## Commands
 
@@ -60,4 +66,5 @@ Steps:
 
 - Integration test uses a temporary provider config file via `PROVIDER_CONFIG_PATH`.
 - Gateway test port is injected by `PORT` env to avoid conflicts.
-- Mock LLM server emulates tool-call + final-response cycle to validate the full runtime chain.
+- Mock LLM server emulates tool-call + final-response cycle and verifies that second-turn prompts include first-turn history.
+- Integration flow checks model can write/search memory via tool calls and verifies `/api/memory` + `/api/memory/search`.
