@@ -28,10 +28,15 @@ class ToolCallDispatcher {
       this.bus.publish('tool.call.dispatched', { ...base, args: tool.args });
 
       const result = await this.executor.execute(tool, {
-        meta: meta || {},
+        meta: {
+          ...(meta || {}),
+          trace_id: traceId,
+          session_id: sessionId,
+          step_index: stepIndex,
+          call_id: callId
+        },
         workspaceRoot: process.cwd()
       });
-
       if (!result.ok) {
         this.bus.publish('tool.call.result', {
           ...base,

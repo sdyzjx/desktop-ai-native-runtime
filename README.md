@@ -49,6 +49,48 @@ curl http://localhost:3000/health
 - Chat UI: `http://localhost:3000/`
 - Provider config UI: `http://localhost:3000/config.html`
 
+## Persistence
+
+Session persistence is enabled by default (file-backed):
+- default path: `data/session-store`
+- override path: `SESSION_STORE_DIR=/your/path`
+
+Session APIs:
+- `GET /api/sessions`
+- `GET /api/sessions/:sessionId`
+- `GET /api/sessions/:sessionId/events`
+- `GET /api/sessions/:sessionId/memory`
+- `GET /api/memory`
+- `GET /api/memory/search?q=<keyword>`
+
+## Context Management
+
+Each `runtime.run` now assembles multi-turn prompt context from persisted session history:
+- Source: latest user/assistant messages from session store
+- Injection point: before current input is appended to prompt
+- Runtime tunables:
+  - `CONTEXT_MAX_MESSAGES` (default: `12`)
+  - `CONTEXT_MAX_CHARS` (default: `12000`)
+
+## Long-Term Memory
+
+Long-term memory is now decoupled from runtime finalization and managed by model tool-calls:
+- Write flow: model calls `memory_write` tool
+- Search flow: model calls `memory_search` tool by keyword query
+- Storage: global file-backed memory store (`data/long-term-memory` by default)
+
+Session-start context behavior:
+- On new session start, gateway injects:
+  1. memory SOP markdown (`docs/memory_sop.md` by default)
+  2. bootstrap long-term memory entries (top N, configurable)
+
+Memory tunables:
+- `LONG_TERM_MEMORY_DIR` (default: `data/long-term-memory`)
+- `MEMORY_BOOTSTRAP_MAX_ENTRIES` (default: `10`)
+- `MEMORY_BOOTSTRAP_MAX_CHARS` (default: `2400`)
+- `MEMORY_SOP_PATH` (default: `docs/memory_sop.md`)
+- `MEMORY_SOP_MAX_CHARS` (default: `8000`)
+
 ## Testing
 
 Run the complete test suite:
@@ -118,3 +160,6 @@ Provider config now has a dedicated page (`/config.html`) with graphical form ed
 
 ## Next
 See `docs/IMPLEMENTATION_PLAN.md`, `docs/ARCHITECTURE.md`, and `docs/TESTING.md`.
+
+Detailed feature implementation record:
+- `docs/LONG_TERM_MEMORY_TOOL_CALL_IMPLEMENTATION.md`

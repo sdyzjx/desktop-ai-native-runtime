@@ -9,8 +9,10 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
   const queue = new RpcInputQueue();
   const bus = new RuntimeEventBus();
 
+  let seedMessagesSeen = null;
   const runner = {
-    async run({ sessionId, input, onEvent }) {
+    async run({ sessionId, input, seedMessages, onEvent }) {
+      seedMessagesSeen = seedMessages;
       onEvent({ event: 'plan', payload: { input } });
       return { output: `ok:${input}`, traceId: 't-1', state: 'DONE', sessionId };
     }
@@ -21,6 +23,10 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
 
   const sends = [];
   const sendEvents = [];
+  let startHookCalled = false;
+  let finalHookCalled = false;
+  const runtimeEventSeen = [];
+  let buildPromptCalled = false;
 
   const accepted = await queue.submit({
     jsonrpc: '2.0',
@@ -29,7 +35,23 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
     params: { input: 'hello', session_id: 'abc' }
   }, {
     send: (payload) => sends.push(payload),
-    sendEvent: (payload) => sendEvents.push(payload)
+    sendEvent: (payload) => sendEvents.push(payload),
+    buildPromptMessages: async ({ session_id: sessionId, input }) => {
+      buildPromptCalled = sessionId === 'abc' && input === 'hello';
+      return [
+        { role: 'user', content: 'earlier question' },
+        { role: 'assistant', content: 'earlier answer' }
+      ];
+    },
+    onRunStart: async ({ session_id: sessionId, input }) => {
+      startHookCalled = sessionId === 'abc' && input === 'hello';
+    },
+    onRuntimeEvent: async (event) => {
+      runtimeEventSeen.push(event.event);
+    },
+    onRunFinal: async ({ session_id: sessionId, output }) => {
+      finalHookCalled = sessionId === 'abc' && output === 'ok:hello';
+    }
   });
 
   assert.equal(accepted.accepted, true);
@@ -44,6 +66,14 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
   const hasFinal = sendEvents.some((evt) => evt.method === 'runtime.final');
   assert.equal(hasStart, true);
   assert.equal(hasFinal, true);
+  assert.equal(startHookCalled, true);
+  assert.equal(finalHookCalled, true);
+  assert.equal(buildPromptCalled, true);
+  assert.deepEqual(seedMessagesSeen, [
+    { role: 'user', content: 'earlier question' },
+    { role: 'assistant', content: 'earlier answer' }
+  ]);
+  assert.ok(runtimeEventSeen.includes('plan'));
 
   worker.stop();
 });

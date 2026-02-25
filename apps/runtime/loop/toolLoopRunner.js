@@ -37,9 +37,17 @@ class ToolLoopRunner {
     this.toolResultTimeoutMs = toolResultTimeoutMs;
   }
 
-  async run({ sessionId, input, onEvent }) {
+  async run({ sessionId, input, seedMessages = [], onEvent }) {
     const sm = new RuntimeStateMachine();
     const traceId = uuidv4();
+    const priorMessages = Array.isArray(seedMessages)
+      ? seedMessages.filter((msg) => (
+        msg
+        && (msg.role === 'system' || msg.role === 'user' || msg.role === 'assistant')
+        && typeof msg.content === 'string'
+        && msg.content.trim().length > 0
+      ))
+      : [];
 
     const ctx = {
       sessionId,
@@ -53,9 +61,11 @@ class ToolLoopRunner {
           content: [
             'You are a runtime planner that can either return a final answer or call tools.',
             'If tools are needed, you may emit one or more tool calls and wait for results in the next turn.',
+            'Long-term memory operations must go through tools (memory_write / memory_search).',
             'Keep answers concise.'
           ].join(' ')
         },
+        ...priorMessages,
         { role: 'user', content: input }
       ]
     };
@@ -76,7 +86,7 @@ class ToolLoopRunner {
     };
 
     sm.transition(RuntimeState.RUNNING);
-    emit('plan', { input, max_step: this.maxStep });
+    emit('plan', { input, max_step: this.maxStep, context_messages: priorMessages.length });
 
     try {
       const reasoner = this.getReasoner();
