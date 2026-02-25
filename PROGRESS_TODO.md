@@ -1,7 +1,7 @@
 # Runtime Progress & TODO List
 
-Last Updated: 2026-02-25
-Branch: `codex/integration/runtime-core`
+Last Updated: 2026-02-26
+Branch: `codex/feature/electron-desktop`
 
 ## 1. Status Legend
 
@@ -194,3 +194,33 @@ Do not add free-form items outside this format.
 - Update Log:
   - 2026-02-25 23:59 IN_PROGRESS desktop shell bootstrap started.
   - 2026-02-26 00:04 REVIEW code + tests completed (85/85 pass), waiting manual desktop smoke.
+
+### [REQ-20260226-004] Build isolated Desktop Live2D system with unified startup
+- Created At: 2026-02-26 01:02
+- Source: user
+- Priority: P0
+- Status: IN_PROGRESS
+- Owner: runtime
+- Branch: `codex/feature/electron-desktop`
+- Description:
+  - Build Desktop Live2D subsystem with one-command startup, local RPC control, transparent chat bubble, and strict runtime isolation from main program internals.
+- Acceptance Criteria:
+  1. `npm run desktop:up` can start the suite and expose usable RPC endpoint.
+  2. Runtime loads model from project assets path only, without absolute path dependency.
+  3. V1 RPC methods (`state.get`, `param.set`, `chat.show`) complete end-to-end with tests.
+- Impacted Modules:
+  - `apps/desktop-live2d/*`
+  - `scripts/live2d-import.js`
+  - `scripts/desktop-up.js`
+  - `docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`
+- Risks/Dependencies:
+  - Depends on model asset import completeness and Electron runtime stability.
+- Plan:
+  1. Freeze M0 baseline decisions and stage acceptance criteria.
+  2. Implement M1 minimal loop with import/startup/RPC/IPC/renderer bubble.
+  3. Expand to M2/M3 control and packaging milestones.
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-26 01:02 IN_PROGRESS requirement registered and development started.
+  - 2026-02-26 01:06 DONE M0 baseline decisions frozen (port/token/import strategy/V1 method scope).
