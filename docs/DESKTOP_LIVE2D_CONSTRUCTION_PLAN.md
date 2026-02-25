@@ -320,3 +320,4 @@ assets/
   - 已实现：`live2d:import`、`desktop:up`、RPC 服务、IPC 转发、基础渲染与透明气泡。
   - 已完成自动化测试（含新增 desktop-live2d 用例）。
   - 已完成 GUI 冒烟：启动成功并验证 `state.get`、`chat.show` RPC 回包。
+  - 已完成布局修复：由固定缩放改为按模型边界自适应缩放与底部对齐，避免“仅显示大腿/模型过大”。

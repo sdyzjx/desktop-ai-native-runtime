@@ -4,7 +4,8 @@
     modelLoaded: false,
     modelName: null,
     bubbleVisible: false,
-    lastError: null
+    lastError: null,
+    layout: null
   };
 
   let pixiApp = null;
@@ -68,7 +69,8 @@
       modelLoaded: state.modelLoaded,
       modelName: state.modelName,
       bubbleVisible: state.bubbleVisible,
-      lastError: state.lastError
+      lastError: state.lastError,
+      layout: state.layout
     };
   }
 
@@ -126,25 +128,75 @@
     const modelUrl = new URL(modelRelativePath, window.location.href).toString();
     live2dModel = await Live2DModel.from(modelUrl);
 
-    if (typeof live2dModel.anchor?.set === 'function') {
-      live2dModel.anchor.set(0.5, 0.5);
-    }
-
-    if (typeof live2dModel.scale?.set === 'function') {
-      live2dModel.scale.set(0.28);
-    }
-
-    const canvas = pixiApp.canvas || pixiApp.view;
-    const width = canvas?.width || window.innerWidth || 640;
-    const height = canvas?.height || window.innerHeight || 720;
-
-    if (typeof live2dModel.position?.set === 'function') {
-      live2dModel.position.set(width / 2, height * 0.72);
-    }
-
     pixiApp.stage.addChild(live2dModel);
+    applyAdaptiveLayout();
+    window.addEventListener('resize', scheduleAdaptiveLayout, { passive: true });
+
     state.modelLoaded = true;
     state.modelName = modelName || null;
+  }
+
+  function getStageSize() {
+    const rendererWidth = pixiApp?.renderer?.width;
+    const rendererHeight = pixiApp?.renderer?.height;
+    return {
+      width: rendererWidth || window.innerWidth || 640,
+      height: rendererHeight || window.innerHeight || 720
+    };
+  }
+
+  function applyAdaptiveLayout() {
+    if (!live2dModel || !window.Live2DLayout?.computeModelLayout) return;
+
+    if (typeof live2dModel.scale?.set === 'function') {
+      live2dModel.scale.set(1);
+    }
+
+    const bounds = live2dModel.getLocalBounds?.();
+    if (!bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) {
+      return;
+    }
+
+    const stageSize = getStageSize();
+    const layout = window.Live2DLayout.computeModelLayout({
+      stageWidth: stageSize.width,
+      stageHeight: stageSize.height,
+      boundsX: bounds.x,
+      boundsY: bounds.y,
+      boundsWidth: bounds.width,
+      boundsHeight: bounds.height,
+      targetWidthRatio: 0.76,
+      targetHeightRatio: 0.88,
+      bottomOffsetRatio: 0.97,
+      pivotYRatio: 0.96,
+      minScale: 0.04,
+      maxScale: 2
+    });
+
+    if (typeof live2dModel.scale?.set === 'function') {
+      live2dModel.scale.set(layout.scale);
+    }
+    if (typeof live2dModel.pivot?.set === 'function') {
+      live2dModel.pivot.set(layout.pivotX, layout.pivotY);
+    }
+    if (typeof live2dModel.position?.set === 'function') {
+      live2dModel.position.set(layout.positionX, layout.positionY);
+    }
+
+    state.layout = {
+      scale: layout.scale,
+      positionX: layout.positionX,
+      positionY: layout.positionY,
+      pivotX: layout.pivotX,
+      pivotY: layout.pivotY,
+      ...layout.debug
+    };
+  }
+
+  function scheduleAdaptiveLayout() {
+    window.requestAnimationFrame(() => {
+      applyAdaptiveLayout();
+    });
   }
 
   async function handleInvoke(payload) {
