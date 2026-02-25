@@ -1,4 +1,5 @@
 const express = require('express');
+const fs = require('node:fs/promises');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
@@ -54,6 +55,65 @@ const maxInputImageDataUrlChars = Math.max(
   128,
   Number(process.env.MAX_INPUT_IMAGE_DATA_URL_CHARS) || Math.ceil(maxInputImageBytes * 1.5)
 );
+const sessionImageStoreDir = path.resolve(
+  process.env.SESSION_IMAGE_STORE_DIR || path.resolve(process.cwd(), 'data/session-images')
+);
+
+function extensionFromMimeType(mimeType) {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized === 'image/jpeg' || normalized === 'image/jpg') return 'jpg';
+  if (normalized === 'image/png') return 'png';
+  if (normalized === 'image/webp') return 'webp';
+  if (normalized === 'image/gif') return 'gif';
+  if (normalized === 'image/bmp') return 'bmp';
+  if (normalized === 'image/avif') return 'avif';
+  return 'img';
+}
+
+function sanitizeToken(value) {
+  return String(value || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 80);
+}
+
+function buildSessionImagePublicUrl(sessionId, fileName) {
+  return `/api/session-images/${encodeURIComponent(sessionId)}/${encodeURIComponent(fileName)}`;
+}
+
+function decodeImageDataUrl(dataUrl) {
+  const commaIndex = dataUrl.indexOf(',');
+  const base64Payload = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1).replace(/\s+/g, '') : '';
+  return Buffer.from(base64Payload, 'base64');
+}
+
+async function persistSessionInputImages(sessionId, inputImages = []) {
+  if (!Array.isArray(inputImages) || inputImages.length === 0) return [];
+
+  const encodedSessionId = encodeURIComponent(String(sessionId));
+  const sessionDir = path.join(sessionImageStoreDir, encodedSessionId);
+  await fs.mkdir(sessionDir, { recursive: true });
+
+  const persisted = [];
+  for (const image of inputImages) {
+    const ext = extensionFromMimeType(image.mime_type);
+    const clientId = sanitizeToken(image.client_id) || sanitizeToken(image.name) || uuidv4().replaceAll('-', '');
+    const fileName = `${clientId}.${ext}`;
+    const filePath = path.join(sessionDir, fileName);
+    const binary = decodeImageDataUrl(image.data_url);
+    await fs.writeFile(filePath, binary);
+
+    persisted.push({
+      client_id: clientId,
+      name: image.name,
+      mime_type: image.mime_type,
+      size_bytes: image.size_bytes || binary.length,
+      file_name: fileName,
+      url: buildSessionImagePublicUrl(sessionId, fileName)
+    });
+  }
+
+  return persisted;
+}
 
 const runner = new ToolLoopRunner({
   bus,
@@ -69,6 +129,29 @@ dispatcher.start();
 
 const worker = new RuntimeRpcWorker({ queue, runner, bus });
 worker.start();
+
+app.get('/api/session-images/:sessionId/:fileName', async (req, res) => {
+  const safeSessionId = encodeURIComponent(String(req.params.sessionId || ''));
+  const safeFileName = String(req.params.fileName || '');
+  if (!safeFileName || safeFileName.includes('/') || safeFileName.includes('\\')) {
+    res.status(400).json({ ok: false, error: 'invalid file name' });
+    return;
+  }
+
+  const sessionDir = path.resolve(path.join(sessionImageStoreDir, safeSessionId));
+  const absolutePath = path.resolve(path.join(sessionDir, safeFileName));
+  if (!absolutePath.startsWith(`${sessionDir}${path.sep}`)) {
+    res.status(400).json({ ok: false, error: 'invalid image path' });
+    return;
+  }
+
+  try {
+    await fs.access(absolutePath);
+    res.sendFile(absolutePath);
+  } catch {
+    res.status(404).json({ ok: false, error: 'image not found' });
+  }
+});
 
 app.get('/health', async (_, res) => {
   const sessionStats = await sessionStore.getStats();
@@ -289,6 +372,7 @@ function normalizeInputImages(rawInputImages) {
     }
 
     images.push({
+      client_id: typeof rawImage.client_id === 'string' ? sanitizeToken(rawImage.client_id) : '',
       name: typeof rawImage.name === 'string' ? rawImage.name.trim() : '',
       mime_type: typeof rawImage.mime_type === 'string' ? rawImage.mime_type.trim() : '',
       size_bytes: declaredBytes || estimatedBytes,
@@ -406,6 +490,18 @@ async function enqueueRpc(ws, rpcPayload, mode) {
     },
     onRunStart: async ({ session_id: sessionId, runtime_context: runtimeContext }) => {
       await sessionStore.createSessionIfNotExists({ sessionId, title: 'New chat' });
+      let persistedInputImages = [];
+      try {
+        persistedInputImages = await persistSessionInputImages(sessionId, inputImages);
+      } catch {
+        persistedInputImages = inputImages.map((image) => ({
+          client_id: image.client_id || '',
+          name: image.name,
+          mime_type: image.mime_type,
+          size_bytes: image.size_bytes,
+          url: ''
+        }));
+      }
       await sessionStore.appendMessage(sessionId, {
         role: 'user',
         content: requestInput,
@@ -414,10 +510,12 @@ async function enqueueRpc(ws, rpcPayload, mode) {
           mode,
           permission_level: runtimeContext?.permission_level || normalizeSessionPermissionLevel(requestedPermissionLevel),
           workspace_root: runtimeContext?.workspace_root || null,
-          input_images: inputImages.map((image) => ({
+          input_images: persistedInputImages.map((image) => ({
+            client_id: image.client_id || '',
             name: image.name,
             mime_type: image.mime_type,
-            size_bytes: image.size_bytes
+            size_bytes: image.size_bytes,
+            url: image.url || ''
           }))
         }
       });

@@ -12,6 +12,7 @@
 - `docs/modules/runtime/multi-tool-loop.md`
 - `docs/modules/runtime/session-workspace-permission.md`
 - `docs/modules/runtime/skills-runtime.md`
+- `docs/modules/runtime/multimodal-image-runtime.md`
 
 ## Feature Guides
 

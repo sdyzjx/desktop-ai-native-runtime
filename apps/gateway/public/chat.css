@@ -1,7 +1,13 @@
 .app-shell {
-  height: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: 280px 1fr;
+}
+
+body.chat-page {
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -91,6 +97,8 @@
   display: grid;
   grid-template-rows: auto 1fr auto;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
 
 .chat-header {
@@ -173,6 +181,7 @@
 .message-list {
   overflow: auto;
   padding: 26px 20px 30px;
+  min-height: 0;
 }
 
 .message-wrap {
@@ -207,6 +216,32 @@
   margin-top: 10px;
   display: grid;
   gap: 6px;
+}
+
+.message-image-card {
+  width: fit-content;
+  max-width: 260px;
+  background: color-mix(in srgb, var(--panel-solid) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--line));
+  border-radius: 12px;
+  padding: 8px;
+  cursor: zoom-in;
+  text-align: left;
+}
+
+.message-image-thumb {
+  width: 100%;
+  max-width: 240px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  object-fit: cover;
+  display: block;
+}
+
+.message-image-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
 }
 
 .message-attachment-chip {
@@ -318,6 +353,57 @@
 .upload-remove-btn {
   padding: 6px 10px;
   font-size: 12px;
+}
+
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 18, 0.78);
+  backdrop-filter: blur(8px);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.image-lightbox.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.lightbox-image {
+  max-width: min(92vw, 1280px);
+  max-height: 86vh;
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+  transform: translateY(8px) scale(0.94);
+  opacity: 0;
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+
+.image-lightbox.open .lightbox-image {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.lightbox-close-btn {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  transform: translateY(-6px);
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.image-lightbox.open .lightbox-close-btn {
+  transform: translateY(0);
+  opacity: 1;
 }
 
 .composer-tip {
@@ -470,6 +556,10 @@
   .upload-preview-thumb {
     width: 44px;
     height: 44px;
+  }
+
+  .message-image-card {
+    max-width: 220px;
   }
 
   .session-permission-label {
