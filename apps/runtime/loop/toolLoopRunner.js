@@ -29,10 +29,11 @@ function normalizeToolCalls(decision) {
 }
 
 class ToolLoopRunner {
-  constructor({ bus, getReasoner, listTools, resolveSkillsContext, maxStep = 8, toolResultTimeoutMs = 10000 }) {
+  constructor({ bus, getReasoner, listTools, resolvePersonaContext, resolveSkillsContext, maxStep = 8, toolResultTimeoutMs = 10000 }) {
     this.bus = bus;
     this.getReasoner = getReasoner;
     this.listTools = listTools;
+    this.resolvePersonaContext = resolvePersonaContext;
     this.resolveSkillsContext = resolveSkillsContext;
     this.maxStep = maxStep;
     this.toolResultTimeoutMs = toolResultTimeoutMs;
@@ -50,6 +51,15 @@ class ToolLoopRunner {
       ))
       : [];
 
+    let personaContext = null;
+    if (typeof this.resolvePersonaContext === 'function') {
+      try {
+        personaContext = await this.resolvePersonaContext({ sessionId, input });
+      } catch {
+        personaContext = null;
+      }
+    }
+
     let skillsContext = null;
     if (typeof this.resolveSkillsContext === 'function') {
       try {
@@ -58,6 +68,10 @@ class ToolLoopRunner {
         skillsContext = null;
       }
     }
+
+    const personaPrompt = personaContext?.prompt && String(personaContext.prompt).trim()
+      ? String(personaContext.prompt)
+      : null;
 
     const skillsPrompt = skillsContext?.prompt && String(skillsContext.prompt).trim()
       ? String(skillsContext.prompt)
@@ -79,6 +93,7 @@ class ToolLoopRunner {
             'Keep answers concise.'
           ].join(' ')
         },
+        ...(personaPrompt ? [{ role: 'system', content: personaPrompt }] : []),
         ...(skillsPrompt ? [{ role: 'system', content: skillsPrompt }] : []),
         ...priorMessages,
         { role: 'user', content: input }
@@ -105,6 +120,7 @@ class ToolLoopRunner {
       input,
       max_step: this.maxStep,
       context_messages: priorMessages.length,
+      persona_mode: personaContext?.mode || null,
       skills_selected: skillsContext?.selected?.length || 0,
       skills_clipped_by: skillsContext?.clippedBy || null
     });
