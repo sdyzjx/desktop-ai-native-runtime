@@ -1,0 +1,27 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "八千代辉夜姬.moc3",
+		"Textures": [
+			"八千代辉夜姬.8192/texture_00.png",
+			"八千代辉夜姬.8192/texture_01.png"
+		],
+		"Physics": "八千代辉夜姬.physics3.json",
+		"DisplayInfo": "八千代辉夜姬.cdi3.json"
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeLOpen",
+				"ParamEyeROpen"
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		}
+	]
+}

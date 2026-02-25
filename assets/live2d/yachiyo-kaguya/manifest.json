@@ -1,0 +1,78 @@
+{
+  "generatedAt": "2026-02-25T17:08:47.970Z",
+  "sourceDir": "/Users/doosam/Documents/Programming/yachiyo-desktop/【雪熊企划】八千代辉夜姬",
+  "modelJsonName": "八千代辉夜姬.model3.json",
+  "fileCount": 14,
+  "files": [
+    {
+      "path": "items_pinned_to_model.json",
+      "bytes": 431,
+      "mtimeMs": 1772039327960.556
+    },
+    {
+      "path": "八千代辉夜姬.8192/texture_00.png",
+      "bytes": 35232393,
+      "mtimeMs": 1772039327941.4758
+    },
+    {
+      "path": "八千代辉夜姬.8192/texture_01.png",
+      "bytes": 26409776,
+      "mtimeMs": 1772039327954.7012
+    },
+    {
+      "path": "八千代辉夜姬.cdi3.json",
+      "bytes": 96004,
+      "mtimeMs": 1772039327929.7363
+    },
+    {
+      "path": "八千代辉夜姬.moc3",
+      "bytes": 7427136,
+      "mtimeMs": 1772039327958.915
+    },
+    {
+      "path": "八千代辉夜姬.model3.json",
+      "bytes": 487,
+      "mtimeMs": 1772039327959.8308
+    },
+    {
+      "path": "八千代辉夜姬.physics3.json",
+      "bytes": 379065,
+      "mtimeMs": 1772039327960.1628
+    },
+    {
+      "path": "八千代辉夜姬.vtube.json",
+      "bytes": 34607,
+      "mtimeMs": 1772039327961.3816
+    },
+    {
+      "path": "八千代辉夜姬.xyplugin.json",
+      "bytes": 91,
+      "mtimeMs": 1772039327959.956
+    },
+    {
+      "path": "八千代辉夜姬头像1.png",
+      "bytes": 335365,
+      "mtimeMs": 1772039327959.7014
+    },
+    {
+      "path": "泪珠.exp3.json",
+      "bytes": 977,
+      "mtimeMs": 1772039327961.2493
+    },
+    {
+      "path": "眯眯眼.exp3.json",
+      "bytes": 977,
+      "mtimeMs": 1772039327960.324
+    },
+    {
+      "path": "眼泪.exp3.json",
+      "bytes": 977,
+      "mtimeMs": 1772039327960.658
+    },
+    {
+      "path": "笑咪咪.exp3.json",
+      "bytes": 977,
+      "mtimeMs": 1772039327960.4456
+    }
+  ]
+}

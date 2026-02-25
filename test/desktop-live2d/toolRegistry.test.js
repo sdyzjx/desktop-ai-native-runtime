@@ -1,0 +1,35 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const {
+  listDesktopTools,
+  resolveToolInvoke
+} = require('../../apps/desktop-live2d/main/toolRegistry');
+
+test('listDesktopTools returns non-empty tool definitions', () => {
+  const tools = listDesktopTools();
+  assert.ok(Array.isArray(tools));
+  assert.ok(tools.length >= 6);
+  assert.ok(tools.some((item) => item.name === 'desktop_model_set_param'));
+});
+
+test('resolveToolInvoke maps tool name to rpc method and args', () => {
+  const resolved = resolveToolInvoke({
+    name: 'desktop_model_set_param',
+    args: { name: 'ParamAngleX', value: 10 }
+  });
+
+  assert.equal(resolved.method, 'model.param.set');
+  assert.equal(resolved.toolName, 'desktop_model_set_param');
+  assert.deepEqual(resolved.params, { name: 'ParamAngleX', value: 10 });
+});
+
+test('resolveToolInvoke rejects non-whitelisted tools', () => {
+  assert.throws(
+    () => resolveToolInvoke({ name: 'unsafe_tool' }),
+    (err) => {
+      assert.equal(err.code, -32006);
+      return true;
+    }
+  );
+});

@@ -1,0 +1,184 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { WebSocketServer } = require('ws');
+
+const { getFreePort } = require('../helpers/net');
+const {
+  createDesktopSessionId,
+  toGatewayWsUrl,
+  mapGatewayMessageToDesktopEvent,
+  GatewayRuntimeClient
+} = require('../../apps/desktop-live2d/main/gatewayRuntimeClient');
+
+test('createDesktopSessionId returns desktop-prefixed unique id', () => {
+  const a = createDesktopSessionId();
+  const b = createDesktopSessionId();
+  assert.match(a, /^desktop-\d{14}-[a-f0-9]{8}$/);
+  assert.notEqual(a, b);
+});
+
+test('toGatewayWsUrl converts http(s) gateway URLs to ws path', () => {
+  assert.equal(
+    toGatewayWsUrl('http://127.0.0.1:3000'),
+    'ws://127.0.0.1:3000/ws'
+  );
+  assert.equal(
+    toGatewayWsUrl('https://example.com/base/'),
+    'wss://example.com/base/ws'
+  );
+  assert.equal(
+    toGatewayWsUrl('http://127.0.0.1:3000/ws'),
+    'ws://127.0.0.1:3000/ws'
+  );
+});
+
+test('mapGatewayMessageToDesktopEvent maps runtime notifications', () => {
+  const mapped = mapGatewayMessageToDesktopEvent({
+    jsonrpc: '2.0',
+    method: 'runtime.final',
+    params: { output: 'done' }
+  });
+  assert.equal(mapped.type, 'runtime.final');
+  assert.equal(mapped.data.output, 'done');
+});
+
+test('GatewayRuntimeClient forwards runtime notifications and resolves rpc result', async () => {
+  const port = await getFreePort();
+  const wss = new WebSocketServer({ host: '127.0.0.1', port, path: '/ws' });
+
+  wss.on('connection', (socket) => {
+    socket.on('message', (raw) => {
+      const request = JSON.parse(String(raw));
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'runtime.start',
+        params: { session_id: 'desktop-live2d-chat' }
+      }));
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'runtime.event',
+        params: { event: 'plan', payload: { step: 1 } }
+      }));
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'runtime.final',
+        params: { output: 'assistant-final' }
+      }));
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: { output: 'assistant-final', state: 'DONE' }
+      }));
+    });
+  });
+
+  try {
+    const events = [];
+    const client = new GatewayRuntimeClient({
+      gatewayUrl: `http://127.0.0.1:${port}`,
+      sessionId: 'desktop-live2d-chat',
+      onNotification: (event) => events.push(event)
+    });
+
+    const result = await client.runInput({ input: 'hello from panel' });
+
+    assert.equal(result.output, 'assistant-final');
+    assert.equal(events.length, 3);
+    assert.equal(events[0].type, 'runtime.start');
+    assert.equal(events[1].type, 'runtime.event');
+    assert.equal(events[2].type, 'runtime.final');
+  } finally {
+    await new Promise((resolve, reject) => wss.close((err) => (err ? reject(err) : resolve())));
+  }
+});
+
+test('GatewayRuntimeClient rejects when gateway returns rpc error', async () => {
+  const port = await getFreePort();
+  const wss = new WebSocketServer({ host: '127.0.0.1', port, path: '/ws' });
+
+  wss.on('connection', (socket) => {
+    socket.on('message', (raw) => {
+      const request = JSON.parse(String(raw));
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: { code: -32000, message: 'runtime failed' }
+      }));
+    });
+  });
+
+  try {
+    const client = new GatewayRuntimeClient({
+      gatewayUrl: `http://127.0.0.1:${port}`,
+      sessionId: 'desktop-live2d-chat'
+    });
+
+    await assert.rejects(
+      () => client.runInput({ input: 'hello from panel' }),
+      /runtime failed/i
+    );
+  } finally {
+    await new Promise((resolve, reject) => wss.close((err) => (err ? reject(err) : resolve())));
+  }
+});
+
+test('GatewayRuntimeClient ensureSession uses gateway settings api and set/get session id', async () => {
+  const calls = [];
+  const client = new GatewayRuntimeClient({
+    gatewayUrl: 'http://127.0.0.1:3000',
+    sessionId: 's-1',
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      return {
+        ok: true,
+        async json() {
+          return { ok: true };
+        }
+      };
+    }
+  });
+
+  assert.equal(client.getSessionId(), 's-1');
+  client.setSessionId('s-2');
+  assert.equal(client.getSessionId(), 's-2');
+
+  await client.ensureSession({ permissionLevel: 'high' });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api\/sessions\/s-2\/settings$/);
+  const body = JSON.parse(String(calls[0].options.body || '{}'));
+  assert.equal(body.settings.permission_level, 'high');
+});
+
+test('GatewayRuntimeClient createAndUseNewSession switches session id and boots settings', async () => {
+  const calls = [];
+  const client = new GatewayRuntimeClient({
+    gatewayUrl: 'http://127.0.0.1:3000',
+    sessionId: 'desktop-live2d',
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      return {
+        ok: true,
+        async json() {
+          return { ok: true };
+        }
+      };
+    }
+  });
+
+  const nextSessionId = await client.createAndUseNewSession({ permissionLevel: 'low' });
+  assert.match(nextSessionId, /^desktop-\d{14}-[a-f0-9]{8}$/);
+  assert.equal(client.getSessionId(), nextSessionId);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, new RegExp(`/api/sessions/${nextSessionId}/settings$`));
+  const body = JSON.parse(String(calls[0].options.body || '{}'));
+  assert.equal(body.settings.permission_level, 'low');
+});
+
+test('GatewayRuntimeClient setSessionId rejects empty value', () => {
+  const client = new GatewayRuntimeClient({
+    gatewayUrl: 'http://127.0.0.1:3000',
+    fetchImpl: async () => ({ ok: true, async json() { return { ok: true }; } })
+  });
+  assert.throws(() => client.setSessionId('  '), /sessionId must be non-empty/);
+});

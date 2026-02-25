@@ -4,6 +4,7 @@ const SESSION_PERMISSION_LEVELS = ['low', 'medium', 'high'];
 const DEFAULT_SESSION_PERMISSION_LEVEL = 'medium';
 const THEME_PREFERENCES = ['auto', 'light', 'dark'];
 const DEFAULT_THEME_PREFERENCE = 'auto';
+const SERVER_SYNC_INTERVAL_MS = 2000;
 
 const elements = {
   sidebar: document.getElementById('sidebar'),
@@ -26,7 +27,10 @@ const state = {
   ws: null,
   wsReady: false,
   isComposing: false,
-  themePreference: DEFAULT_THEME_PREFERENCE
+  themePreference: DEFAULT_THEME_PREFERENCE,
+  serverSyncTimer: null,
+  serverSyncInitialized: false,
+  followServerSessionId: null
 };
 
 function updateComposerState() {
@@ -57,6 +61,26 @@ function createSession() {
     updatedAt: createdAt,
     permissionLevel: DEFAULT_SESSION_PERMISSION_LEVEL,
     messages: []
+  };
+}
+
+function sessionFromServerSummary(summary) {
+  return {
+    id: summary.session_id,
+    name: summary.title || 'New chat',
+    createdAt: typeof summary.created_at === 'string' ? summary.created_at : nowIso(),
+    updatedAt: typeof summary.updated_at === 'string' ? summary.updated_at : nowIso(),
+    permissionLevel: normalizePermissionLevel(summary.permission_level),
+    messages: []
+  };
+}
+
+function messageFromServer(raw) {
+  return {
+    id: raw.id || randomId('msg'),
+    role: raw.role || 'assistant',
+    content: String(raw.content || ''),
+    createdAt: typeof raw.created_at === 'string' ? raw.created_at : nowIso()
   };
 }
 
@@ -177,6 +201,7 @@ function renderSessions() {
     `;
     btn.onclick = () => {
       state.activeSessionId = session.id;
+      state.followServerSessionId = null;
       render();
       if (window.matchMedia('(max-width: 920px)').matches) {
         elements.sidebar.classList.remove('open');
@@ -384,8 +409,101 @@ function createNewSession() {
   const session = createSession();
   state.sessions.unshift(session);
   state.activeSessionId = session.id;
+  state.followServerSessionId = null;
   persist();
   render();
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`request failed: ${url} status=${response.status}`);
+  }
+  return response.json();
+}
+
+async function syncSessionDetailFromServer(sessionId) {
+  const detail = await fetchJson(`/api/sessions/${encodeURIComponent(sessionId)}`);
+  if (!detail?.ok || !detail?.data) {
+    return null;
+  }
+
+  const serverSession = detail.data;
+  let localSession = getSessionById(serverSession.session_id);
+  if (!localSession) {
+    localSession = createSession();
+    localSession.id = serverSession.session_id;
+    state.sessions.push(localSession);
+  }
+
+  localSession.name = typeof serverSession.title === 'string' ? serverSession.title : localSession.name;
+  localSession.createdAt = typeof serverSession.created_at === 'string' ? serverSession.created_at : localSession.createdAt;
+  localSession.updatedAt = typeof serverSession.updated_at === 'string' ? serverSession.updated_at : localSession.updatedAt;
+  localSession.permissionLevel = normalizePermissionLevel(serverSession.settings?.permission_level || localSession.permissionLevel);
+  localSession.messages = Array.isArray(serverSession.messages)
+    ? serverSession.messages.map(messageFromServer)
+    : localSession.messages;
+
+  return localSession;
+}
+
+async function syncSessionsFromServer() {
+  const payload = await fetchJson('/api/sessions?limit=80');
+  if (!payload?.ok || !payload?.data || !Array.isArray(payload.data.items)) {
+    return;
+  }
+  const latestServerId = payload.data.items[0]?.session_id || null;
+
+  for (const summary of payload.data.items) {
+    let localSession = getSessionById(summary.session_id);
+    if (!localSession) {
+      localSession = sessionFromServerSummary(summary);
+      state.sessions.push(localSession);
+    } else {
+      localSession.name = typeof summary.title === 'string' ? summary.title : localSession.name;
+      localSession.updatedAt = typeof summary.updated_at === 'string' ? summary.updated_at : localSession.updatedAt;
+      localSession.permissionLevel = normalizePermissionLevel(summary.permission_level || localSession.permissionLevel);
+    }
+  }
+
+  if (latestServerId && !state.pending) {
+    const activeExists = Boolean(state.activeSessionId && getSessionById(state.activeSessionId));
+    if (!state.serverSyncInitialized || !activeExists || String(state.activeSessionId || '').startsWith('chat-')) {
+      state.activeSessionId = latestServerId;
+      state.followServerSessionId = latestServerId;
+    } else if (state.followServerSessionId && state.activeSessionId === state.followServerSessionId) {
+      state.activeSessionId = latestServerId;
+      state.followServerSessionId = latestServerId;
+    }
+    state.serverSyncInitialized = true;
+  }
+
+  const activeId = state.activeSessionId;
+  if (activeId) {
+    await syncSessionDetailFromServer(activeId);
+  }
+
+  persist();
+  render();
+}
+
+function startServerSyncLoop() {
+  if (state.serverSyncTimer) {
+    clearInterval(state.serverSyncTimer);
+  }
+
+  const run = async () => {
+    try {
+      await syncSessionsFromServer();
+    } catch {
+      // Keep UI interactive even when sync request fails.
+    }
+  };
+
+  void run();
+  state.serverSyncTimer = setInterval(() => {
+    void run();
+  }, SERVER_SYNC_INTERVAL_MS);
 }
 
 async function persistSessionPermission(session) {
@@ -461,6 +579,7 @@ function bootstrap() {
   bindEvents();
   setStatus('Idle');
   connectWs();
+  startServerSyncLoop();
   autosizeInput();
   updateComposerState();
   render();

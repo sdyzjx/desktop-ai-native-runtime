@@ -51,6 +51,64 @@ curl http://localhost:3000/health
 - Chat UI: `http://localhost:3000/`
 - Provider config UI: `http://localhost:3000/config.html`
 
+## Desktop Live2D (Replanned)
+
+1. Import model assets into project path:
+
+```bash
+npm run live2d:import
+```
+
+2. Start desktop suite (gateway + live2d window + RPC):
+
+```bash
+npm run desktop:up
+```
+
+3. Run quick desktop RPC smoke after startup:
+
+```bash
+npm run desktop:smoke
+```
+
+Runtime summary file:
+- `data/desktop-live2d/runtime-summary.json`
+
+UI config file:
+- `config/desktop-live2d.json`
+- Editable knobs include:
+  - window position: `window.placement.anchor` / `margin*`
+  - compact mode (chat hidden): `window.compactWhenChatHidden` / `window.compactWidth` / `window.compactHeight`
+  - model size/position: `layout.*` (use `layout.lockScaleOnResize` + `layout.lockPositionOnResize` to keep avatar pose stable while toggling chat panel)
+  - clarity: `render.resolutionScale` / `render.maxDevicePixelRatio`
+
+Current baseline (already done):
+- transparent desktop Live2D window
+- chat panel: history + local input + show/hide + clear + append
+- chat panel is hidden by default and toggles when clicking the character
+- chat panel default anchor moved to bottom-left to avoid covering face area
+- chat panel header includes `Hide` / `Close` controls for pet window
+- chat panel hidden state triggers compact window mode to reduce desktop occlusion
+- tray icon stays available after hide; click tray icon to summon pet window again
+- rpc methods: `state.get`, `param.set`, `model.param.set`, `model.param.batchSet`, `model.motion.play`, `model.expression.set`, `chat.show`, `chat.bubble.show`, `chat.panel.show`, `chat.panel.hide`, `chat.panel.append`, `chat.panel.clear`, `tool.list`, `tool.invoke`
+- right-bottom placement + drag-ready window + configurable layout/clarity
+- renderer-to-main submit event: `live2d:chat:input:submit`
+- runtime forwarding: gateway `runtime.*` notification -> desktop `desktop.event` -> renderer final response append
+- agent tool-calling surface: `tool.list` + whitelisted `tool.invoke`
+- desktop chat session bootstrap: startup creates a fresh `desktop-*` session
+- desktop `/new` command: creates and switches to a fresh gateway session
+- web chat sync: `/api/sessions` polling keeps desktop-side sessions/messages visible in web UI
+
+Desktop chat commands:
+- `/new`: create and switch desktop runtime session (chat panel clears and starts new thread)
+
+Current gaps under active development:
+- Phase E stabilization: observability hardening, stress regression, and release checklist
+
+Detailed construction plan:
+- `docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`
+- `docs/modules/desktop-live2d/module-reference.md`
+
 ## Persistence
 
 Session persistence is enabled by default (file-backed):
