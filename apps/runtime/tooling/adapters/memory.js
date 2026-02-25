@@ -1,8 +1,23 @@
 const { getDefaultLongTermMemoryStore } = require('../../session/longTermMemoryStore');
+const { ToolingError, ErrorCode } = require('../errors');
+const {
+  canReadLongTermMemory,
+  canWriteLongTermMemory
+} = require('../../security/sessionPermissionPolicy');
 
 const memoryStore = getDefaultLongTermMemoryStore();
 
 async function memoryWrite(args = {}, context = {}) {
+  if (
+    typeof context.permission_level === 'string'
+    && !canWriteLongTermMemory(context.permission_level)
+  ) {
+    throw new ToolingError(
+      ErrorCode.PERMISSION_DENIED,
+      `memory_write is not allowed for permission level ${context.permission_level}`
+    );
+  }
+
   const content = typeof args.content === 'string' ? args.content : '';
   const keywords = Array.isArray(args.keywords) ? args.keywords : [];
 
@@ -25,7 +40,17 @@ async function memoryWrite(args = {}, context = {}) {
   });
 }
 
-async function memorySearch(args = {}) {
+async function memorySearch(args = {}, context = {}) {
+  if (
+    typeof context.permission_level === 'string'
+    && !canReadLongTermMemory(context.permission_level)
+  ) {
+    throw new ToolingError(
+      ErrorCode.PERMISSION_DENIED,
+      `memory_search is not allowed for permission level ${context.permission_level}`
+    );
+  }
+
   const query = typeof args.query === 'string' ? args.query : '';
   const limit = Math.max(1, Math.min(Number(args.limit) || 5, 20));
 

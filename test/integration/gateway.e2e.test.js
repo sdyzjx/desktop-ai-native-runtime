@@ -15,7 +15,9 @@ async function startMockLlmServer(port) {
     requestCount: 0,
     secondTurnSawFirstTurnContext: false,
     sawMemorySopOnNewSession: false,
-    sawBootstrapMemoryOnNewSession: false
+    sawBootstrapMemoryOnNewSession: false,
+    lowPermissionSawMemorySop: false,
+    lowPermissionSawBootstrapMemory: false
   };
 
   const server = http.createServer((req, res) => {
@@ -48,6 +50,15 @@ async function startMockLlmServer(port) {
           (msg) => msg.role === 'system' && /Long-term memory SOP/i.test(String(msg.content || ''))
         );
         state.sawBootstrapMemoryOnNewSession = messages.some(
+          (msg) => msg.role === 'system' && /favorite color is blue/i.test(String(msg.content || ''))
+        );
+      }
+
+      if (lastUserText === 'ask memory in low permission session') {
+        state.lowPermissionSawMemorySop = messages.some(
+          (msg) => msg.role === 'system' && /Long-term memory SOP/i.test(String(msg.content || ''))
+        );
+        state.lowPermissionSawBootstrapMemory = messages.some(
           (msg) => msg.role === 'system' && /favorite color is blue/i.test(String(msg.content || ''))
         );
       }
@@ -97,6 +108,8 @@ async function startMockLlmServer(port) {
             ]
           };
         }
+      } else if (lastUserText === 'ask memory in low permission session') {
+        message = { role: 'assistant', content: 'low permission memory bootstrap disabled' };
       } else if (last.role === 'tool') {
         message = { role: 'assistant', content: `final:${last.content}` };
       } else {
@@ -336,6 +349,7 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     const saveMemory = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
       type: 'run',
       session_id: 'memory-write-s1',
+      permission_level: 'high',
       input: 'save memory: my favorite color is blue'
     });
     assert.match(saveMemory.final.output, /saved/i);
@@ -348,6 +362,16 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     assert.match(askMemory.final.output, /blue/i);
     assert.equal(llm.state.sawMemorySopOnNewSession, true);
     assert.equal(llm.state.sawBootstrapMemoryOnNewSession, true);
+
+    const lowPermissionAskMemory = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
+      type: 'run',
+      session_id: 'memory-read-low-s3',
+      permission_level: 'low',
+      input: 'ask memory in low permission session'
+    });
+    assert.match(lowPermissionAskMemory.final.output, /bootstrap disabled/i);
+    assert.equal(llm.state.lowPermissionSawMemorySop, false);
+    assert.equal(llm.state.lowPermissionSawBootstrapMemory, false);
 
     const memoryList = await fetch(`http://127.0.0.1:${gatewayPort}/api/memory`).then((r) => r.json());
     assert.equal(memoryList.ok, true);

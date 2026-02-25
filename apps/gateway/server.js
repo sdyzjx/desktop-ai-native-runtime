@@ -23,6 +23,7 @@ const {
   normalizeSessionPermissionLevel,
   normalizeWorkspaceSettings
 } = require('../runtime/session/sessionPermissions');
+const { canReadLongTermMemory } = require('../runtime/security/sessionPermissionPolicy');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -272,12 +273,16 @@ async function enqueueRpc(ws, rpcPayload, mode) {
       };
     },
     send: (payload) => sendSafe(ws, payload),
-    buildPromptMessages: async ({ session_id: sessionId }) => {
+    buildPromptMessages: async ({ session_id: sessionId, runtime_context: runtimeContext }) => {
       const session = await sessionStore.getSession(sessionId);
       const isSessionStart = !session || !Array.isArray(session.messages) || session.messages.length === 0;
+      const permissionLevel = normalizeSessionPermissionLevel(
+        runtimeContext?.permission_level || session?.settings?.permission_level
+      );
+      const allowMemoryRead = canReadLongTermMemory(permissionLevel);
       const seedMessages = [];
 
-      if (isSessionStart) {
+      if (isSessionStart && allowMemoryRead) {
         const sop = await loadMemorySop({ maxChars: memorySopMaxChars });
         if (sop) {
           seedMessages.push({

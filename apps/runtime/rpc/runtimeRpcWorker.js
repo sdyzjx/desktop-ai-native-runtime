@@ -50,21 +50,8 @@ class RuntimeRpcWorker {
       ? params.session_id
       : `rpc-${uuidv4()}`;
 
-    let seedMessages = [];
     let runtimeContext = {};
-    try {
-      const prepared = await context.buildPromptMessages?.({
-        request,
-        session_id: sessionId,
-        input
-      });
-      if (Array.isArray(prepared)) {
-        seedMessages = prepared;
-      }
-    } catch {
-      // Context hooks should not break runtime execution.
-    }
-
+    let seedMessages = [];
     try {
       const prepared = await context.buildRunContext?.({
         request,
@@ -73,6 +60,20 @@ class RuntimeRpcWorker {
       });
       if (prepared && typeof prepared === 'object' && !Array.isArray(prepared)) {
         runtimeContext = prepared;
+      }
+    } catch {
+      // Context hooks should not break runtime execution.
+    }
+
+    try {
+      const prepared = await context.buildPromptMessages?.({
+        request,
+        session_id: sessionId,
+        input,
+        runtime_context: runtimeContext
+      });
+      if (Array.isArray(prepared)) {
+        seedMessages = prepared;
       }
     } catch {
       // Context hooks should not break runtime execution.
