@@ -5,7 +5,7 @@ const DEFAULT_SESSION_PERMISSION_LEVEL = 'medium';
 const THEME_PREFERENCES = ['auto', 'light', 'dark'];
 const DEFAULT_THEME_PREFERENCE = 'auto';
 const MAX_UPLOAD_IMAGES = 4;
-const MAX_UPLOAD_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_UPLOAD_IMAGE_BYTES = 8 * 1024 * 1024;
 
 const elements = {
   sidebar: document.getElementById('sidebar'),

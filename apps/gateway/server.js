@@ -56,8 +56,12 @@ const contextMaxChars = Math.max(0, Number(process.env.CONTEXT_MAX_CHARS) || 120
 const memoryBootstrapMaxEntries = Math.max(0, Number(process.env.MEMORY_BOOTSTRAP_MAX_ENTRIES) || 10);
 const memoryBootstrapMaxChars = Math.max(0, Number(process.env.MEMORY_BOOTSTRAP_MAX_CHARS) || 2400);
 const memorySopMaxChars = Math.max(0, Number(process.env.MEMORY_SOP_MAX_CHARS) || 8000);
+const maxInputImageBytes = Math.max(1024, Number(process.env.MAX_INPUT_IMAGE_BYTES) || 8 * 1024 * 1024);
 const maxInputImages = Math.max(0, Number(process.env.MAX_INPUT_IMAGES) || 4);
-const maxInputImageDataUrlChars = Math.max(128, Number(process.env.MAX_INPUT_IMAGE_DATA_URL_CHARS) || 4 * 1024 * 1024);
+const maxInputImageDataUrlChars = Math.max(
+  128,
+  Number(process.env.MAX_INPUT_IMAGE_DATA_URL_CHARS) || Math.ceil(maxInputImageBytes * 1.5)
+);
 
 const runner = new ToolLoopRunner({
   bus,
@@ -304,10 +308,23 @@ function normalizeInputImages(rawInputImages) {
       return { ok: false, error: `params.input_images[].data_url exceeds max chars (${maxInputImageDataUrlChars})` };
     }
 
+    const commaIndex = dataUrl.indexOf(',');
+    const base64Payload = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1).replace(/\s+/g, '') : '';
+    const padding = base64Payload.endsWith('==') ? 2 : (base64Payload.endsWith('=') ? 1 : 0);
+    const estimatedBytes = Math.max(0, Math.floor((base64Payload.length * 3) / 4) - padding);
+    if (estimatedBytes > maxInputImageBytes) {
+      return { ok: false, error: `params.input_images[] exceeds max bytes (${maxInputImageBytes})` };
+    }
+
+    const declaredBytes = Number(rawImage.size_bytes) || 0;
+    if (declaredBytes > maxInputImageBytes) {
+      return { ok: false, error: `params.input_images[].size_bytes exceeds max bytes (${maxInputImageBytes})` };
+    }
+
     images.push({
       name: typeof rawImage.name === 'string' ? rawImage.name.trim() : '',
       mime_type: typeof rawImage.mime_type === 'string' ? rawImage.mime_type.trim() : '',
-      size_bytes: Number(rawImage.size_bytes) || 0,
+      size_bytes: declaredBytes || estimatedBytes,
       data_url: dataUrl
     });
   }
