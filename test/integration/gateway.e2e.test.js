@@ -138,7 +138,13 @@ async function startMockLlmServer(port) {
   return { server, state };
 }
 
-async function startGateway({ port, providerConfigPath, sessionStoreDir, longTermMemoryDir }) {
+async function startGateway({
+  port,
+  providerConfigPath,
+  sessionStoreDir,
+  longTermMemoryDir,
+  personaProfilePath
+}) {
   const child = spawn('node', ['apps/gateway/server.js'], {
     cwd: path.resolve(__dirname, '../..'),
     env: {
@@ -147,6 +153,7 @@ async function startGateway({ port, providerConfigPath, sessionStoreDir, longTer
       PROVIDER_CONFIG_PATH: providerConfigPath,
       SESSION_STORE_DIR: sessionStoreDir,
       LONG_TERM_MEMORY_DIR: longTermMemoryDir,
+      PERSONA_PROFILE_PATH: personaProfilePath,
       MEMORY_BOOTSTRAP_MAX_ENTRIES: '2'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -221,6 +228,7 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
   const providerConfigPath = path.join(tmpDir, 'providers.yaml');
   const sessionStoreDir = path.join(tmpDir, 'session-store');
   const longTermMemoryDir = path.join(tmpDir, 'long-term-memory');
+  const personaProfilePath = path.join(tmpDir, 'persona', 'profile.yaml');
   fs.writeFileSync(providerConfigPath, [
     'active_provider: mock',
     'providers:',
@@ -237,12 +245,47 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
   let gateway;
 
   try {
-    gateway = await startGateway({ port: gatewayPort, providerConfigPath, sessionStoreDir, longTermMemoryDir });
+    gateway = await startGateway({
+      port: gatewayPort,
+      providerConfigPath,
+      sessionStoreDir,
+      longTermMemoryDir,
+      personaProfilePath
+    });
 
     const health = await fetch(`http://127.0.0.1:${gatewayPort}/health`).then((r) => r.json());
     assert.equal(health.ok, true);
     assert.equal(health.llm.active_provider, 'mock');
     assert.equal(health.session_store.root_dir, sessionStoreDir);
+
+    const personaProfile = await fetch(`http://127.0.0.1:${gatewayPort}/api/persona/profile`).then((r) => r.json());
+    assert.equal(personaProfile.ok, true);
+    assert.equal(personaProfile.data.addressing.default_user_title, '主人');
+
+    const patchedPersona = await fetch(`http://127.0.0.1:${gatewayPort}/api/persona/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profile: {
+          addressing: {
+            custom_name: '阿轩'
+          }
+        }
+      })
+    }).then((r) => r.json());
+    assert.equal(patchedPersona.ok, true);
+    assert.equal(patchedPersona.data.addressing.custom_name, '阿轩');
+
+    const personaProfileAfterPatch = await fetch(`http://127.0.0.1:${gatewayPort}/api/persona/profile`).then((r) => r.json());
+    assert.equal(personaProfileAfterPatch.ok, true);
+    assert.equal(personaProfileAfterPatch.data.addressing.custom_name, '阿轩');
+
+    const invalidPersonaPatchResp = await fetch(`http://127.0.0.1:${gatewayPort}/api/persona/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ profile: 'invalid' })
+    });
+    assert.equal(invalidPersonaPatchResp.status, 400);
 
     const configSummary = await fetch(`http://127.0.0.1:${gatewayPort}/api/config/providers`).then((r) => r.json());
     assert.equal(configSummary.ok, true);

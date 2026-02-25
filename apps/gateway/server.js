@@ -25,6 +25,8 @@ const {
 } = require('../runtime/session/sessionPermissions');
 const { canReadLongTermMemory } = require('../runtime/security/sessionPermissionPolicy');
 const { SkillRuntimeManager } = require('../runtime/skills/skillRuntimeManager');
+const { PersonaContextBuilder } = require('../runtime/persona/personaContextBuilder');
+const { PersonaProfileStore } = require('../runtime/persona/personaProfileStore');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -42,6 +44,12 @@ const sessionStore = new FileSessionStore();
 const longTermMemoryStore = getDefaultLongTermMemoryStore();
 const workspaceManager = getDefaultSessionWorkspaceManager();
 const skillRuntimeManager = new SkillRuntimeManager({ workspaceDir: process.cwd() });
+const personaProfileStore = new PersonaProfileStore();
+const personaContextBuilder = new PersonaContextBuilder({
+  workspaceDir: process.cwd(),
+  profileStore: personaProfileStore,
+  memoryStore: longTermMemoryStore
+});
 
 const contextMaxMessages = Math.max(0, Number(process.env.CONTEXT_MAX_MESSAGES) || 12);
 const contextMaxChars = Math.max(0, Number(process.env.CONTEXT_MAX_CHARS) || 12000);
@@ -53,6 +61,7 @@ const runner = new ToolLoopRunner({
   bus,
   getReasoner: () => llmManager.getReasoner(),
   listTools: () => executor.listTools(),
+  resolvePersonaContext: ({ sessionId, input }) => personaContextBuilder.build({ sessionId, input }),
   resolveSkillsContext: ({ sessionId, input }) => skillRuntimeManager.buildTurnContext({ sessionId, input }),
   maxStep: 8,
   toolResultTimeoutMs: 10000
@@ -161,6 +170,30 @@ app.get('/api/memory/search', async (req, res) => {
   }
   const result = await longTermMemoryStore.searchEntries({ query, limit });
   res.json({ ok: true, data: result });
+});
+
+app.get('/api/persona/profile', (_, res) => {
+  try {
+    const profile = personaProfileStore.load();
+    res.json({ ok: true, data: profile });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.put('/api/persona/profile', (req, res) => {
+  const profilePatch = req.body?.profile;
+  if (!profilePatch || typeof profilePatch !== 'object' || Array.isArray(profilePatch)) {
+    res.status(400).json({ ok: false, error: 'body.profile must be an object' });
+    return;
+  }
+
+  try {
+    const updated = personaProfileStore.save(profilePatch);
+    res.json({ ok: true, data: updated });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
 });
 
 app.get('/api/config/providers', (_, res) => {

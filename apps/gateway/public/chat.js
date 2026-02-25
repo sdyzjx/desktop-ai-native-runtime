@@ -16,7 +16,10 @@ const elements = {
   themeSelect: document.getElementById('themeSelect'),
   messageList: document.getElementById('messageList'),
   chatInput: document.getElementById('chatInput'),
-  sendBtn: document.getElementById('sendBtn')
+  sendBtn: document.getElementById('sendBtn'),
+  personaCustomName: document.getElementById('personaCustomName'),
+  savePersonaBtn: document.getElementById('savePersonaBtn'),
+  personaHint: document.getElementById('personaHint')
 };
 
 const state = {
@@ -404,9 +407,50 @@ async function persistSessionPermission(session) {
   }
 }
 
+function setPersonaHint(text) {
+  elements.personaHint.textContent = text || '';
+}
+
+async function loadPersonaProfile() {
+  try {
+    const resp = await fetch('/api/persona/profile');
+    const data = await resp.json();
+    if (!data?.ok) throw new Error(data?.error || 'load persona failed');
+    const customName = data?.data?.addressing?.custom_name || '';
+    elements.personaCustomName.value = customName;
+    setPersonaHint(customName ? '当前使用自定义称呼。' : '当前使用默认称呼：主人');
+  } catch {
+    setPersonaHint('人格配置加载失败');
+  }
+}
+
+async function savePersonaProfile() {
+  const customName = String(elements.personaCustomName.value || '').trim();
+  setPersonaHint('保存中...');
+  try {
+    const resp = await fetch('/api/persona/profile', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profile: {
+          addressing: {
+            custom_name: customName
+          }
+        }
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data?.ok) throw new Error(data?.error || 'save persona failed');
+    setPersonaHint(customName ? `已更新称呼：${customName}` : '已恢复默认称呼：主人');
+  } catch (err) {
+    setPersonaHint(`保存失败：${err.message || err}`);
+  }
+}
+
 function bindEvents() {
   elements.sendBtn.onclick = sendMessage;
   elements.newSessionBtn.onclick = createNewSession;
+  elements.savePersonaBtn.onclick = () => { void savePersonaProfile(); };
 
   elements.chatInput.addEventListener('input', autosizeInput);
   elements.chatInput.addEventListener('input', updateComposerState);
@@ -461,6 +505,7 @@ function bootstrap() {
   bindEvents();
   setStatus('Idle');
   connectWs();
+  void loadPersonaProfile();
   autosizeInput();
   updateComposerState();
   render();
