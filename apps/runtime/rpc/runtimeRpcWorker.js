@@ -51,6 +51,7 @@ class RuntimeRpcWorker {
       : `rpc-${uuidv4()}`;
 
     let seedMessages = [];
+    let runtimeContext = {};
     try {
       const prepared = await context.buildPromptMessages?.({
         request,
@@ -65,10 +66,24 @@ class RuntimeRpcWorker {
     }
 
     try {
-      await context.onRunStart?.({
+      const prepared = await context.buildRunContext?.({
         request,
         session_id: sessionId,
         input
+      });
+      if (prepared && typeof prepared === 'object' && !Array.isArray(prepared)) {
+        runtimeContext = prepared;
+      }
+    } catch {
+      // Context hooks should not break runtime execution.
+    }
+
+    try {
+      await context.onRunStart?.({
+        request,
+        session_id: sessionId,
+        input,
+        runtime_context: runtimeContext
       });
     } catch {
       // Persistence hooks should not break runtime execution.
@@ -80,6 +95,7 @@ class RuntimeRpcWorker {
       sessionId,
       input,
       seedMessages,
+      runtimeContext,
       onEvent: (event) => {
         this.bus.publish('runtime.event', event);
         Promise.resolve(context.onRuntimeEvent?.(event)).catch(() => {});
@@ -101,6 +117,7 @@ class RuntimeRpcWorker {
         request,
         session_id: sessionId,
         input,
+        runtime_context: runtimeContext,
         ...payload
       });
     } catch {

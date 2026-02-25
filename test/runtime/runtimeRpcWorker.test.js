@@ -10,9 +10,11 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
   const bus = new RuntimeEventBus();
 
   let seedMessagesSeen = null;
+  let runtimeContextSeen = null;
   const runner = {
-    async run({ sessionId, input, seedMessages, onEvent }) {
+    async run({ sessionId, input, seedMessages, runtimeContext, onEvent }) {
       seedMessagesSeen = seedMessages;
+       runtimeContextSeen = runtimeContext;
       onEvent({ event: 'plan', payload: { input } });
       return { output: `ok:${input}`, traceId: 't-1', state: 'DONE', sessionId };
     }
@@ -27,6 +29,7 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
   let finalHookCalled = false;
   const runtimeEventSeen = [];
   let buildPromptCalled = false;
+  let buildRunContextCalled = false;
 
   const accepted = await queue.submit({
     jsonrpc: '2.0',
@@ -42,6 +45,10 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
         { role: 'user', content: 'earlier question' },
         { role: 'assistant', content: 'earlier answer' }
       ];
+    },
+    buildRunContext: async ({ session_id: sessionId, input }) => {
+      buildRunContextCalled = sessionId === 'abc' && input === 'hello';
+      return { permission_level: 'high', workspace_root: '/tmp/ws-abc' };
     },
     onRunStart: async ({ session_id: sessionId, input }) => {
       startHookCalled = sessionId === 'abc' && input === 'hello';
@@ -69,10 +76,12 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
   assert.equal(startHookCalled, true);
   assert.equal(finalHookCalled, true);
   assert.equal(buildPromptCalled, true);
+  assert.equal(buildRunContextCalled, true);
   assert.deepEqual(seedMessagesSeen, [
     { role: 'user', content: 'earlier question' },
     { role: 'assistant', content: 'earlier answer' }
   ]);
+  assert.deepEqual(runtimeContextSeen, { permission_level: 'high', workspace_root: '/tmp/ws-abc' });
   assert.ok(runtimeEventSeen.includes('plan'));
 
   worker.stop();

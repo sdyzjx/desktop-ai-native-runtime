@@ -174,3 +174,59 @@ test('ToolLoopRunner injects seedMessages into reasoner prompt', async () => {
 
   dispatcher.stop();
 });
+
+test('ToolLoopRunner passes runtimeContext workspace and permission to tool execution', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor({
+    inspect_context: {
+      type: 'local',
+      description: 'Inspect runtime context',
+      input_schema: { type: 'object', properties: {}, additionalProperties: false },
+      run: async (_, context) => JSON.stringify({
+        workspace_root: context.workspaceRoot,
+        permission_level: context.permission_level
+      })
+    }
+  });
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let decideCount = 0;
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => ({
+      async decide({ messages }) {
+        decideCount += 1;
+        if (decideCount === 1) {
+          return {
+            type: 'tool',
+            tool: { call_id: 'ctx-1', name: 'inspect_context', args: {} }
+          };
+        }
+
+        return {
+          type: 'final',
+          output: String(messages[messages.length - 1]?.content || '')
+        };
+      }
+    }),
+    listTools: () => executor.listTools(),
+    maxStep: 3,
+    toolResultTimeoutMs: 1000
+  });
+
+  const result = await runner.run({
+    sessionId: 'ctx-session',
+    input: 'inspect',
+    runtimeContext: {
+      workspace_root: '/tmp/fake-workspace-root',
+      permission_level: 'high'
+    }
+  });
+
+  assert.equal(result.state, 'DONE');
+  assert.match(result.output, /"workspace_root":"\/tmp\/fake-workspace-root"/);
+  assert.match(result.output, /"permission_level":"high"/);
+
+  dispatcher.stop();
+});

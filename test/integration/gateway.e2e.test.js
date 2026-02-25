@@ -268,7 +268,11 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     assert.ok(legacySession.data.messages.length >= 2);
     assert.equal(legacySession.data.runs.length, 1);
     assert.equal(legacySession.data.settings.permission_level, 'high');
+    assert.equal(legacySession.data.settings.workspace.mode, 'session');
+    assert.ok(typeof legacySession.data.settings.workspace.root_dir === 'string');
+    assert.ok(legacySession.data.settings.workspace.root_dir.length > 0);
     assert.equal(legacySession.data.runs[0].permission_level, 'high');
+    assert.equal(legacySession.data.runs[0].workspace_root, legacySession.data.settings.workspace.root_dir);
 
     const legacySettings = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/settings`).then((r) => r.json());
     assert.equal(legacySettings.ok, true);

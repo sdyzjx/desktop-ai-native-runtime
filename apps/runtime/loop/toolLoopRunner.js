@@ -37,7 +37,7 @@ class ToolLoopRunner {
     this.toolResultTimeoutMs = toolResultTimeoutMs;
   }
 
-  async run({ sessionId, input, seedMessages = [], onEvent }) {
+  async run({ sessionId, input, seedMessages = [], runtimeContext = {}, onEvent }) {
     const sm = new RuntimeStateMachine();
     const traceId = uuidv4();
     const priorMessages = Array.isArray(seedMessages)
@@ -144,6 +144,8 @@ class ToolLoopRunner {
             session_id: sessionId,
             step_index: ctx.stepIndex,
             call_id: call.call_id,
+            workspace_root: runtimeContext.workspace_root || null,
+            permission_level: runtimeContext.permission_level || null,
             tool: {
               name: call.name,
               args: call.args || {}

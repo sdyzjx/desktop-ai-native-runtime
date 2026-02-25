@@ -259,7 +259,8 @@ class FileSessionStore {
         output: String(run.output || ''),
         state: run.state || null,
         mode: run.mode || null,
-        permission_level: run.permission_level || null
+        permission_level: run.permission_level || null,
+        workspace_root: run.workspace_root || null
       };
 
       session.runs.push(entry);

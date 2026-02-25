@@ -17,9 +17,11 @@ const { FileSessionStore } = require('../runtime/session/fileSessionStore');
 const { buildRecentContextMessages } = require('../runtime/session/contextBuilder');
 const { getDefaultLongTermMemoryStore } = require('../runtime/session/longTermMemoryStore');
 const { loadMemorySop } = require('../runtime/session/memorySopLoader');
+const { getDefaultSessionWorkspaceManager } = require('../runtime/session/workspaceManager');
 const {
   isSessionPermissionLevel,
-  normalizeSessionPermissionLevel
+  normalizeSessionPermissionLevel,
+  normalizeWorkspaceSettings
 } = require('../runtime/session/sessionPermissions');
 
 const app = express();
@@ -35,6 +37,7 @@ const providerStore = new ProviderConfigStore();
 const llmManager = new LlmProviderManager({ store: providerStore });
 const sessionStore = new FileSessionStore();
 const longTermMemoryStore = getDefaultLongTermMemoryStore();
+const workspaceManager = getDefaultSessionWorkspaceManager();
 
 const contextMaxMessages = Math.max(0, Number(process.env.CONTEXT_MAX_MESSAGES) || 12);
 const contextMaxChars = Math.max(0, Number(process.env.CONTEXT_MAX_CHARS) || 12000);
@@ -63,7 +66,10 @@ app.get('/health', async (_, res) => {
     queue_size: queue.size(),
     llm: llmManager.getConfigSummary(),
     tools: toolConfigManager.getSummary(),
-    session_store: sessionStats
+    session_store: sessionStats,
+    workspace_store: {
+      root_dir: workspaceManager.rootDir
+    }
   });
 });
 
@@ -121,6 +127,13 @@ app.put('/api/sessions/:sessionId/settings', async (req, res) => {
   ) {
     res.status(400).json({ ok: false, error: 'settings.permission_level must be low|medium|high' });
     return;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(settings, 'workspace')) {
+    if (!settings.workspace || typeof settings.workspace !== 'object' || Array.isArray(settings.workspace)) {
+      res.status(400).json({ ok: false, error: 'settings.workspace must be an object' });
+      return;
+    }
   }
 
   const updated = await sessionStore.updateSessionSettings(req.params.sessionId, settings);
@@ -238,6 +251,26 @@ async function enqueueRpc(ws, rpcPayload, mode) {
   }
 
   const context = {
+    buildRunContext: async ({ session_id: sessionId }) => {
+      const existingSettings = await sessionStore.getSessionSettings(sessionId);
+      const permissionLevel = normalizeSessionPermissionLevel(
+        requestedPermissionLevel !== undefined
+          ? requestedPermissionLevel
+          : existingSettings?.permission_level
+      );
+      const workspace = await workspaceManager.getWorkspaceInfo(sessionId);
+      const normalizedWorkspace = normalizeWorkspaceSettings(workspace);
+
+      await sessionStore.updateSessionSettings(sessionId, {
+        permission_level: permissionLevel,
+        workspace: normalizedWorkspace
+      });
+
+      return {
+        permission_level: permissionLevel,
+        workspace_root: normalizedWorkspace.root_dir
+      };
+    },
     send: (payload) => sendSafe(ws, payload),
     buildPromptMessages: async ({ session_id: sessionId }) => {
       const session = await sessionStore.getSession(sessionId);
@@ -284,20 +317,16 @@ async function enqueueRpc(ws, rpcPayload, mode) {
 
       return [...seedMessages, ...recentMessages];
     },
-    onRunStart: async ({ session_id: sessionId }) => {
+    onRunStart: async ({ session_id: sessionId, runtime_context: runtimeContext }) => {
       await sessionStore.createSessionIfNotExists({ sessionId, title: 'New chat' });
-      if (requestedPermissionLevel !== undefined) {
-        await sessionStore.updateSessionSettings(sessionId, {
-          permission_level: normalizeSessionPermissionLevel(requestedPermissionLevel)
-        });
-      }
       await sessionStore.appendMessage(sessionId, {
         role: 'user',
         content: requestInput,
         request_id: requestId,
         metadata: {
           mode,
-          permission_level: normalizeSessionPermissionLevel(requestedPermissionLevel)
+          permission_level: runtimeContext?.permission_level || normalizeSessionPermissionLevel(requestedPermissionLevel),
+          workspace_root: runtimeContext?.workspace_root || null
         }
       });
     },
@@ -306,7 +335,7 @@ async function enqueueRpc(ws, rpcPayload, mode) {
       if (!sessionId) return;
       await sessionStore.appendEvent(sessionId, event);
     },
-    onRunFinal: async ({ session_id: sessionId, trace_id: traceId, output, state }) => {
+    onRunFinal: async ({ session_id: sessionId, trace_id: traceId, output, state, runtime_context: runtimeContext }) => {
       const settings = await sessionStore.getSessionSettings(sessionId);
       const permissionLevel = normalizeSessionPermissionLevel(settings?.permission_level);
 
@@ -315,7 +344,12 @@ async function enqueueRpc(ws, rpcPayload, mode) {
         content: String(output || ''),
         trace_id: traceId,
         request_id: requestId,
-        metadata: { state, mode, permission_level: permissionLevel }
+        metadata: {
+          state,
+          mode,
+          permission_level: permissionLevel,
+          workspace_root: runtimeContext?.workspace_root || settings?.workspace?.root_dir || null
+        }
       });
       await sessionStore.appendRun(sessionId, {
         request_id: requestId,
@@ -324,7 +358,8 @@ async function enqueueRpc(ws, rpcPayload, mode) {
         output: String(output || ''),
         state,
         mode,
-        permission_level: permissionLevel
+        permission_level: permissionLevel,
+        workspace_root: runtimeContext?.workspace_root || settings?.workspace?.root_dir || null
       });
     },
     sendEvent: (eventPayload) => {
