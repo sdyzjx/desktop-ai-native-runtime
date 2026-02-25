@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "node apps/gateway/server.js",
     "start": "node apps/gateway/server.js",
+    "desktop:dev": "electron apps/desktop/main.js",
+    "desktop:start": "electron apps/desktop/main.js",
     "test": "node --test \"test/**/*.test.js\"",
     "test:ci": "node --test \"test/**/*.test.js\""
   },
@@ -15,5 +17,8 @@
     "uuid": "^11.0.3",
     "ws": "^8.18.0",
     "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "electron": "^30.5.1"
   }
 }

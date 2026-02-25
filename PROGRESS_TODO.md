@@ -165,3 +165,32 @@ Do not add free-form items outside this format.
   - `8e05b36`
 - Update Log:
   - 2026-02-25 21:40 DONE smoke skill implemented and validated.
+
+### [REQ-20260225-003] Bootstrap Electron desktop shell integration
+- Created At: 2026-02-25 23:59
+- Source: user
+- Priority: P1
+- Status: REVIEW
+- Owner: runtime
+- Branch: `codex/feature/electron-desktop`
+- Description:
+  - Start desktop-client development by adding a runnable Electron shell that hosts gateway UI.
+- Acceptance Criteria:
+  1. `npm run desktop:start` launches Electron and opens gateway UI.
+  2. Desktop process can auto-start local gateway and wait for health readiness.
+  3. Gateway wait utility has unit tests for ready and timeout paths.
+- Impacted Modules:
+  - `apps/desktop/*`
+  - `package.json`
+  - `test/desktop/*`
+- Risks/Dependencies:
+  - Depends on Electron package installation in local environment.
+- Plan:
+  1. Add Electron entrypoint/preload and embedded gateway lifecycle control.
+  2. Add gateway health wait utility with test coverage.
+  3. Validate with `npm test` and manual desktop launch.
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-25 23:59 IN_PROGRESS desktop shell bootstrap started.
+  - 2026-02-26 00:04 REVIEW code + tests completed (85/85 pass), waiting manual desktop smoke.
