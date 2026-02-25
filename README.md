@@ -1,4 +1,6 @@
-# desktop-ai-native-runtime
+# open-yachiyo
+
+![open-yachiyo cover](assets/readme-cover.jpg)
 
 Native-first desktop AI assistant runtime.
 
