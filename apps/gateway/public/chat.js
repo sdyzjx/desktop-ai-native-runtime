@@ -105,6 +105,10 @@ function getActiveSession() {
   return state.sessions.find((s) => s.id === state.activeSessionId) || null;
 }
 
+function getSessionById(sessionId) {
+  return state.sessions.find((s) => s.id === sessionId) || null;
+}
+
 function sortSessions() {
   state.sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
@@ -213,6 +217,23 @@ function render() {
   renderMessages();
 }
 
+function resolvePendingSession() {
+  if (!state.pending) return null;
+  return getSessionById(state.pending.sessionId);
+}
+
+function finishPendingResponse({ content, statusText }) {
+  const pendingSession = resolvePendingSession();
+  if (pendingSession) {
+    updateMessage(pendingSession, state.pending.assistantMsgId, { content: String(content || '') });
+  }
+
+  state.pending = null;
+  setStatus(statusText);
+  updateComposerState();
+  render();
+}
+
 function connectWs() {
   if (state.ws && (state.ws.readyState === 0 || state.ws.readyState === 1)) return;
 
@@ -227,12 +248,24 @@ function connectWs() {
   state.ws.onclose = () => {
     state.wsReady = false;
     setStatus('Disconnected');
+    if (state.pending) {
+      finishPendingResponse({
+        content: 'Error: websocket disconnected before tool finished.',
+        statusText: 'Disconnected'
+      });
+    }
     setTimeout(connectWs, 600);
   };
 
   state.ws.onerror = () => {
     state.wsReady = false;
     setStatus('Connection error');
+    if (state.pending) {
+      finishPendingResponse({
+        content: 'Error: websocket error before tool finished.',
+        statusText: 'Connection error'
+      });
+    }
   };
 
   state.ws.onmessage = (event) => {
@@ -245,10 +278,8 @@ function connectWs() {
 
     if (!state.pending) return;
 
-    const active = getActiveSession();
-    if (!active || state.pending.sessionId !== active.id) return;
-
     if (msg.type === 'event') {
+      if (msg.data?.session_id && msg.data.session_id !== state.pending.sessionId) return;
       if (msg.data?.event === 'tool.call') {
         setStatus(`Running tool: ${msg.data.payload?.name || 'unknown'}`);
       }
@@ -256,20 +287,19 @@ function connectWs() {
     }
 
     if (msg.type === 'error') {
-      updateMessage(active, state.pending.assistantMsgId, { content: `Error: ${msg.message || 'Unknown error'}` });
-      state.pending = null;
-      setStatus('Error');
-      updateComposerState();
-      render();
+      finishPendingResponse({
+        content: `Error: ${msg.message || 'Unknown error'}`,
+        statusText: 'Error'
+      });
       return;
     }
 
-    if (msg.type === 'final' && msg.session_id === state.pending.sessionId) {
-      updateMessage(active, state.pending.assistantMsgId, { content: msg.output || '' });
-      state.pending = null;
-      setStatus('Idle');
-      updateComposerState();
-      render();
+    if (msg.type === 'final') {
+      if (msg.session_id && msg.session_id !== state.pending.sessionId) return;
+      finishPendingResponse({
+        content: msg.output || '',
+        statusText: 'Idle'
+      });
     }
   };
 }
