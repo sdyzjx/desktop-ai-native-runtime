@@ -1,7 +1,7 @@
 # Branch 协作规范（Branch Collaboration Spec）
 
 版本：v1.0  
-适用范围：`desktop-ai-native-runtime` 全仓库
+适用范围：`open-yachiyo` 全仓库
 
 ---
 

@@ -152,7 +152,7 @@ AstrBot 的 skills 主要是“prompt 指令层”，不是强约束执行层；
 
 ---
 
-## 5. 给 `desktop-ai-native-runtime` 的落地建议
+## 5. 给 `open-yachiyo` 的落地建议
 
 结合你现有 tool-calling runtime，建议按 P0→P2 迭代：
 

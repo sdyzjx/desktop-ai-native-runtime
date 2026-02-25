@@ -11,7 +11,7 @@ This guide provides practical, reproducible cases for newly integrated runtime f
 ## 2. Environment
 
 ```bash
-cd /Users/doosam/Documents/Programming/yachiyo-desktop/desktop-ai-native-runtime
+cd /path/to/open-yachiyo
 npm install
 npm run dev
 ```
