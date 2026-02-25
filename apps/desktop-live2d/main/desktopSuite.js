@@ -15,11 +15,82 @@ const CHANNELS = Object.freeze({
   rendererReady: 'live2d:renderer:ready',
   rendererError: 'live2d:renderer:error',
   getRuntimeConfig: 'live2d:get-runtime-config',
-  chatInputSubmit: 'live2d:chat:input:submit'
+  chatInputSubmit: 'live2d:chat:input:submit',
+  windowDrag: 'live2d:window:drag'
 });
 
 function isNewSessionCommand(text) {
   return String(text || '').trim().toLowerCase() === '/new';
+}
+
+function normalizeWindowDragPayload(payload) {
+  const action = String(payload?.action || '').trim().toLowerCase();
+  if (!['start', 'move', 'end'].includes(action)) {
+    return null;
+  }
+
+  const screenX = Number(payload?.screenX);
+  const screenY = Number(payload?.screenY);
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) {
+    return null;
+  }
+
+  return {
+    action,
+    screenX: Math.round(screenX),
+    screenY: Math.round(screenY)
+  };
+}
+
+function createWindowDragListener({ BrowserWindow } = {}) {
+  const dragStates = new Map();
+  return (event, payload) => {
+    const normalized = normalizeWindowDragPayload(payload);
+    if (!normalized) {
+      return;
+    }
+
+    const sender = event?.sender;
+    if (!sender || !BrowserWindow || typeof BrowserWindow.fromWebContents !== 'function') {
+      return;
+    }
+
+    const win = BrowserWindow.fromWebContents(sender);
+    if (!win || typeof win.getPosition !== 'function' || typeof win.setPosition !== 'function') {
+      return;
+    }
+
+    const senderId = Number(sender.id);
+    if (!Number.isFinite(senderId)) {
+      return;
+    }
+
+    if (normalized.action === 'start') {
+      const [windowX, windowY] = win.getPosition();
+      dragStates.set(senderId, {
+        cursorX: normalized.screenX,
+        cursorY: normalized.screenY,
+        windowX,
+        windowY
+      });
+      return;
+    }
+
+    if (normalized.action === 'move') {
+      const state = dragStates.get(senderId);
+      if (!state) {
+        return;
+      }
+      const nextX = Math.round(state.windowX + normalized.screenX - state.cursorX);
+      const nextY = Math.round(state.windowY + normalized.screenY - state.cursorY);
+      win.setPosition(nextX, nextY);
+      return;
+    }
+
+    if (normalized.action === 'end') {
+      dragStates.delete(senderId);
+    }
+  };
 }
 
 async function startDesktopSuite({
@@ -121,6 +192,8 @@ async function startDesktopSuite({
     gatewayUrl: config.gatewayUrl,
     uiConfig: config.uiConfig
   }));
+  const windowDragListener = createWindowDragListener({ BrowserWindow });
+  ipcMain.on(CHANNELS.windowDrag, windowDragListener);
   const chatInputListener = createChatInputListener({
     logger,
     onChatInput: (payload) => {
@@ -257,6 +330,7 @@ async function startDesktopSuite({
     stopped = true;
 
     ipcMain.removeHandler(CHANNELS.getRuntimeConfig);
+    ipcMain.off(CHANNELS.windowDrag, windowDragListener);
     ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
 
     await rpcServer.stop();
@@ -485,6 +559,8 @@ module.exports = {
   computeRightBottomWindowBounds,
   writeRuntimeSummary,
   normalizeChatInputPayload,
+  normalizeWindowDragPayload,
+  createWindowDragListener,
   createChatInputListener,
   handleDesktopRpcRequest,
   isNewSessionCommand

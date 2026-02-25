@@ -11,6 +11,8 @@ const {
   computeWindowBounds,
   computeRightBottomWindowBounds,
   normalizeChatInputPayload,
+  normalizeWindowDragPayload,
+  createWindowDragListener,
   createChatInputListener,
   handleDesktopRpcRequest,
   isNewSessionCommand
@@ -117,6 +119,49 @@ test('normalizeChatInputPayload sanitizes and validates payload', () => {
 
   const invalid = normalizeChatInputPayload({ text: '   ' });
   assert.equal(invalid, null);
+});
+
+test('normalizeWindowDragPayload validates action and screen coordinates', () => {
+  const valid = normalizeWindowDragPayload({ action: ' move ', screenX: 100.4, screenY: 250.9 });
+  assert.deepEqual(valid, {
+    action: 'move',
+    screenX: 100,
+    screenY: 251
+  });
+
+  assert.equal(normalizeWindowDragPayload({ action: 'drag', screenX: 1, screenY: 2 }), null);
+  assert.equal(normalizeWindowDragPayload({ action: 'start', screenX: 'x', screenY: 2 }), null);
+});
+
+test('createWindowDragListener repositions window across start/move/end', () => {
+  const fakeWindow = {
+    x: 300,
+    y: 420,
+    getPosition() {
+      return [this.x, this.y];
+    },
+    setPosition(nextX, nextY) {
+      this.x = nextX;
+      this.y = nextY;
+    }
+  };
+
+  const BrowserWindow = {
+    fromWebContents(sender) {
+      return sender?.id === 7 ? fakeWindow : null;
+    }
+  };
+
+  const listener = createWindowDragListener({ BrowserWindow });
+  const sender = { id: 7 };
+
+  listener({ sender }, { action: 'start', screenX: 1100, screenY: 700 });
+  listener({ sender }, { action: 'move', screenX: 1142, screenY: 755 });
+  assert.deepEqual([fakeWindow.x, fakeWindow.y], [342, 475]);
+
+  listener({ sender }, { action: 'end', screenX: 1142, screenY: 755 });
+  listener({ sender }, { action: 'move', screenX: 1160, screenY: 760 });
+  assert.deepEqual([fakeWindow.x, fakeWindow.y], [342, 475]);
 });
 
 test('createChatInputListener forwards normalized payload to callback', () => {

@@ -13,6 +13,8 @@
   let pixiApp = null;
   let live2dModel = null;
   let hideBubbleTimer = null;
+  let dragPointerState = null;
+  let suppressModelTapUntil = 0;
 
   const stageContainer = document.getElementById('stage');
   const bubbleElement = document.getElementById('bubble');
@@ -358,6 +360,7 @@
 
     stageContainer.appendChild(canvas);
     pixiApp = app;
+    bindWindowDragGesture(canvas);
   }
 
   function resolveLive2dConstructor() {
@@ -397,8 +400,88 @@
       live2dModel.interactive = true;
     }
     live2dModel.on('pointertap', () => {
+      if (Date.now() < suppressModelTapUntil) {
+        return;
+      }
       toggleChatPanelVisible();
     });
+  }
+
+  function bindWindowDragGesture(targetElement) {
+    if (!targetElement || typeof bridge?.sendWindowDrag !== 'function') {
+      return;
+    }
+
+    const moveThresholdPx = 6;
+    const resetDragState = () => {
+      dragPointerState = null;
+    };
+
+    targetElement.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+      dragPointerState = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        dragging: false
+      };
+      if (typeof targetElement.setPointerCapture === 'function') {
+        targetElement.setPointerCapture(event.pointerId);
+      }
+      bridge.sendWindowDrag({
+        action: 'start',
+        screenX: event.screenX,
+        screenY: event.screenY
+      });
+    });
+
+    targetElement.addEventListener('pointermove', (event) => {
+      if (!dragPointerState || event.pointerId !== dragPointerState.pointerId) {
+        return;
+      }
+      const deltaX = event.clientX - dragPointerState.startClientX;
+      const deltaY = event.clientY - dragPointerState.startClientY;
+      const moved = Math.hypot(deltaX, deltaY);
+      if (!dragPointerState.dragging && moved >= moveThresholdPx) {
+        dragPointerState.dragging = true;
+      }
+      if (!dragPointerState.dragging) {
+        return;
+      }
+      bridge.sendWindowDrag({
+        action: 'move',
+        screenX: event.screenX,
+        screenY: event.screenY
+      });
+      event.preventDefault();
+    });
+
+    const completeDrag = (event) => {
+      if (!dragPointerState || event.pointerId !== dragPointerState.pointerId) {
+        return;
+      }
+      bridge.sendWindowDrag({
+        action: 'end',
+        screenX: event.screenX,
+        screenY: event.screenY
+      });
+      if (dragPointerState.dragging) {
+        suppressModelTapUntil = Date.now() + 220;
+      }
+      if (typeof targetElement.releasePointerCapture === 'function') {
+        try {
+          targetElement.releasePointerCapture(event.pointerId);
+        } catch {
+          // ignore pointer capture release errors on fast close/cancel
+        }
+      }
+      resetDragState();
+    };
+
+    targetElement.addEventListener('pointerup', completeDrag);
+    targetElement.addEventListener('pointercancel', completeDrag);
   }
 
   function getStageSize() {
