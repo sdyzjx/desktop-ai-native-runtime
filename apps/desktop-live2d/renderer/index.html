@@ -33,19 +33,21 @@
 
       #bubble-layer {
         position: fixed;
-        left: 50%;
-        bottom: 24px;
-        transform: translateX(-50%);
-        width: min(86vw, 420px);
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
         pointer-events: none;
-        display: flex;
-        justify-content: center;
         -webkit-app-region: no-drag;
+        z-index: 22;
       }
 
       #bubble {
         opacity: 0;
         transition: opacity 200ms ease;
+        position: absolute;
+        left: 0;
+        top: 0;
         color: #ffffff;
         background: rgba(20, 26, 40, 0.56);
         border: 1px solid rgba(255, 255, 255, 0.18);
@@ -57,6 +59,8 @@
         box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
         white-space: pre-wrap;
         word-break: break-word;
+        width: max-content;
+        max-width: min(58vw, 360px);
       }
 
       #bubble.visible {

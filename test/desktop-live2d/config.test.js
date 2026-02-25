@@ -16,6 +16,7 @@ test('resolveDesktopLive2dConfig applies defaults and model relative path', () =
   assert.equal(config.uiConfig.chat.panel.enabled, true);
   assert.equal(config.uiConfig.chat.panel.defaultVisible, false);
   assert.equal(config.uiConfig.layout.lockScaleOnResize, true);
+  assert.equal(config.uiConfig.layout.lockPositionOnResize, true);
   assert.equal(config.uiConfig.window.compactWhenChatHidden, true);
   assert.equal(config.uiConfig.window.compactWidth, 300);
   assert.equal(config.uiConfig.window.compactHeight, 560);
@@ -60,7 +61,8 @@ test('resolveDesktopLive2dConfig loads overrides from config/desktop-live2d.json
       },
       layout: {
         scaleMultiplier: 0.95,
-        lockScaleOnResize: false
+        lockScaleOnResize: false,
+        lockPositionOnResize: false
       },
       chat: {
         panel: {
@@ -80,6 +82,7 @@ test('resolveDesktopLive2dConfig loads overrides from config/desktop-live2d.json
   assert.equal(config.uiConfig.render.resolutionScale, 1.2);
   assert.equal(config.uiConfig.layout.scaleMultiplier, 0.95);
   assert.equal(config.uiConfig.layout.lockScaleOnResize, false);
+  assert.equal(config.uiConfig.layout.lockPositionOnResize, false);
   assert.equal(config.uiConfig.chat.panel.defaultVisible, false);
   assert.equal(config.uiConfig.chat.panel.maxMessages, 88);
 });

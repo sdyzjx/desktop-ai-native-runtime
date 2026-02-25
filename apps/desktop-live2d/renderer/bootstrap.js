@@ -16,8 +16,10 @@
   let dragPointerState = null;
   let suppressModelTapUntil = 0;
   let stableModelScale = null;
+  let stableModelPose = null;
 
   const stageContainer = document.getElementById('stage');
+  const bubbleLayerElement = document.getElementById('bubble-layer');
   const bubbleElement = document.getElementById('bubble');
   const chatPanelElement = document.getElementById('chat-panel');
   const chatPanelMessagesElement = document.getElementById('chat-panel-messages');
@@ -43,6 +45,42 @@
   function setBubbleVisible(visible) {
     state.bubbleVisible = visible;
     bubbleElement.classList.toggle('visible', visible);
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function positionBubbleNearModelHead() {
+    if (!bubbleLayerElement || !bubbleElement) {
+      return;
+    }
+
+    const stageSize = getStageSize();
+    const bubbleWidth = Math.max(120, bubbleElement.offsetWidth || 260);
+    const bubbleHeight = Math.max(36, bubbleElement.offsetHeight || 84);
+    const margin = 10;
+
+    let anchorX = stageSize.width * 0.46;
+    let anchorY = stageSize.height * 0.2;
+    const modelBounds = live2dModel?.getBounds?.();
+    if (
+      modelBounds
+      && Number.isFinite(modelBounds.x)
+      && Number.isFinite(modelBounds.y)
+      && Number.isFinite(modelBounds.width)
+      && Number.isFinite(modelBounds.height)
+      && modelBounds.width > 1
+      && modelBounds.height > 1
+    ) {
+      anchorX = modelBounds.x + modelBounds.width * 0.28;
+      anchorY = modelBounds.y + modelBounds.height * 0.14;
+    }
+
+    const nextLeft = clamp(anchorX - bubbleWidth - 12, margin, stageSize.width - bubbleWidth - margin);
+    const nextTop = clamp(anchorY - bubbleHeight - 14, margin, stageSize.height - bubbleHeight - margin);
+    bubbleLayerElement.style.left = `${Math.round(nextLeft)}px`;
+    bubbleLayerElement.style.top = `${Math.round(nextTop)}px`;
   }
 
   function syncChatStateSummary() {
@@ -159,6 +197,9 @@
 
     bubbleElement.textContent = text;
     setBubbleVisible(true);
+    window.requestAnimationFrame(() => {
+      positionBubbleNearModelHead();
+    });
 
     if (hideBubbleTimer) {
       clearTimeout(hideBubbleTimer);
@@ -430,6 +471,7 @@
     const modelUrl = new URL(modelRelativePath, window.location.href).toString();
     live2dModel = await Live2DModel.from(modelUrl);
     stableModelScale = null;
+    stableModelPose = null;
     bindModelInteraction();
 
     pixiApp.stage.addChild(live2dModel);
@@ -560,6 +602,7 @@
     const stageSize = getStageSize();
     const layoutConfig = runtimeUiConfig?.layout || {};
     const lockScaleOnResize = layoutConfig.lockScaleOnResize !== false;
+    const lockPositionOnResize = layoutConfig.lockPositionOnResize !== false;
     const layout = window.Live2DLayout.computeModelLayout({
       stageWidth: stageSize.width,
       stageHeight: stageSize.height,
@@ -578,6 +621,43 @@
       stableModelScale = layout.scale;
     }
 
+    if (
+      !stableModelPose
+      || !Number.isFinite(stableModelPose.positionX)
+      || !Number.isFinite(stableModelPose.positionY)
+      || !Number.isFinite(stableModelPose.stageWidth)
+      || !Number.isFinite(stableModelPose.stageHeight)
+    ) {
+      stableModelPose = {
+        positionX: layout.positionX,
+        positionY: layout.positionY,
+        stageWidth: stageSize.width,
+        stageHeight: stageSize.height
+      };
+    }
+
+    let nextPositionX = layout.positionX;
+    let nextPositionY = layout.positionY;
+    if (lockPositionOnResize) {
+      const deltaWidth = stageSize.width - stableModelPose.stageWidth;
+      const deltaHeight = stageSize.height - stableModelPose.stageHeight;
+      nextPositionX = stableModelPose.positionX + deltaWidth;
+      nextPositionY = stableModelPose.positionY + deltaHeight;
+      stableModelPose = {
+        positionX: nextPositionX,
+        positionY: nextPositionY,
+        stageWidth: stageSize.width,
+        stageHeight: stageSize.height
+      };
+    } else {
+      stableModelPose = {
+        positionX: layout.positionX,
+        positionY: layout.positionY,
+        stageWidth: stageSize.width,
+        stageHeight: stageSize.height
+      };
+    }
+
     if (typeof live2dModel.scale?.set === 'function') {
       live2dModel.scale.set(nextScale);
     }
@@ -585,17 +665,21 @@
       live2dModel.pivot.set(layout.pivotX, layout.pivotY);
     }
     if (typeof live2dModel.position?.set === 'function') {
-      live2dModel.position.set(layout.positionX, layout.positionY);
+      live2dModel.position.set(nextPositionX, nextPositionY);
     }
 
     state.layout = {
       scale: nextScale,
-      positionX: layout.positionX,
-      positionY: layout.positionY,
+      positionX: nextPositionX,
+      positionY: nextPositionY,
       pivotX: layout.pivotX,
       pivotY: layout.pivotY,
       ...layout.debug
     };
+
+    if (state.bubbleVisible) {
+      positionBubbleNearModelHead();
+    }
   }
 
   function scheduleAdaptiveLayout() {

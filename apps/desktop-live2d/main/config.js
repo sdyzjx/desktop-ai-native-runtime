@@ -45,7 +45,8 @@ const DEFAULT_UI_CONFIG = Object.freeze({
     scaleMultiplier: 0.9,
     minScale: 0.04,
     maxScale: 2,
-    lockScaleOnResize: true
+    lockScaleOnResize: true,
+    lockPositionOnResize: true
   },
   chat: {
     panel: {
@@ -157,7 +158,7 @@ function normalizeUiConfig(raw) {
       merged.layout[key] = String(merged.layout[key] || layoutDefaults[key]);
       continue;
     }
-    if (key === 'lockScaleOnResize') {
+    if (key === 'lockScaleOnResize' || key === 'lockPositionOnResize') {
       merged.layout[key] = merged.layout[key] !== false;
       continue;
     }

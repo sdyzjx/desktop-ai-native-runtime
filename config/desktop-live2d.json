@@ -33,7 +33,8 @@
     "scaleMultiplier": 0.9,
     "minScale": 0.04,
     "maxScale": 2,
-    "lockScaleOnResize": true
+    "lockScaleOnResize": true,
+    "lockPositionOnResize": true
   },
   "chat": {
     "panel": {
