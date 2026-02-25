@@ -48,9 +48,14 @@
       <footer class="composer-wrap">
         <div class="composer-inner">
           <textarea id="chatInput" rows="1" placeholder="Send a message..."></textarea>
-          <button id="sendBtn" class="btn btn-send">Send</button>
+          <div class="composer-actions">
+            <input id="imageInput" type="file" accept="image/*" multiple hidden />
+            <button id="addImageBtn" class="btn btn-attach" type="button">Image</button>
+            <button id="sendBtn" class="btn btn-send" type="button">Send</button>
+          </div>
         </div>
-        <div class="composer-tip">Enter 发送（输入法选词时不会发送），Shift+Enter 换行。</div>
+        <div id="uploadPreviewList" class="upload-preview-list"></div>
+        <div class="composer-tip">Enter 发送（输入法选词时不会发送），Shift+Enter 换行。支持图片上传与多模态提问。</div>
       </footer>
     </main>
   </div>

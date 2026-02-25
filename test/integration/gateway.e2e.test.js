@@ -17,7 +17,8 @@ async function startMockLlmServer(port) {
     sawMemorySopOnNewSession: false,
     sawBootstrapMemoryOnNewSession: false,
     lowPermissionSawMemorySop: false,
-    lowPermissionSawBootstrapMemory: false
+    lowPermissionSawBootstrapMemory: false,
+    sawMultimodalImageInput: false
   };
 
   const server = http.createServer((req, res) => {
@@ -34,7 +35,21 @@ async function startMockLlmServer(port) {
       const messages = body.messages || [];
       const last = messages[messages.length - 1] || {};
       const lastUser = [...messages].reverse().find((msg) => msg.role === 'user');
-      const lastUserText = String(lastUser?.content || '');
+      const extractUserText = (content) => {
+        if (typeof content === 'string') return content;
+        if (!Array.isArray(content)) return '';
+        return content
+          .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+          .map((part) => part.text)
+          .join(' ');
+      };
+      const hasUserImagePart = (content) => {
+        if (!Array.isArray(content)) return false;
+        return content.some(
+          (part) => part?.type === 'image_url' && typeof part.image_url?.url === 'string' && part.image_url.url.startsWith('data:image/')
+        );
+      };
+      const lastUserText = extractUserText(lastUser?.content);
 
       if (lastUserText === 'second turn') {
         const hasFirstTurnHistory = messages.some(
@@ -61,6 +76,10 @@ async function startMockLlmServer(port) {
         state.lowPermissionSawBootstrapMemory = messages.some(
           (msg) => msg.role === 'system' && /favorite color is blue/i.test(String(msg.content || ''))
         );
+      }
+
+      if (lastUserText === 'describe this uploaded image') {
+        state.sawMultimodalImageInput = hasUserImagePart(lastUser?.content);
       }
 
       let message;
@@ -110,6 +129,8 @@ async function startMockLlmServer(port) {
         }
       } else if (lastUserText === 'ask memory in low permission session') {
         message = { role: 'assistant', content: 'low permission memory bootstrap disabled' };
+      } else if (lastUserText === 'describe this uploaded image') {
+        message = { role: 'assistant', content: 'image analyzed: success' };
       } else if (last.role === 'tool') {
         message = { role: 'assistant', content: `final:${last.content}` };
       } else {
@@ -371,6 +392,22 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     assert.equal(secondTurn.final.output, 'final:42');
 
     assert.equal(llm.state.secondTurnSawFirstTurnContext, true);
+
+    const multimodalRun = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
+      type: 'run',
+      session_id: 'mm-s1',
+      input: 'describe this uploaded image',
+      input_images: [
+        {
+          name: 'tiny.png',
+          mime_type: 'image/png',
+          size_bytes: 67,
+          data_url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgU8Vf4QAAAAASUVORK5CYII='
+        }
+      ]
+    });
+    assert.match(multimodalRun.final.output, /image analyzed/i);
+    assert.equal(llm.state.sawMultimodalImageInput, true);
 
     const saveMemory = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
       type: 'run',
