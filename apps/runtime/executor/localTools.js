@@ -13,38 +13,117 @@ function echo({ text }) {
   return `echo: ${text || ''}`;
 }
 
-module.exports = {
-  get_time: {
+function createMemoryWriteTool(memoryStore) {
+  return {
     type: 'local',
-    description: 'Get local current date-time string in zh-CN locale.',
-    input_schema: { type: 'object', properties: {}, additionalProperties: false },
-    run: () => getTime()
-  },
-  add: {
-    type: 'local',
-    description: 'Add two numbers and return the sum.',
+    description: 'Write a durable long-term memory entry. Use for stable preferences/facts only.',
     input_schema: {
       type: 'object',
       properties: {
-        a: { type: 'number' },
-        b: { type: 'number' }
+        content: { type: 'string' },
+        keywords: {
+          type: 'array',
+          items: { type: 'string' }
+        }
       },
-      required: ['a', 'b'],
+      required: ['content'],
       additionalProperties: false
     },
-    run: add
-  },
-  echo: {
+    run: async ({ content, keywords = [] }, context = {}) => {
+      if (!memoryStore) {
+        throw new Error('long-term memory store not configured');
+      }
+      const entry = await memoryStore.addEntry({
+        content,
+        keywords,
+        source_session_id: context.session_id || null,
+        source_trace_id: context.trace_id || null,
+        metadata: { step_index: context.step_index || null }
+      });
+      return JSON.stringify({
+        ok: true,
+        id: entry.id,
+        content: entry.content,
+        keywords: entry.keywords
+      });
+    }
+  };
+}
+
+function createMemorySearchTool(memoryStore) {
+  return {
     type: 'local',
-    description: 'Echo user input text back to user.',
+    description: 'Search long-term memory by keywords. Use before answering questions about past facts/preferences.',
     input_schema: {
       type: 'object',
       properties: {
-        text: { type: 'string' }
+        query: { type: 'string' },
+        limit: { type: 'number' }
       },
-      required: ['text'],
+      required: ['query'],
       additionalProperties: false
     },
-    run: echo
-  }
-};
+    run: async ({ query, limit = 5 }) => {
+      if (!memoryStore) {
+        throw new Error('long-term memory store not configured');
+      }
+      const result = await memoryStore.searchEntries({
+        query,
+        limit: Math.max(1, Math.min(Number(limit) || 5, 20))
+      });
+      return JSON.stringify({
+        ok: true,
+        total: result.total,
+        items: result.items.map((item) => ({
+          id: item.id,
+          content: item.content,
+          keywords: item.keywords,
+          updated_at: item.updated_at
+        }))
+      });
+    }
+  };
+}
+
+function createLocalTools({ memoryStore } = {}) {
+  return {
+    get_time: {
+      type: 'local',
+      description: 'Get local current date-time string in zh-CN locale.',
+      input_schema: { type: 'object', properties: {}, additionalProperties: false },
+      run: () => getTime()
+    },
+    add: {
+      type: 'local',
+      description: 'Add two numbers and return the sum.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          a: { type: 'number' },
+          b: { type: 'number' }
+        },
+        required: ['a', 'b'],
+        additionalProperties: false
+      },
+      run: add
+    },
+    echo: {
+      type: 'local',
+      description: 'Echo user input text back to user.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' }
+        },
+        required: ['text'],
+        additionalProperties: false
+      },
+      run: echo
+    },
+    memory_write: createMemoryWriteTool(memoryStore),
+    memory_search: createMemorySearchTool(memoryStore)
+  };
+}
+
+module.exports = createLocalTools();
+module.exports.createLocalTools = createLocalTools;

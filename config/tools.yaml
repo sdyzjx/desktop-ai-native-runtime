@@ -5,6 +5,8 @@ policy:
     - get_time
     - add
     - echo
+    - memory_write
+    - memory_search
     - workspace.write_file
     - shell.exec
   deny: []
@@ -53,6 +55,32 @@ tools:
       properties:
         text: { type: string }
       required: [text]
+      additionalProperties: false
+
+  - name: memory_write
+    type: local
+    adapter: memory.write
+    description: Write durable long-term memory entry.
+    input_schema:
+      type: object
+      properties:
+        content: { type: string }
+        keywords:
+          type: array
+          items: { type: string }
+      required: [content]
+      additionalProperties: false
+
+  - name: memory_search
+    type: local
+    adapter: memory.search
+    description: Search long-term memory by keywords.
+    input_schema:
+      type: object
+      properties:
+        query: { type: string }
+        limit: { type: integer, minimum: 1, maximum: 20 }
+      required: [query]
       additionalProperties: false
 
   - name: workspace.write_file

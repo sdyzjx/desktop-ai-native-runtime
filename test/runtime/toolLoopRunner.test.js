@@ -134,3 +134,43 @@ test('ToolLoopRunner returns error when tool dispatch fails', async () => {
 
   dispatcher.stop();
 });
+
+test('ToolLoopRunner injects seedMessages into reasoner prompt', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor(localTools);
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let seenMessages = [];
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => ({
+      async decide({ messages }) {
+        seenMessages = messages;
+        return { type: 'final', output: 'ok' };
+      }
+    }),
+    listTools: () => executor.listTools(),
+    maxStep: 2,
+    toolResultTimeoutMs: 500
+  });
+
+  const result = await runner.run({
+    sessionId: 's3',
+    input: 'current question',
+    seedMessages: [
+      { role: 'system', content: 'memory summary: likes short output' },
+      { role: 'user', content: 'old question' },
+      { role: 'assistant', content: 'old answer' }
+    ]
+  });
+
+  assert.equal(result.state, 'DONE');
+  assert.equal(result.output, 'ok');
+  assert.equal(seenMessages[1].content, 'memory summary: likes short output');
+  assert.equal(seenMessages[2].content, 'old question');
+  assert.equal(seenMessages[3].content, 'old answer');
+  assert.equal(seenMessages[4].content, 'current question');
+
+  dispatcher.stop();
+});

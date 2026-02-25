@@ -9,6 +9,16 @@ function isRegistryObject(obj) {
   return obj && typeof obj === 'object' && !Array.isArray(obj) && !obj.get && !obj.list;
 }
 
+function buildMeta(context = {}) {
+  return {
+    ...(context.meta || {}),
+    trace_id: context.trace_id || context.meta?.trace_id || null,
+    session_id: context.session_id || context.meta?.session_id || null,
+    step_index: context.step_index ?? context.meta?.step_index ?? null,
+    call_id: context.call_id || context.meta?.call_id || null
+  };
+}
+
 class ToolExecutor {
   constructor(registryOrToolRegistry, opts = {}) {
     if (isRegistryObject(registryOrToolRegistry)) {
@@ -39,13 +49,18 @@ class ToolExecutor {
       validateSchema,
       enforcePolicy,
       async (ctx) => {
+        const meta = ctx.meta || {};
         ctx.result = await ctx.tool.run(ctx.request.args || {}, {
           workspaceRoot: ctx.workspaceRoot,
           security: this.execConfig.security,
           safeBins: this.execConfig.safeBins,
           timeoutSec: this.execConfig.timeoutSec,
           maxOutputChars: this.execConfig.maxOutputChars,
-          workspaceOnly: this.execConfig.workspaceOnly
+          workspaceOnly: this.execConfig.workspaceOnly,
+          trace_id: meta.trace_id || null,
+          session_id: meta.session_id || null,
+          step_index: meta.step_index ?? null,
+          call_id: meta.call_id || null
         });
       }
     ]);
@@ -61,7 +76,7 @@ class ToolExecutor {
         name: toolCall.name,
         args: toolCall.args || {}
       },
-      meta: context.meta || {},
+      meta: buildMeta(context),
       workspaceRoot: context.workspaceRoot || process.cwd(),
       registry: this.registry,
       policy: this.policy,
