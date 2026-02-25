@@ -17,7 +17,8 @@ async function startMockLlmServer(port) {
     sawMemorySopOnNewSession: false,
     sawBootstrapMemoryOnNewSession: false,
     lowPermissionSawMemorySop: false,
-    lowPermissionSawBootstrapMemory: false
+    lowPermissionSawBootstrapMemory: false,
+    sawMultimodalImageInput: false
   };
 
   const server = http.createServer((req, res) => {
@@ -34,7 +35,21 @@ async function startMockLlmServer(port) {
       const messages = body.messages || [];
       const last = messages[messages.length - 1] || {};
       const lastUser = [...messages].reverse().find((msg) => msg.role === 'user');
-      const lastUserText = String(lastUser?.content || '');
+      const extractUserText = (content) => {
+        if (typeof content === 'string') return content;
+        if (!Array.isArray(content)) return '';
+        return content
+          .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+          .map((part) => part.text)
+          .join(' ');
+      };
+      const hasUserImagePart = (content) => {
+        if (!Array.isArray(content)) return false;
+        return content.some(
+          (part) => part?.type === 'image_url' && typeof part.image_url?.url === 'string' && part.image_url.url.startsWith('data:image/')
+        );
+      };
+      const lastUserText = extractUserText(lastUser?.content);
 
       if (lastUserText === 'second turn') {
         const hasFirstTurnHistory = messages.some(
@@ -61,6 +76,10 @@ async function startMockLlmServer(port) {
         state.lowPermissionSawBootstrapMemory = messages.some(
           (msg) => msg.role === 'system' && /favorite color is blue/i.test(String(msg.content || ''))
         );
+      }
+
+      if (lastUserText === 'describe this uploaded image') {
+        state.sawMultimodalImageInput = hasUserImagePart(lastUser?.content);
       }
 
       let message;
@@ -110,6 +129,8 @@ async function startMockLlmServer(port) {
         }
       } else if (lastUserText === 'ask memory in low permission session') {
         message = { role: 'assistant', content: 'low permission memory bootstrap disabled' };
+      } else if (lastUserText === 'describe this uploaded image') {
+        message = { role: 'assistant', content: 'image analyzed: success' };
       } else if (last.role === 'tool') {
         message = { role: 'assistant', content: `final:${last.content}` };
       } else {
@@ -138,7 +159,7 @@ async function startMockLlmServer(port) {
   return { server, state };
 }
 
-async function startGateway({ port, providerConfigPath, sessionStoreDir, longTermMemoryDir }) {
+async function startGateway({ port, providerConfigPath, sessionStoreDir, longTermMemoryDir, extraEnv = {} }) {
   const child = spawn('node', ['apps/gateway/server.js'], {
     cwd: path.resolve(__dirname, '../..'),
     env: {
@@ -147,7 +168,8 @@ async function startGateway({ port, providerConfigPath, sessionStoreDir, longTer
       PROVIDER_CONFIG_PATH: providerConfigPath,
       SESSION_STORE_DIR: sessionStoreDir,
       LONG_TERM_MEMORY_DIR: longTermMemoryDir,
-      MEMORY_BOOTSTRAP_MAX_ENTRIES: '2'
+      MEMORY_BOOTSTRAP_MAX_ENTRIES: '2',
+      ...extraEnv
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -372,6 +394,35 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
 
     assert.equal(llm.state.secondTurnSawFirstTurnContext, true);
 
+    const multimodalRun = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
+      type: 'run',
+      session_id: 'mm-s1',
+      input: 'describe this uploaded image',
+      input_images: [
+        {
+          client_id: 'tiny-image-1',
+          name: 'tiny.png',
+          mime_type: 'image/png',
+          size_bytes: 67,
+          data_url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgU8Vf4QAAAAASUVORK5CYII='
+        }
+      ]
+    });
+    assert.match(multimodalRun.final.output, /image analyzed/i);
+    assert.equal(llm.state.sawMultimodalImageInput, true);
+    const mmSession = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/mm-s1`).then((r) => r.json());
+    assert.equal(mmSession.ok, true);
+    const mmUserMessage = mmSession.data.messages.find((msg) => msg.role === 'user');
+    assert.ok(mmUserMessage);
+    const mmInputImages = mmUserMessage.metadata?.input_images || [];
+    assert.equal(Array.isArray(mmInputImages), true);
+    assert.equal(mmInputImages.length, 1);
+    assert.match(mmInputImages[0].url, /\/api\/session-images\/mm-s1\/tiny-image-1\.png$/);
+
+    const mmImageResp = await fetch(`http://127.0.0.1:${gatewayPort}${mmInputImages[0].url}`);
+    assert.equal(mmImageResp.status, 200);
+    assert.match(mmImageResp.headers.get('content-type') || '', /^image\/png/);
+
     const saveMemory = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
       type: 'run',
       session_id: 'memory-write-s1',
@@ -407,6 +458,70 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     const memorySearch = await fetch(`http://127.0.0.1:${gatewayPort}/api/memory/search?q=blue`).then((r) => r.json());
     assert.equal(memorySearch.ok, true);
     assert.ok(memorySearch.data.items.some((item) => /blue/i.test(String(item.content))));
+  } catch (err) {
+    const logs = gateway?.getLogs?.() || '';
+    err.message = `${err.message}\n--- gateway logs ---\n${logs}`;
+    throw err;
+  } finally {
+    await stopProcess(gateway?.child);
+    llm.server.close();
+  }
+});
+
+test('gateway rejects oversized input_images by configured MAX_INPUT_IMAGE_BYTES', async () => {
+  const llmPort = await getFreePort();
+  const gatewayPort = await getFreePort();
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-e2e-limit-'));
+  const providerConfigPath = path.join(tmpDir, 'providers.yaml');
+  const sessionStoreDir = path.join(tmpDir, 'session-store');
+  const longTermMemoryDir = path.join(tmpDir, 'long-term-memory');
+  fs.writeFileSync(providerConfigPath, [
+    'active_provider: mock',
+    'providers:',
+    '  mock:',
+    '    type: openai_compatible',
+    '    display_name: Mock',
+    `    base_url: http://127.0.0.1:${llmPort}`,
+    '    model: mock-model',
+    '    api_key: mock-key',
+    '    timeout_ms: 2000'
+  ].join('\n'));
+
+  const llm = await startMockLlmServer(llmPort);
+  let gateway;
+
+  try {
+    gateway = await startGateway({
+      port: gatewayPort,
+      providerConfigPath,
+      sessionStoreDir,
+      longTermMemoryDir,
+      extraEnv: { MAX_INPUT_IMAGE_BYTES: '1024' }
+    });
+
+    const rpc = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
+      jsonrpc: '2.0',
+      id: 'rpc-img-limit-1',
+      method: 'runtime.run',
+      params: {
+        input: 'describe',
+        session_id: 'rpc-img-limit-s1',
+        input_images: [
+          {
+            name: 'tiny.png',
+            mime_type: 'image/png',
+            size_bytes: 2048,
+            data_url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgU8Vf4QAAAAASUVORK5CYII='
+          }
+        ]
+      }
+    }, { expectRpcId: 'rpc-img-limit-1' });
+
+    assert.ok(rpc.result);
+    assert.ok(rpc.result.error, JSON.stringify(rpc.result));
+    assert.equal(rpc.result.error.code, -32602);
+    assert.match(rpc.result.error.message, /max bytes/i);
   } catch (err) {
     const logs = gateway?.getLogs?.() || '';
     err.message = `${err.message}\n--- gateway logs ---\n${logs}`;
