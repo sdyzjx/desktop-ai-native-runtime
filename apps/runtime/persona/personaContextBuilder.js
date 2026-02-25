@@ -2,6 +2,7 @@ const { PersonaConfigStore } = require('./personaConfigStore');
 const { PersonaLoader } = require('./personaLoader');
 const { resolvePersonaMode } = require('./personaModeResolver');
 const { PersonaStateStore } = require('./personaStateStore');
+const { PersonaProfileStore } = require('./personaProfileStore');
 const { maybePersistPersonaPreference } = require('./personaPreferenceWriteback');
 
 function clip(text, maxChars) {
@@ -11,11 +12,12 @@ function clip(text, maxChars) {
 }
 
 class PersonaContextBuilder {
-  constructor({ workspaceDir, configStore, loader, stateStore, memoryStore } = {}) {
+  constructor({ workspaceDir, configStore, loader, stateStore, profileStore, memoryStore } = {}) {
     this.workspaceDir = workspaceDir || process.cwd();
     this.configStore = configStore || new PersonaConfigStore();
     this.loader = loader || new PersonaLoader({ workspaceDir: this.workspaceDir });
     this.stateStore = stateStore || new PersonaStateStore();
+    this.profileStore = profileStore || new PersonaProfileStore();
     this.memoryStore = memoryStore || null;
   }
 
@@ -25,6 +27,7 @@ class PersonaContextBuilder {
       return { prompt: '', mode: cfg.defaults.mode, source: 'disabled', sources: [] };
     }
 
+    const profile = this.profileStore.load();
     const persona = this.loader.load(cfg);
     const personaSessionKey = cfg.defaults.sharedAcrossSessions ? '__persona_shared__' : sessionId;
     const sessionState = this.stateStore.get(personaSessionKey);
@@ -50,8 +53,13 @@ class PersonaContextBuilder {
       }
     }
 
+    const effectiveAddressing = profile.addressing.use_custom_first && profile.addressing.custom_name
+      ? profile.addressing.custom_name
+      : profile.addressing.default_user_title;
+
     const parts = [
-      `Persona Profile: ${cfg.defaults.profile || 'yachiyo'}`,
+      `Persona Profile: ${profile.profile || cfg.defaults.profile || 'yachiyo'}`,
+      `Address user as: ${effectiveAddressing}`,
       'Persona Core:',
       clip(persona.soul || '', 600),
       clip(persona.identity || '', 400),
@@ -76,6 +84,7 @@ class PersonaContextBuilder {
       prompt,
       mode: modeResolved.mode,
       source: modeResolved.source,
+      addressing: effectiveAddressing,
       sources: [persona.paths.soulPath, persona.paths.identityPath, persona.paths.userPath],
       writeback
     };
