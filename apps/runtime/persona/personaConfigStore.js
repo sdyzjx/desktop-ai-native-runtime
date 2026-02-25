@@ -9,12 +9,20 @@ function normalizeConfig(raw) {
   if (raw.version !== 1) throw new Error('persona.yaml version must be 1');
 
   const defaults = raw.defaults || {};
+  const source = raw.source || {};
+
   return {
     version: 1,
     defaults: {
+      profile: String(defaults.profile || 'yachiyo'),
       mode: String(defaults.mode || 'hybrid'),
       injectEnabled: defaults.injectEnabled !== false,
-      maxContextChars: Math.max(256, Number(defaults.maxContextChars) || 1500)
+      maxContextChars: Math.max(256, Number(defaults.maxContextChars) || 1500),
+      sharedAcrossSessions: defaults.sharedAcrossSessions !== false
+    },
+    source: {
+      preferredRoot: String(source.preferredRoot || '~/.openclaw/workspace'),
+      allowWorkspaceOverride: source.allowWorkspaceOverride === true
     },
     modes: raw.modes || {},
     writeback: {

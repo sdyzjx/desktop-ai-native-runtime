@@ -8,6 +8,8 @@ test('PersonaConfigStore loads config/persona.yaml', () => {
   const cfg = store.load();
   assert.equal(cfg.version, 1);
   assert.equal(cfg.defaults.mode, 'hybrid');
+  assert.equal(cfg.defaults.profile, 'yachiyo');
+  assert.equal(cfg.defaults.sharedAcrossSessions, true);
 });
 
 test('normalizeConfig validates root', () => {

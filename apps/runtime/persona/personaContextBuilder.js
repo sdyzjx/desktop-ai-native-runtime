@@ -25,13 +25,14 @@ class PersonaContextBuilder {
       return { prompt: '', mode: cfg.defaults.mode, source: 'disabled', sources: [] };
     }
 
-    const persona = this.loader.load();
-    const sessionState = this.stateStore.get(sessionId);
+    const persona = this.loader.load(cfg);
+    const personaSessionKey = cfg.defaults.sharedAcrossSessions ? '__persona_shared__' : sessionId;
+    const sessionState = this.stateStore.get(personaSessionKey);
     const modeResolved = resolvePersonaMode({ input, sessionState, config: cfg });
 
     // Auto update in-memory session mode when detected from input.
     if (modeResolved.source === 'input') {
-      this.stateStore.set(sessionId, { mode: modeResolved.mode, mode_source: 'input' });
+      this.stateStore.set(personaSessionKey, { mode: modeResolved.mode, mode_source: 'input' });
     }
 
     let memoryHints = [];
@@ -50,6 +51,7 @@ class PersonaContextBuilder {
     }
 
     const parts = [
+      `Persona Profile: ${cfg.defaults.profile || 'yachiyo'}`,
       'Persona Core:',
       clip(persona.soul || '', 600),
       clip(persona.identity || '', 400),
