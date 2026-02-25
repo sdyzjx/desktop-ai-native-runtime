@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 function readFileSafe(filePath) {
@@ -9,9 +10,25 @@ function readFileSafe(filePath) {
   }
 }
 
-function buildPersonaFiles({ workspaceDir }) {
-  const root = workspaceDir || process.cwd();
+function expandHome(inputPath) {
+  if (!inputPath || typeof inputPath !== 'string') return inputPath;
+  if (inputPath === '~') return os.homedir();
+  if (inputPath.startsWith('~/')) return path.join(os.homedir(), inputPath.slice(2));
+  return inputPath;
+}
+
+function resolvePersonaRoot({ workspaceDir, config }) {
+  const preferredRoot = expandHome(config?.source?.preferredRoot || '~/.openclaw/workspace');
+  if (config?.source?.allowWorkspaceOverride === true && workspaceDir) {
+    return workspaceDir;
+  }
+  return preferredRoot || workspaceDir || process.cwd();
+}
+
+function buildPersonaFiles({ workspaceDir, config }) {
+  const root = resolvePersonaRoot({ workspaceDir, config });
   return {
+    root,
     soulPath: path.join(root, 'SOUL.md'),
     identityPath: path.join(root, 'IDENTITY.md'),
     userPath: path.join(root, 'USER.md')
@@ -24,8 +41,8 @@ class PersonaLoader {
     this.cache = new Map();
   }
 
-  load() {
-    const files = buildPersonaFiles({ workspaceDir: this.workspaceDir });
+  load(config) {
+    const files = buildPersonaFiles({ workspaceDir: this.workspaceDir, config });
     const out = {};
 
     for (const [key, filePath] of Object.entries(files)) {
@@ -51,4 +68,4 @@ class PersonaLoader {
   }
 }
 
-module.exports = { PersonaLoader, buildPersonaFiles };
+module.exports = { PersonaLoader, buildPersonaFiles, resolvePersonaRoot, expandHome };
