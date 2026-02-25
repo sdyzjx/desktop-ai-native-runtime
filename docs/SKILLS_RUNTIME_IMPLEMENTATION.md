@@ -1,54 +1,86 @@
-# Skills Runtime Implementation (Phase 1-8)
+# Skills Runtime Implementation
 
-## Branch
-- `feature/skills-integration-research`
+## 1. Scope
 
-## What was implemented
+The skills runtime is integrated into current runtime flow and provides:
 
-### Phase 1: Yachiyo runtime paths + config
+- multi-source skill discovery and merge
+- frontmatter-based eligibility gates
+- trigger-based skill selection
+- prompt budget clipping
+- per-session snapshot cache
+- watcher and telemetry
+
+## 2. Delivered Modules
+
 - `config/skills.yaml`
 - `apps/runtime/skills/runtimePaths.js`
 - `apps/runtime/skills/skillConfigStore.js`
-
-### Phase 2: Multi-source loader
 - `apps/runtime/skills/frontmatter.js`
 - `apps/runtime/skills/skillLoader.js`
-- Precedence: `workspace > ~/yachiyo/skills > extraDirs`
-
-### Phase 3: Eligibility gating
 - `apps/runtime/skills/skillEligibility.js`
-- Checks: `enabled`, `requires_env`, `requires_bins`, `requires_any_bins`, `requires_config`, `os`
-
-### Phase 4: Multi-stage limits
-- `apps/runtime/skills/skillPromptBudgeter.js`
-- Discovery/load limits wired in loader
-- Prompt count+char budget clipping (binary search)
-
-### Phase 5: Trigger selector
 - `apps/runtime/skills/skillSelector.js`
-- Hybrid trigger scoring + threshold + cooldown + risk guard
-
-### Phase 6: Runner integration
-- `apps/runtime/skills/skillRuntimeManager.js`
-- `apps/runtime/loop/toolLoopRunner.js` injects skills system prompt
-
-### Phase 7: Watch/snapshot/telemetry
-- `apps/runtime/skills/skillWatcher.js`
+- `apps/runtime/skills/skillPromptBudgeter.js`
 - `apps/runtime/skills/skillSnapshotStore.js`
+- `apps/runtime/skills/skillWatcher.js`
 - `apps/runtime/skills/skillTelemetry.js`
-- `apps/gateway/server.js` wires `SkillRuntimeManager` in runtime
+- `apps/runtime/skills/skillRuntimeManager.js`
 
-## Reliability guards
-- Hard eligibility before trigger selection
-- Prompt budget clipping prevents overflow
-- Snapshot cache with version bump on skill file changes
-- Telemetry JSONL logs under `~/yachiyo/logs/skills-telemetry.jsonl`
+Integration points:
 
-## Test status
-- `npm test`
-- Result: all tests passing (70/70)
+- `apps/runtime/loop/toolLoopRunner.js` (inject skill prompt into system messages)
+- `apps/gateway/server.js` (runtime manager wiring)
 
-## Follow-up items
-1. Add explicit command-dispatch from skill -> tool executor
-2. Add per-skill approval policy (`safe/review/danger`) to runtime enforcement
-3. Add API endpoints for skills diagnostics and snapshot status
+## 3. Key Runtime Rules
+
+1. Source precedence:
+- `workspace/skills` > `~/yachiyo/skills` > `extraDirs`
+
+2. Hard eligibility before selection:
+- disabled/env/bin/config/os checks
+
+3. Trigger selection:
+- score threshold + cooldown + risk gate
+
+4. Prompt safety:
+- bounded by count and chars
+
+5. Observability:
+- JSONL telemetry under `~/yachiyo/logs/skills-telemetry.jsonl`
+
+## 4. Documentation Links
+
+- Module-level spec:
+  - `docs/modules/runtime/skills-runtime.md`
+- Practical smoke skill:
+  - `docs/TEST_SKILL_SMOKE_GUIDE.md`
+- Combined runtime usage cases:
+  - `docs/RUNTIME_FEATURE_USAGE_CASES.md`
+
+## 5. Validation
+
+Use:
+
+```bash
+npm test
+```
+
+Skills-related test coverage:
+
+- `test/runtime/skills/runtimePaths.test.js`
+- `test/runtime/skills/skillConfigStore.test.js`
+- `test/runtime/skills/skillLoader.test.js`
+- `test/runtime/skills/skillEligibility.test.js`
+- `test/runtime/skills/skillSelector.test.js`
+- `test/runtime/skills/skillPromptBudgeter.test.js`
+- `test/runtime/skills/skillSnapshotStore.test.js`
+- `test/runtime/skills/skillWatcher.test.js`
+- `test/runtime/skills/skillTelemetry.test.js`
+- `test/runtime/skills/skillRuntimeManager.test.js`
+- `test/runtime/skills/repoTestSkill.test.js`
+
+## 6. Follow-up
+
+1. Command-dispatch from skill directives to tool executor.
+2. Per-skill approval policy integration (`safe/review/danger`).
+3. API endpoints for skills diagnostics and snapshot introspection.
