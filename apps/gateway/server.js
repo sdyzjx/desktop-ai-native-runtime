@@ -56,6 +56,8 @@ const contextMaxChars = Math.max(0, Number(process.env.CONTEXT_MAX_CHARS) || 120
 const memoryBootstrapMaxEntries = Math.max(0, Number(process.env.MEMORY_BOOTSTRAP_MAX_ENTRIES) || 10);
 const memoryBootstrapMaxChars = Math.max(0, Number(process.env.MEMORY_BOOTSTRAP_MAX_CHARS) || 2400);
 const memorySopMaxChars = Math.max(0, Number(process.env.MEMORY_SOP_MAX_CHARS) || 8000);
+const maxInputImages = Math.max(0, Number(process.env.MAX_INPUT_IMAGES) || 4);
+const maxInputImageDataUrlChars = Math.max(128, Number(process.env.MAX_INPUT_IMAGE_DATA_URL_CHARS) || 4 * 1024 * 1024);
 
 const runner = new ToolLoopRunner({
   bus,
@@ -274,10 +276,69 @@ function sendSafe(ws, payload) {
   ws.send(JSON.stringify(payload));
 }
 
+function normalizeInputImages(rawInputImages) {
+  if (rawInputImages === undefined || rawInputImages === null) {
+    return { ok: true, images: [] };
+  }
+
+  if (!Array.isArray(rawInputImages)) {
+    return { ok: false, error: 'params.input_images must be an array' };
+  }
+
+  if (rawInputImages.length > maxInputImages) {
+    return { ok: false, error: `params.input_images exceeds limit (${maxInputImages})` };
+  }
+
+  const images = [];
+  for (const rawImage of rawInputImages) {
+    if (!rawImage || typeof rawImage !== 'object' || Array.isArray(rawImage)) {
+      return { ok: false, error: 'params.input_images entries must be objects' };
+    }
+
+    const dataUrl = typeof rawImage.data_url === 'string' ? rawImage.data_url.trim() : '';
+    if (!/^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(dataUrl)) {
+      return { ok: false, error: 'params.input_images[].data_url must be a valid image data URL' };
+    }
+
+    if (dataUrl.length > maxInputImageDataUrlChars) {
+      return { ok: false, error: `params.input_images[].data_url exceeds max chars (${maxInputImageDataUrlChars})` };
+    }
+
+    images.push({
+      name: typeof rawImage.name === 'string' ? rawImage.name.trim() : '',
+      mime_type: typeof rawImage.mime_type === 'string' ? rawImage.mime_type.trim() : '',
+      size_bytes: Number(rawImage.size_bytes) || 0,
+      data_url: dataUrl
+    });
+  }
+
+  return { ok: true, images };
+}
+
 async function enqueueRpc(ws, rpcPayload, mode) {
   const requestInput = String(rpcPayload.params?.input || '');
+  const normalizedImages = normalizeInputImages(rpcPayload.params?.input_images);
   const requestId = rpcPayload.id ?? null;
   const requestedPermissionLevel = rpcPayload.params?.permission_level;
+
+  if (!normalizedImages.ok) {
+    if (mode === 'legacy') {
+      sendSafe(ws, { type: 'error', message: normalizedImages.error });
+      return;
+    }
+    sendSafe(ws, createRpcError(requestId, RpcErrorCode.INVALID_PARAMS, normalizedImages.error));
+    return;
+  }
+
+  const inputImages = normalizedImages.images;
+  if (!requestInput.trim() && inputImages.length === 0) {
+    if (mode === 'legacy') {
+      sendSafe(ws, { type: 'error', message: 'input text or input_images is required' });
+      return;
+    }
+    sendSafe(ws, createRpcError(requestId, RpcErrorCode.INVALID_PARAMS, 'params.input or params.input_images is required'));
+    return;
+  }
 
   if (requestedPermissionLevel !== undefined && !isSessionPermissionLevel(requestedPermissionLevel)) {
     if (mode === 'legacy') {
@@ -368,7 +429,12 @@ async function enqueueRpc(ws, rpcPayload, mode) {
         metadata: {
           mode,
           permission_level: runtimeContext?.permission_level || normalizeSessionPermissionLevel(requestedPermissionLevel),
-          workspace_root: runtimeContext?.workspace_root || null
+          workspace_root: runtimeContext?.workspace_root || null,
+          input_images: inputImages.map((image) => ({
+            name: image.name,
+            mime_type: image.mime_type,
+            size_bytes: image.size_bytes
+          }))
         }
       });
     },
@@ -401,7 +467,10 @@ async function enqueueRpc(ws, rpcPayload, mode) {
         state,
         mode,
         permission_level: permissionLevel,
-        workspace_root: runtimeContext?.workspace_root || settings?.workspace?.root_dir || null
+        workspace_root: runtimeContext?.workspace_root || settings?.workspace?.root_dir || null,
+        metadata: {
+          input_images_count: inputImages.length
+        }
       });
     },
     sendEvent: (eventPayload) => {
@@ -461,7 +530,8 @@ wss.on('connection', (ws) => {
         params: {
           session_id: msg.session_id || `web-${uuidv4()}`,
           input: msg.input || '',
-          permission_level: msg.permission_level
+          permission_level: msg.permission_level,
+          input_images: msg.input_images
         }
       };
 

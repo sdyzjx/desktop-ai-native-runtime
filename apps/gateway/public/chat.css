@@ -230,6 +230,25 @@
   box-shadow: var(--shadow-soft);
 }
 
+.message-body {
+  white-space: pre-wrap;
+}
+
+.message-attachments {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.message-attachment-chip {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--line));
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--panel-solid) 72%, transparent);
+}
+
 .message-wrap.assistant .message-bubble {
   background: var(--bubble-assistant);
   border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--line));
@@ -280,6 +299,56 @@
   font: inherit;
   max-height: 220px;
   min-height: 28px;
+}
+
+.composer-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.btn-attach {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
+.upload-preview-list {
+  max-width: 760px;
+  margin: 10px auto 0;
+  display: grid;
+  gap: 8px;
+}
+
+.upload-preview-item {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  background: color-mix(in srgb, var(--panel-solid) 74%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--line));
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+.upload-preview-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+
+.upload-preview-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.upload-preview-size {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.upload-remove-btn {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 .composer-tip {
@@ -412,6 +481,26 @@
 
   .composer-wrap {
     padding: 12px 12px 14px;
+  }
+
+  .composer-inner {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .composer-actions {
+    justify-content: flex-end;
+  }
+
+  .upload-preview-item {
+    grid-template-columns: 44px 1fr auto;
+    gap: 8px;
+    padding: 7px 8px;
+  }
+
+  .upload-preview-thumb {
+    width: 44px;
+    height: 44px;
   }
 
   .session-permission-label {

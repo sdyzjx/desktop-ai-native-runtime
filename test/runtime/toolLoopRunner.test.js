@@ -175,6 +175,46 @@ test('ToolLoopRunner injects seedMessages into reasoner prompt', async () => {
   dispatcher.stop();
 });
 
+test('ToolLoopRunner builds multimodal user message from inputImages', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor(localTools);
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let seenMessages = [];
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => ({
+      async decide({ messages }) {
+        seenMessages = messages;
+        return { type: 'final', output: 'ok-image' };
+      }
+    }),
+    listTools: () => executor.listTools(),
+    maxStep: 1,
+    toolResultTimeoutMs: 500
+  });
+
+  const sampleDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgU8Vf4QAAAAASUVORK5CYII=';
+  const result = await runner.run({
+    sessionId: 's-image',
+    input: 'describe this image',
+    inputImages: [{ data_url: sampleDataUrl, name: 'tiny.png', mime_type: 'image/png', size_bytes: 67 }]
+  });
+
+  assert.equal(result.state, 'DONE');
+  assert.equal(result.output, 'ok-image');
+  const userMessage = seenMessages[seenMessages.length - 1];
+  assert.equal(userMessage.role, 'user');
+  assert.equal(Array.isArray(userMessage.content), true);
+  assert.equal(userMessage.content[0].type, 'text');
+  assert.equal(userMessage.content[0].text, 'describe this image');
+  assert.equal(userMessage.content[1].type, 'image_url');
+  assert.equal(userMessage.content[1].image_url.url, sampleDataUrl);
+
+  dispatcher.stop();
+});
+
 test('ToolLoopRunner passes runtimeContext workspace and permission to tool execution', async () => {
   const bus = new RuntimeEventBus();
   const executor = new ToolExecutor({
