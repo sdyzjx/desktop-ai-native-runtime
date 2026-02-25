@@ -24,8 +24,8 @@
 - [x] 执行步骤文档（本文件）
 - [x] 在 plan 事件中暴露 persona mode（运行可观测）
 
-## Step 4 — 后续增强（待做）
+## Step 4 — 后续增强（进行中）
 - [ ] session 持久化 persona_state（当前为内存态）
-- [ ] 增加 `/mode` 或 API 控制入口
+- [x] 增加 API 控制入口（`/api/persona/profile`）
 - [ ] 增加 persona telemetry 文件化（当前复用 runtime event）
 - [ ] 增加 UI debug 面板展示 persona source/writeback
