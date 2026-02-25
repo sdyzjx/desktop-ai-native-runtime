@@ -65,6 +65,12 @@ npm run live2d:import
 npm run desktop:up
 ```
 
+3. Run quick desktop RPC smoke after startup:
+
+```bash
+npm run desktop:smoke
+```
+
 Runtime summary file:
 - `data/desktop-live2d/runtime-summary.json`
 

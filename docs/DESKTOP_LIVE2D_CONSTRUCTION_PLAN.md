@@ -356,7 +356,7 @@ flowchart LR
   - Phase C：runtime 事件转发（gateway runtime notification -> `desktop.event` -> renderer `runtime.final` 对齐）
   - Phase D：tool-calling 暴露（`tool.list` / `tool.invoke`）+ `model.*` 最小控制能力
 - 进行中
-  - Phase E：稳定性收敛
+  - Phase E：稳定性收敛（自动化 smoke 已接入，待手工发布验收）
 - 未开始
   - 无
 

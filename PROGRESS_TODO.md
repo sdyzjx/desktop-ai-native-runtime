@@ -42,7 +42,7 @@ Branch: `codex/feature/electron-desktop`
 
 ## 2.2 Validation Status
 
-- Latest full test result on feature branch: `npm test` passed (`134/134`).
+- Latest full test result on feature branch: `npm test` passed (`137/137`).
 - Integration branch is intentionally **not merged into `main`** yet.
 
 ## 3. TODO / Next Actions
@@ -73,7 +73,7 @@ Branch: `codex/feature/electron-desktop`
   - strict tool whitelist + schema + rate limit + audit log
   - tests for mapping success and rejection paths
 
-5. `IN_PROGRESS` Execute Phase E stabilization and release hardening
+5. `REVIEW` Execute Phase E stabilization and release hardening
 - Scope:
   - stress and regression checklist
   - telemetry/trace observability completion
@@ -196,7 +196,10 @@ Do not add free-form items outside this format.
   2. Add gateway health wait utility with test coverage.
   3. Validate with `npm test` and manual desktop launch.
 - Commits/PR:
-  - TDB
+  - `999237a` (Phase A docs replan)
+  - `a401e63` (Phase B chat panel + rpc + submit ipc)
+  - `a329295` (Phase C/D runtime forwarding + tool-calling bridge)
+  - TDB (Phase E finalization)
 - Update Log:
   - 2026-02-25 23:59 IN_PROGRESS desktop shell bootstrap started.
   - 2026-02-26 00:04 REVIEW code + tests completed (85/85 pass), waiting manual desktop smoke.
@@ -274,3 +277,4 @@ Do not add free-form items outside this format.
   - 2026-02-26 02:34 DONE Phase C delivered (gateway runtime notification forwarding to `desktop.event` + renderer final sync).
   - 2026-02-26 02:34 DONE Phase D delivered (`tool.list`/`tool.invoke` + `model.*` control methods + whitelist tests).
   - 2026-02-26 02:34 IN_PROGRESS Phase E stabilization started.
+  - 2026-02-26 02:46 REVIEW Phase E automation baseline delivered (`desktop:smoke` + smoke tests + regression docs sync), waiting manual release smoke.

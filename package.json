@@ -7,6 +7,7 @@
     "dev": "node apps/gateway/server.js",
     "start": "node apps/gateway/server.js",
     "desktop:up": "node scripts/desktop-up.js",
+    "desktop:smoke": "node scripts/desktop-live2d-smoke.js",
     "desktop:dev": "electron apps/desktop/main.js",
     "desktop:start": "electron apps/desktop/main.js",
     "live2d:import": "node scripts/live2d-import.js",
