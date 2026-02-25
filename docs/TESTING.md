@@ -23,10 +23,10 @@ All tests are offline and deterministic. No external model API is required in CI
 - `test/runtime/memoryTools.test.js`: `memory_write` / `memory_search` tool integration
 - `test/runtime/memorySopLoader.test.js`: markdown SOP loading and clipping behavior
 - `test/runtime/llmProviderManager.test.js`: provider selection, env key resolution, cache invalidation
-- `test/runtime/openaiReasoner.test.js`: OpenAI-compatible response parsing (tool/final)
+- `test/runtime/openaiReasoner.test.js`: OpenAI-compatible response parsing (tool/final) and transient network retry behavior
 - `test/runtime/toolLoopRunner.test.js`: event-driven tool call loop behavior
 - `test/runtime/runtimeRpcWorker.test.js`: queue consumer RPC routing and response flow
-- `test/integration/gateway.e2e.test.js`: end-to-end HTTP + WebSocket + runtime path with mock LLM, persisted session verification, tool-driven long-term memory write/search, and session-start SOP/bootstrap injection check
+- `test/integration/gateway.e2e.test.js`: end-to-end HTTP + WebSocket + runtime path with mock LLM, persisted session verification, multimodal image upload + persisted image URL retrieval, tool-driven long-term memory write/search, and session-start SOP/bootstrap injection check
 
 ## Commands
 
