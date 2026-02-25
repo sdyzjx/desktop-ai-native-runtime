@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Yachiyo Chat</title>
+  <link rel="stylesheet" href="/system.css" />
   <link rel="stylesheet" href="/chat.css" />
 </head>
 <body>
@@ -32,6 +33,14 @@
             <option value="high">high</option>
           </select>
         </div>
+        <div class="theme-wrap">
+          <label for="themeSelect" class="session-permission-label">Theme</label>
+          <select id="themeSelect" class="session-permission-select theme-select">
+            <option value="auto">auto</option>
+            <option value="light">light</option>
+            <option value="dark">dark</option>
+          </select>
+        </div>
       </header>
 
       <section id="messageList" class="message-list"></section>
@@ -41,7 +50,7 @@
           <textarea id="chatInput" rows="1" placeholder="Send a message..."></textarea>
           <button id="sendBtn" class="btn btn-send">Send</button>
         </div>
-        <div class="composer-tip">Enter 发送，Shift+Enter 换行。</div>
+        <div class="composer-tip">Enter 发送（输入法选词时不会发送），Shift+Enter 换行。</div>
       </footer>
     </main>
   </div>

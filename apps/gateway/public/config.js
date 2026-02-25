@@ -1,3 +1,7 @@
+const THEME_STORAGE_KEY = 'yachiyo_theme_v1';
+const THEME_PREFERENCES = ['auto', 'light', 'dark'];
+const DEFAULT_THEME_PREFERENCE = 'auto';
+
 const elements = {
   activeProviderSelect: document.getElementById('activeProviderSelect'),
   providerCards: document.getElementById('providerCards'),
@@ -7,13 +11,44 @@ const elements = {
   saveBtn: document.getElementById('saveBtn'),
   loadYamlBtn: document.getElementById('loadYamlBtn'),
   saveYamlBtn: document.getElementById('saveYamlBtn'),
-  rawYaml: document.getElementById('rawYaml')
+  rawYaml: document.getElementById('rawYaml'),
+  themeSelect: document.getElementById('themeSelect')
 };
 
 const state = {
   activeProvider: '',
-  providers: []
+  providers: [],
+  themePreference: DEFAULT_THEME_PREFERENCE
 };
+
+function normalizeThemePreference(value) {
+  if (typeof value === 'string' && THEME_PREFERENCES.includes(value)) return value;
+  return DEFAULT_THEME_PREFERENCE;
+}
+
+function resolveTheme(preference) {
+  if (preference === 'auto') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  return preference;
+}
+
+function applyTheme(preference) {
+  const normalizedPreference = normalizeThemePreference(preference);
+  const resolvedTheme = resolveTheme(normalizedPreference);
+  document.documentElement.setAttribute('data-theme', resolvedTheme);
+  state.themePreference = normalizedPreference;
+  elements.themeSelect.value = normalizedPreference;
+}
+
+function persistThemePreference(preference) {
+  localStorage.setItem(THEME_STORAGE_KEY, normalizeThemePreference(preference));
+}
+
+function loadThemePreference() {
+  const raw = localStorage.getItem(THEME_STORAGE_KEY);
+  applyTheme(raw);
+}
 
 function setStatus(text, isError = false) {
   elements.statusText.textContent = text;
@@ -275,6 +310,23 @@ function render() {
 }
 
 function bindEvents() {
+  elements.themeSelect.onchange = () => {
+    const nextPreference = normalizeThemePreference(elements.themeSelect.value);
+    persistThemePreference(nextPreference);
+    applyTheme(nextPreference);
+  };
+
+  const themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+  const handleThemeMediaChange = () => {
+    if (state.themePreference !== 'auto') return;
+    applyTheme('auto');
+  };
+  if (typeof themeMedia.addEventListener === 'function') {
+    themeMedia.addEventListener('change', handleThemeMediaChange);
+  } else if (typeof themeMedia.addListener === 'function') {
+    themeMedia.addListener(handleThemeMediaChange);
+  }
+
   elements.activeProviderSelect.onchange = onActiveProviderChange;
   elements.addProviderBtn.onclick = addProvider;
   elements.reloadBtn.onclick = async () => {
@@ -313,6 +365,7 @@ function bindEvents() {
 }
 
 async function bootstrap() {
+  loadThemePreference();
   bindEvents();
 
   try {

@@ -1,26 +1,3 @@
-:root {
-  color-scheme: dark;
-  --bg: #1f1f1f;
-  --panel: #1a1a1a;
-  --line: #333;
-  --text: #ececec;
-  --muted: #a2a2a2;
-  --primary: #10a37f;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  min-height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Söhne", "Helvetica Neue", "Noto Sans SC", sans-serif;
-}
-
 .config-shell {
   max-width: 1160px;
   margin: 0 auto;
@@ -51,6 +28,21 @@ body {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: end;
+}
+
+.theme-control {
+  display: inline-grid;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.theme-control select {
+  min-width: 84px;
+  padding: 7px 8px;
 }
 
 .panel {
@@ -58,6 +50,8 @@ body {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 14px;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
 }
 
 .row {
@@ -74,17 +68,6 @@ label {
 }
 
 select,
-input,
-textarea {
-  background: #252525;
-  color: var(--text);
-  border: 1px solid #3c3c3c;
-  border-radius: 10px;
-  padding: 8px 10px;
-  font: inherit;
-}
-
-select,
 input {
   width: 100%;
 }
@@ -95,8 +78,9 @@ input {
 }
 
 .provider-card {
-  border: 1px solid #353535;
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--line));
   border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-solid) 76%, transparent);
   padding: 12px;
   display: grid;
   gap: 10px;
@@ -119,44 +103,24 @@ input {
   grid-column: 1 / -1;
 }
 
-.btn {
-  border: 1px solid #3f3f3f;
-  border-radius: 10px;
-  background: #272727;
-  color: var(--text);
-  cursor: pointer;
-  padding: 8px 12px;
-  text-decoration: none;
-  font-size: 13px;
-}
-
-.btn:hover {
-  background: #323232;
-}
-
-.btn-primary {
-  border-color: transparent;
-  background: var(--primary);
-  color: #fff;
-}
-
 .status {
   font-size: 13px;
   color: var(--muted);
 }
 
 .status.ok {
-  color: #34c759;
+  color: #41c783;
 }
 
 .status.err {
-  color: #ff5f56;
+  color: #ff6c8b;
 }
 
 .raw-yaml {
   width: 100%;
   min-height: 280px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.45;
 }
 
 @media (max-width: 860px) {

@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Provider Config</title>
+  <link rel="stylesheet" href="/system.css" />
   <link rel="stylesheet" href="/config.css" />
 </head>
 <body>
@@ -14,6 +15,14 @@
         <p>图形化管理 `providers.yaml`，保存后新会话立即生效。</p>
       </div>
       <div class="header-actions">
+        <label class="theme-control" for="themeSelect">
+          <span>Theme</span>
+          <select id="themeSelect">
+            <option value="auto">auto</option>
+            <option value="light">light</option>
+            <option value="dark">dark</option>
+          </select>
+        </label>
         <a class="btn" href="/">Back to Chat</a>
         <button id="reloadBtn" class="btn">Reload</button>
         <button id="saveBtn" class="btn btn-primary">Save Graph Config</button>
