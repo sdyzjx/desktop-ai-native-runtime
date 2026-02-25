@@ -229,7 +229,10 @@ Do not add free-form items outside this format.
   2. Implement M1 minimal loop with import/startup/RPC/IPC/renderer bubble.
   3. Expand to M2/M3 control and packaging milestones.
 - Commits/PR:
-  - TDB
+  - `999237a` (Phase A docs replan)
+  - `a401e63` (Phase B chat panel + RPC + submit IPC)
+  - `a329295` (Phase C/D runtime forwarding + tool-calling bridge)
+  - `13eb4a1` (Phase E smoke script + smoke tests + docs sync)
 - Update Log:
   - 2026-02-26 01:02 IN_PROGRESS requirement registered and development started.
   - 2026-02-26 01:06 DONE M0 baseline decisions frozen (port/token/import strategy/V1 method scope).
