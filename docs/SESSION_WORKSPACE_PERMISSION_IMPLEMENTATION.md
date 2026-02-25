@@ -306,3 +306,159 @@ curl http://localhost:3000/api/sessions/<sessionId>/settings
 3. `db6b0ff`
 - Permission gating for memory/shell/tools and bootstrap gating (Phase 3)
 
+---
+
+## 12. Module-Level Contract Reference
+
+This section gives module-granularity contract details (file-level input/output and side effects).
+
+## 12.1 `apps/runtime/session/sessionPermissions.js`
+
+Exports:
+
+1. `isSessionPermissionLevel(value)`
+- Input: any value
+- Output: boolean
+- Rule: true only for `low|medium|high`
+
+2. `normalizeSessionPermissionLevel(value, { fallback })`
+- Input: arbitrary `value`, optional fallback
+- Output: valid permission level
+- Rule: invalid value falls back
+
+3. `normalizeWorkspaceSettings(workspace)`
+- Input: partial workspace settings
+- Output: `{ mode: "session", root_dir }` normalized object
+
+4. `buildDefaultSessionSettings()`
+- Output: default settings for new session
+
+5. `normalizeSessionSettings(settings)`
+- Input: persisted/raw settings
+- Output: normalized settings shape
+
+6. `mergeSessionSettings(current, patch)`
+- Input: existing settings + patch payload
+- Output: merged and normalized settings
+- Side effect: none (pure function)
+
+## 12.2 `apps/runtime/session/workspaceManager.js`
+
+Class: `SessionWorkspaceManager`
+
+Methods:
+
+1. `ensureSessionWorkspace(sessionId)`
+- Creates directory under workspace root for target session
+- Returns absolute workspace path
+
+2. `getWorkspaceInfo(sessionId)`
+- Returns normalized workspace descriptor:
+  - `{ mode: "session", root_dir: "<abs path>" }`
+
+Default storage root:
+- `SESSION_WORKSPACES_DIR` or `data/session-workspaces`
+
+## 12.3 `apps/runtime/security/sessionPermissionPolicy.js`
+
+Exports:
+
+1. `canReadLongTermMemory(level)`
+- `false` for `low`, otherwise `true`
+
+2. `canWriteLongTermMemory(level)`
+- `true` only for `high`
+
+3. `isToolAllowedForPermission(toolName, level)`
+- `memory_search`: denied at `low`
+- `memory_write`: allowed only at `high`
+- others: allowed
+
+4. `getShellPermissionProfile(level)`
+- `low`: low allowlist set
+- `medium`: low allowlist + medium extras
+- `high`: `allowBins = null` (handled by path boundary checks)
+
+## 12.4 `apps/runtime/tooling/adapters/shell.js`
+
+Key stages:
+
+1. Command parse (`splitCommand`)
+- blocks shell operators
+
+2. Path intent extraction (`collectPathIntent`)
+- classifies read/write paths for known commands
+
+3. Boundary enforcement (`enforcePermissionPathPolicy`)
+- `low/medium`: read+write must stay in workspace
+- `high`: writes must stay in workspace
+- `high + cp`: external source allowed, destination must stay in workspace
+
+4. Execution (`execFile`)
+- cwd always session workspace root for permission-aware mode
+
+## 12.5 `apps/runtime/tooling/adapters/memory.js`
+
+1. `memoryWrite(args, context)`
+- validates permission with `canWriteLongTermMemory`
+- writes entry to long-term memory store
+
+2. `memorySearch(args, context)`
+- validates permission with `canReadLongTermMemory`
+- queries long-term memory store
+
+## 12.6 `apps/runtime/rpc/runtimeRpcWorker.js`
+
+Order of runtime hooks:
+
+1. `buildRunContext`
+2. `buildPromptMessages` (receives `runtime_context`)
+3. `onRunStart`
+4. `runner.run({ runtimeContext })`
+5. `onRunFinal`
+
+This ensures permission/workspace context is available before prompt seeding and tool execution.
+
+## 12.7 `apps/gateway/server.js`
+
+Added responsibilities:
+
+1. build session runtime context
+- resolve permission level
+- allocate/resolve session workspace root
+- persist normalized settings
+
+2. session settings APIs
+- `GET /api/sessions/:id/settings`
+- `PUT /api/sessions/:id/settings`
+
+3. memory bootstrap gate by permission
+- `low` session: do not seed SOP/bootstrap memory
+
+---
+
+## 13. Incremental Test Matrix
+
+New/updated coverage mapped to modules:
+
+1. `test/runtime/sessionPermissions.test.js`
+- covers all exported normalization/merge logic in `sessionPermissions.js`
+
+2. `test/runtime/sessionPermissionPolicy.test.js`
+- covers tool gating, memory capability, and shell profile generation
+
+3. `test/runtime/tooling.test.js` (incremental cases)
+- high permission external-file copy into workspace: allowed
+- high permission copy destination outside workspace: denied
+- medium permission external file read (`cat /abs/path`): denied
+
+4. `test/integration/gateway.e2e.test.js` (incremental API validation)
+- invalid `permission_level` in settings API returns HTTP 400
+- invalid `workspace` shape in settings API returns HTTP 400
+
+5. existing integration/runtime tests remain green to guard regression across:
+- RPC queue flow
+- session persistence
+- tool loop orchestration
+- workspace propagation
+- permission bootstrapping behavior

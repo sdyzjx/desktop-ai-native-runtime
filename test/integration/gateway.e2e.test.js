@@ -303,6 +303,32 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     assert.equal(patchedSettings.ok, true);
     assert.equal(patchedSettings.data.permission_level, 'low');
 
+    const invalidPermissionSettingsResp = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          permission_level: 'super-admin'
+        }
+      })
+    });
+    assert.equal(invalidPermissionSettingsResp.status, 400);
+    const invalidPermissionSettings = await invalidPermissionSettingsResp.json();
+    assert.equal(invalidPermissionSettings.ok, false);
+
+    const invalidWorkspaceSettingsResp = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          workspace: 'not-an-object'
+        }
+      })
+    });
+    assert.equal(invalidWorkspaceSettingsResp.status, 400);
+    const invalidWorkspaceSettings = await invalidWorkspaceSettingsResp.json();
+    assert.equal(invalidWorkspaceSettings.ok, false);
+
     const legacyEventsResp = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/events`).then((r) => r.json());
     assert.equal(legacyEventsResp.ok, true);
     assert.ok(legacyEventsResp.data.total >= 1);
