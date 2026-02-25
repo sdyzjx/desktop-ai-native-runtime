@@ -42,36 +42,36 @@ Branch: `codex/feature/electron-desktop`
 
 ## 2.2 Validation Status
 
-- Latest full test result on integration: `npm test` passed (`83/83`).
+- Latest full test result on feature branch: `npm test` passed (`113/113`).
 - Integration branch is intentionally **not merged into `main`** yet.
 
 ## 3. TODO / Next Actions
 
 ## 3.1 Near-term
 
-1. `REVIEW` Validate integrated branch with manual smoke scenarios
-- Owner: user + runtime
+1. `IN_PROGRESS` Execute Desktop Live2D Phase A replan baseline
+- Owner: runtime
 - Acceptance:
-  - session permission behavior matches matrix
-  - workspace boundary behavior matches policy
-  - skills selection/prompt injection works with real messages
+  - chat panel / RPC event stream / tool-calling exposure are all reflected in design docs
+  - requirement register and staged acceptance are synced
 
-2. `TODO` Add skills diagnostics API endpoints
+2. `TODO` Implement Phase B chat panel UI
 - Scope:
-  - snapshot version/status
-  - selected/dropped skill metadata for recent turns
-  - telemetry tail endpoint (read-only)
+  - renderer chat panel (`history + input + visibility`)
+  - rpc methods `chat.panel.*`
+  - tests for history truncation / append / ipc submit
 
-3. `TODO` Add command-dispatch path from skill directives to explicit tool execution policy
+3. `TODO` Implement Phase C RPC message forwarding
 - Scope:
-  - define dispatch schema
-  - policy guard and approval mode
-  - tests for dispatch + rejection cases
+  - runtime event -> desktop event bridge
+  - event notification contract (`desktop.event`)
+  - tests for ordering, reconnection, and timeout handling
 
-4. `TODO` Add per-skill approval policy (`safe/review/danger`) to runtime enforcement
+4. `TODO` Implement Phase D model-control tool-calling exposure
 - Scope:
-  - enforce before tool call
-  - include override/audit trail
+  - `tool.list` / `tool.invoke`
+  - strict tool whitelist + schema + rate limit + audit log
+  - tests for mapping success and rejection paths
 
 ## 3.2 Merge Gate (before `main`)
 
@@ -199,7 +199,7 @@ Do not add free-form items outside this format.
 - Created At: 2026-02-26 01:02
 - Source: user
 - Priority: P0
-- Status: IN_PROGRESS
+- Status: DONE
 - Owner: runtime
 - Branch: `codex/feature/electron-desktop`
 - Description:
@@ -228,3 +228,39 @@ Do not add free-form items outside this format.
   - 2026-02-26 01:24 DONE M1 accepted via GUI+RPC smoke (`desktop:up`, `state.get`, `chat.show`).
   - 2026-02-26 01:33 DONE M1 layout hotfix: adaptive auto-fit and bottom alignment resolved oversized/cropped viewport issue.
   - 2026-02-26 01:45 DONE M1 configurability patch: added `config/desktop-live2d.json` for window/layout/clarity tuning and drag-ready right-bottom defaults.
+  - 2026-02-26 02:16 DONE baseline scope closed and moved follow-up capabilities to REQ-20260226-005.
+
+### [REQ-20260226-005] Desktop Live2D phase expansion: chat panel + RPC forwarding + tool-calling
+- Created At: 2026-02-26 02:16
+- Source: user
+- Priority: P0
+- Status: IN_PROGRESS
+- Owner: runtime
+- Branch: `codex/feature/electron-desktop`
+- Description:
+  - Replan Desktop Live2D to include missing core capabilities: full chat panel, standardized RPC message forwarding pipeline, and secure model-control tool-calling exposure for Agent integration.
+- Acceptance Criteria:
+  1. Chat panel supports history append/clear/show/hide and optional local input submission.
+  2. RPC layer supports both request/response and event notifications (`desktop.event`) with end-to-end forwarding tests.
+  3. Tool-calling surface is exposed via `tool.list` / `tool.invoke` with whitelist, schema validation, and rejection-path tests.
+  4. Construction docs, README, and progress register remain synchronized per phase with commit traceability.
+- Impacted Modules:
+  - `apps/desktop-live2d/main/*`
+  - `apps/desktop-live2d/renderer/*`
+  - `test/desktop-live2d/*`
+  - `docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`
+  - `README.md`
+- Risks/Dependencies:
+  - Runtime event schema may evolve; adapter layer must be versioned to avoid desktop-side coupling.
+  - Tool-calling without strict governance can cause control contention and unstable model behavior.
+- Plan:
+  1. Phase A: freeze expanded protocol and test plan.
+  2. Phase B: deliver chat panel UI and rpc methods.
+  3. Phase C: deliver runtime-to-desktop event forwarding pipeline.
+  4. Phase D: deliver tool-calling exposure and model-control mapping.
+  5. Phase E: stabilization, observability, and release smoke.
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-26 02:16 IN_PROGRESS requirement created from user feedback.
+  - 2026-02-26 02:16 DONE Phase A docs replanned and synchronized (`construction plan`, `README`, `progress register`).

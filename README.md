@@ -51,7 +51,7 @@ curl http://localhost:3000/health
 - Chat UI: `http://localhost:3000/`
 - Provider config UI: `http://localhost:3000/config.html`
 
-## Desktop Live2D (M1)
+## Desktop Live2D (Replanned)
 
 1. Import model assets into project path:
 
@@ -75,7 +75,17 @@ UI config file:
   - model size/position: `layout.*`
   - clarity: `render.resolutionScale` / `render.maxDevicePixelRatio`
 
-Detailed plan:
+Current baseline (already done):
+- transparent desktop Live2D window
+- basic RPC methods: `state.get`, `param.set`, `chat.show`
+- right-bottom placement + drag-ready window + configurable layout/clarity
+
+Current gaps under active development:
+- chat panel (history + input), not only transient bubble
+- RPC request + event-stream forwarding contract
+- model-control tool-calling exposure for agent integration
+
+Detailed construction plan:
 - `docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`
 
 ## Persistence

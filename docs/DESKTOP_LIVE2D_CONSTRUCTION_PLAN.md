@@ -1,170 +1,149 @@
-# Desktop Live2D 施工方案（详细版）
+# Desktop Live2D 施工方案（重规划版）
 
-## 1. 目标与边界
+## 1. 背景与当前缺口
 
-### 1.1 目标（V1）
-- 单命令启动整套系统：`npm run desktop:up`。
-- Live2D 小人在桌面窗口可稳定渲染。
-- 提供可控 RPC：`state.get`、`param.set`、`chat.show`，并具备标准错误回包。
-- 对话消息通过透明气泡展示，支持自动消失与覆盖更新。
-- 桌宠系统与主程序隔离：仅通过本地协议通信，不共享内部对象。
+当前 `desktop-live2d` 已完成 M1 基线能力：
+- 单命令启动：`npm run desktop:up`
+- 透明窗口 + Live2D 渲染
+- 本地 WS JSON-RPC：`state.get` / `param.set` / `chat.show`
+- Main <-> Renderer IPC 转发
+- 基础配置文件：`config/desktop-live2d.json`
 
-### 1.2 非目标（V1 不做）
-- 不做多角色同时渲染。
-- 不做完整动作编排器（仅预留接口）。
-- 不接入系统级权限能力（文件读写、shell 执行等）。
+但与你要求相比，仍有三个核心缺口：
+1. 缺少“聊天框面板”（当前只有气泡，缺少对话历史与输入区）。
+2. 缺少“统一 RPC 消息传递链路”定义（请求、通知、事件流尚未标准化）。
+3. 缺少“模型控制 Tool Calling 暴露层”（Agent 不能通过统一 tool 协议安全调用 Live2D 控制）。
 
-## 2. 关键约束（必须满足）
+本文件用于把上述缺口转成可实施、可测试、可验收的阶段方案。
+
+## 2. 目标与边界
+
+### 2.1 总目标（本轮）
+- 构建桌面端完整交互闭环：`聊天框 + 气泡 + Live2D 控制`。
+- 构建可扩展消息总线：`RPC 请求 + 事件通知 + IPC 转发`。
+- 暴露 Agent 可用、受控、可审计的 Tool Calling 接口。
+- 保持与主程序隔离：桌面子系统不直接依赖 runtime 内部对象。
+
+### 2.2 非目标（本轮不做）
+- 不做多模型并行渲染。
+- 不做跨设备远程控制（仅本机 `127.0.0.1`）。
+- 不做复杂动作编排器（高级优先级调度留到后续）。
+
+## 3. 强约束
 
 - 运行时禁止绝对路径加载模型。
-- 模型源目录仅用于导入，不参与运行时读取：
-  - `/Users/doosam/Documents/Programming/yachiyo-desktop/【雪熊企划】八千代辉夜姬`
-- 运行时模型目录固定为：
-  - `assets/live2d/yachiyo-kaguya/`
+- 模型运行目录固定：`assets/live2d/yachiyo-kaguya/`。
+- 源目录仅用于导入，不参与运行时访问。
 - RPC 服务仅监听 `127.0.0.1`。
-- 所有 RPC 必须经过：
+- 所有 RPC 均需经过：
   - token 鉴权
   - 方法白名单
   - 参数 schema 校验
-  - 速率限制
+  - 限流
+- Tool Calling 必须通过白名单暴露，禁止任意方法透传。
 
-## 3. 系统总体架构
+## 4. 目标架构（隔离优先）
 
 ```mermaid
 flowchart LR
-  A["Agent / External Client"] -->|"WS JSON-RPC"| B["Desktop Main (RPC Server)"]
-  B -->|"IPC"| C["Desktop Renderer"]
-  C --> D["Live2DController"]
-  C --> E["DialogueBubble"]
-  D --> F["PixiJS + pixi-live2d-display"]
-  B --> G["Gateway Supervisor"]
-  G --> H["apps/gateway/server.js"]
+  A["Agent / Runtime Tool Calls"] --> B["Gateway Tool Adapter"]
+  B --> C["Desktop RPC Server (Main)"]
+  D["External Local Client"] --> C
+  C --> E["IPC Bridge"]
+  E --> F["Renderer Dispatcher"]
+  F --> G["Live2D Controller"]
+  F --> H["Chat UI Layer (Panel + Bubble)"]
+  G --> I["PixiJS + Live2D"]
 ```
 
-### 3.1 进程职责
-- Main 进程：
-  - 统一编排：gateway、RPC server、desktop 窗口生命周期。
-  - 处理外部 RPC、鉴权与参数校验。
-  - 将合法请求转发至 renderer 并回收结果。
-- Renderer 进程：
-  - 初始化 Pixi 与 Live2D 模型。
-  - 处理来自 main 的控制指令。
-  - 绘制与管理对话气泡。
+### 4.1 进程职责
 
-### 3.2 隔离设计
-- Live2D 新逻辑全部放在 `apps/desktop-live2d/` 下。
-- 不直接 import `apps/runtime/*` 私有模块。
-- Main 与 Renderer 仅通过固定 IPC Channel 通信。
-- 不共享 session、memory、runtime 内部对象。
+- Main 进程
+  - 启停 orchestration（gateway、RPC、Electron 窗口）
+  - RPC 接入层（鉴权、schema、限流、超时）
+  - IPC 桥接与错误归一化
+- Renderer 进程
+  - Live2D 渲染与参数控制
+  - 聊天框 UI（历史区、输入区、状态）
+  - 对话气泡与动画层
+- Gateway Tool Adapter
+  - 将 runtime 的 tool call 规范映射到 desktop RPC
+  - 工具白名单、参数转换、回包标准化
 
-## 4. 目录与模块拆分（建议落地结构）
+### 4.2 隔离策略
 
-```text
-apps/
-  desktop-live2d/
-    main/
-      desktopSuite.js          # startDesktopSuite/stopDesktopSuite
-      gatewaySupervisor.js     # 内置或外置 gateway 模式
-      rpcServer.js             # WS JSON-RPC server
-      rpcValidator.js          # method 白名单 + Ajv schema
-      rpcRateLimiter.js        # 按 method 限流
-      ipcBridge.js             # main <-> renderer 转发
-      config.js                # 端口/token/路径配置
-    renderer/
-      index.html
-      bootstrap.js             # Pixi/DOM 初始化
-      live2dController.js      # loadModel/playMotion/setParam/getState
-      bubbleLayer.js           # 透明气泡渲染与生命周期
-      rpcDispatcher.js         # renderer 内 method 分派
-scripts/
-  desktop-up.js                # npm run desktop:up 入口
-  live2d-import.js             # npm run live2d:import
-assets/
-  live2d/
-    yachiyo-kaguya/            # 运行时唯一模型目录
-```
+- `apps/desktop-live2d/*` 不 import `apps/runtime/*` 私有模块。
+- runtime 与 desktop 通过协议通信，不共享内存对象。
+- Renderer 不暴露 Node 能力，仅通过 preload bridge 调用受限 API。
 
-## 5. 统一启动方案（`desktop:up`）
+## 5. 协议重构（RPC + 事件流）
 
-### 5.1 启动契约
-- CLI：`npm run desktop:up`
-- API：`startDesktopSuite(options)`
-- 返回：
+### 5.1 传输层
 
-```js
+- 传输：WebSocket + JSON-RPC 2.0
+- 地址：`ws://127.0.0.1:<rpc_port>`
+- 鉴权：`Authorization: Bearer <token>`（或 query token，后续可弃用）
+
+### 5.2 方法分层
+
+#### A. 状态查询
+- `state.get`
+  - 入参：`{}`
+  - 出参：
+    - `modelLoaded`
+    - `modelName`
+    - `bubbleVisible`
+    - `chatPanelVisible`
+    - `chatHistorySize`
+    - `layout`
+
+#### B. 对话显示层
+- 兼容保留：`chat.show`（alias -> `chat.bubble.show`）
+- 新增：
+  - `chat.bubble.show`：单条气泡展示
+  - `chat.panel.show`：打开聊天框
+  - `chat.panel.hide`：隐藏聊天框
+  - `chat.panel.append`：向聊天框追加消息
+  - `chat.panel.clear`：清空聊天记录
+
+`chat.panel.append` 入参草案：
+
+```json
 {
-  gatewayUrl: "http://127.0.0.1:3000",
-  rpcUrl: "ws://127.0.0.1:17373",
-  token: "<runtime-token>",
-  stop: async () => {}
+  "role": "user|assistant|system|tool",
+  "text": "string",
+  "timestamp": 1730000000000,
+  "requestId": "optional-correlation-id"
 }
 ```
 
-### 5.2 启动顺序（严格顺序）
-1. 读取配置（端口、token、gateway 模式、模型目录）。
-2. 校验模型资源目录：`assets/live2d/yachiyo-kaguya/` 必须存在且完整。
-3. 启动或复用 gateway。
-4. 启动 RPC Server（仅 127.0.0.1）。
-5. 创建 Electron 窗口并注入 preload。
-6. Renderer 完成模型初始化，向 main 报 ready。
-7. 输出启动摘要日志（gatewayUrl/rpcUrl/pid）。
+#### C. 模型控制层
+- 兼容保留：`param.set`（alias -> `model.param.set`）
+- 新增：
+  - `model.param.set`
+  - `model.param.batchSet`
+  - `model.motion.play`
+  - `model.expression.set`
 
-### 5.3 关闭顺序
-1. 停止 RPC 新请求接入。
-2. 通知 renderer 执行清理。
-3. 关闭窗口。
-4. 关闭内置 gateway（外部 gateway 不处理）。
-5. 输出关闭摘要。
+#### D. Tool Calling 暴露层
+- `tool.list`：查询可用工具及 schema
+- `tool.invoke`：按工具名执行（仅白名单）
 
-## 6. 模型导入与资产管理（禁止绝对路径运行）
+`tool.invoke` 入参草案：
 
-### 6.1 导入命令
-- `npm run live2d:import`
+```json
+{
+  "name": "desktop_model_set_param",
+  "arguments": {
+    "name": "ParamAngleX",
+    "value": 12
+  },
+  "traceId": "agent-trace-id"
+}
+```
 
-### 6.2 导入行为
-1. 从源目录拷贝到 `assets/live2d/yachiyo-kaguya/`。
-2. 拷贝后生成 `assets/live2d/yachiyo-kaguya/manifest.json`：
-   - 文件列表
-   - 文件大小
-   - 修改时间
-3. 校验 `model3.json` 的 FileReferences：
-   - moc3 存在
-   - textures 全部存在
-   - physics/cdi 可选但若声明必须存在
-4. 导入失败时返回明确错误并退出非 0。
+### 5.3 错误码（统一）
 
-### 6.3 运行时加载策略
-- 仅允许读取 `assets/live2d/yachiyo-kaguya/八千代辉夜姬.model3.json`。
-- 不接受 `LIVE2D_MODEL_DIR=/abs/path` 这类运行时输入。
-- 若资源缺失，`desktop:up` 启动失败并提示先执行 `live2d:import`。
-
-## 7. RPC 协议详细定义（V1）
-
-### 7.1 传输与鉴权
-- 传输：WebSocket + JSON-RPC 2.0。
-- 地址：`ws://127.0.0.1:<rpc_port>`。
-- 鉴权：
-  - 连接时携带 `Authorization: Bearer <token>` 或 query token。
-  - 鉴权失败立即断开连接。
-
-### 7.2 方法清单（M0 冻结）
-- `state.get`
-  - 入参：`{}`
-  - 出参：`{ modelLoaded, modelName, fps, bubbleVisible }`
-- `param.set`
-  - 入参：`{ name: string, value: number }`
-  - 出参：`{ ok: true }`
-- `chat.show`
-  - 入参：`{ text: string, durationMs?: number, mood?: string }`
-  - 出参：`{ ok: true, expiresAt: number }`
-
-### 7.3 预留方法（M2/M3）
-- `param.batchSet`
-- `motion.play`
-- `expression.set`
-- 在 M1 阶段调用上述方法时，统一返回 `-32601 method not found`。
-
-### 7.4 错误码
 - `-32600` invalid request
 - `-32601` method not found
 - `-32602` invalid params
@@ -173,152 +152,217 @@ assets/
 - `-32003` renderer timeout
 - `-32004` model not loaded
 - `-32005` internal error
+- `-32006` tool not allowed
+- `-32007` tool execution failed
 
-### 7.5 限流策略（默认）
-- `state.get`: 30 req/s/connection
-- `param.set`: 60 req/s/connection
-- `chat.show`: 10 req/s/connection
-- 超限返回 `-32002`，不关闭连接。
+### 5.4 事件通知（Server -> Client）
 
-## 8. IPC 协议（Main <-> Renderer）
+新增 JSON-RPC 通知（无 `id`）：
+- `desktop.event`
 
-### 8.1 Channel 约定
-- `live2d:rpc:invoke`：main -> renderer
-- `live2d:rpc:result`：renderer -> main
-- `live2d:renderer:ready`：renderer -> main
-- `live2d:renderer:error`：renderer -> main
-
-### 8.2 Payload 结构
+事件 payload 统一：
 
 ```json
 {
-  "requestId": "uuid",
-  "method": "chat.show",
-  "params": { "text": "..." },
-  "deadlineMs": 3000
+  "type": "chat.delta|chat.final|tool.call|tool.result|model.state",
+  "traceId": "optional",
+  "timestamp": 1730000000000,
+  "data": {}
 }
 ```
 
-- renderer 必须在 `deadlineMs` 内回包；超时由 main 返回 `-32003`。
+用途：
+- 将 runtime 对话增量消息投递到聊天框。
+- 将 tool 调用过程投递到 UI（用于调试/审计）。
 
-## 9. Renderer 实现细节
+## 6. 聊天框（Chat Panel）设计
 
-### 9.1 Live2DController
-- `loadModel(modelJsonPath)`
-- `setParam(name, value)`
-- `batchSetParams(updates)`
-- `getState()`
-- 内部状态：
-  - `uninitialized`
-  - `loading`
-  - `ready`
-  - `error`
+### 6.1 UI 结构
 
-### 9.2 气泡层（BubbleLayer）
-- DOM Overlay 叠在 canvas 上。
-- API：
-  - `show({ text, durationMs, mood })`
-  - `hide()`
-  - `getState()`
-- 行为：
-  - 新消息抢占旧消息并重置计时。
-  - 200ms fade in/out。
-  - 长文本自动换行，最大宽度限制。
+- `ChatPanel`
+  - Header：状态 + 展开/收起
+  - MessageList：滚动历史
+  - Composer：输入框 + 发送按钮
+- `BubbleLayer`
+  - 保持轻量即时反馈
+  - 作为“短消息提示”而非历史承载
 
-### 9.3 性能约束
-- 参数更新内部节流到 60Hz。
-- 合并同一帧重复 `param.set`。
-- 对气泡重绘做最小化 DOM 更新。
+### 6.2 行为规则
 
-## 10. 可观测性与故障定位
+- `chat.panel.append` 追加到历史并自动滚动到底部。
+- `chat.bubble.show` 不写历史（除非显式配置镜像）。
+- 输入提交后触发 `chat.input.submit` IPC 事件（由 Main 决定是否转发到 gateway）。
+- 历史队列可配上限（默认 200 条，超限丢弃最旧消息）。
 
-### 10.1 日志字段
-- `timestamp`
-- `module`
-- `event`
-- `requestId`
-- `method`
-- `latencyMs`
-- `errorCode`
+### 6.3 配置扩展（`config/desktop-live2d.json`）
 
-### 10.2 关键日志事件
-- `desktop_up_start`
-- `model_import_check_passed`
-- `gateway_started` / `gateway_external`
-- `rpc_server_started`
-- `renderer_ready`
-- `rpc_invoke` / `rpc_result` / `rpc_error`
-- `desktop_up_failed`
+新增建议字段：
 
-## 11. 测试计划（可执行）
+```json
+{
+  "chat": {
+    "panel": {
+      "enabled": true,
+      "defaultVisible": true,
+      "width": 360,
+      "height": 280,
+      "maxMessages": 200,
+      "inputEnabled": true
+    },
+    "bubble": {
+      "mirrorToPanel": false
+    }
+  }
+}
+```
 
-### 11.1 单元测试
-- `live2d-import`：
-  - 正常拷贝
-  - 缺失 model3/moc3/textures 报错
-- `rpcValidator`：
-  - 非白名单方法拒绝
-  - 参数 schema 拒绝
-- `rpcRateLimiter`：
-  - 超限返回 `-32002`
-- `ipcBridge`：
-  - renderer 超时返回 `-32003`
+## 7. Tool Calling 暴露策略
 
-### 11.2 集成测试
-- `desktop:up` 成功启动，返回 rpcUrl/gatewayUrl。
-- `state.get` 成功返回模型状态。
-- `chat.show` 成功触发并能被状态读到可见中。
-- 关闭流程能释放 RPC 端口和子进程。
+### 7.1 对 Agent 暴露的工具集（V2）
 
-### 11.3 人工验收
-- 窗口透明、可拖动、可正常关闭。
-- 气泡在模型上方显示且动画自然。
-- 连续发送 20 条 `chat.show` 不出现卡死或丢回包。
+- `desktop_chat_show`
+- `desktop_chat_panel_append`
+- `desktop_model_set_param`
+- `desktop_model_batch_set`
+- `desktop_model_play_motion`
+- `desktop_model_set_expression`
 
-## 12. 里程碑与交付物
+### 7.2 工具调用映射
 
-### M1（最小闭环，预计 2-3 天）
-- 交付：
-  - `live2d-import`
-  - `desktop:up`
-  - `state.get`、`param.set`、`chat.show`
-  - 基础测试与日志
+- `desktop_model_set_param` -> `model.param.set`
+- `desktop_model_batch_set` -> `model.param.batchSet`
+- `desktop_model_play_motion` -> `model.motion.play`
+- `desktop_model_set_expression` -> `model.expression.set`
 
-### M2（控制能力增强，预计 2-4 天）
-- 交付：
-  - `param.batchSet`
-  - 动作/表情方法占位 + 状态机
-  - 并发与限流完善
+### 7.3 安全与治理
 
-### M3（稳定性与产品化，预计 3-5 天）
-- 交付：
-  - `motion.play`/`expression.set` 实装
-  - 配置页
-  - 打包路径校验与回归
+- 工具名白名单 + 参数 schema 双校验
+- 每工具独立限流
+- traceId 全链路透传
+- 结构化审计日志：`tool_name`、`args_hash`、`latency_ms`、`result`
 
-## 13. M0 冻结决策（已确认并生效）
+## 8. 分阶段执行计划（详细）
 
-- RPC 端口策略：
-  - 默认固定端口 `17373`。
-  - 允许通过环境变量 `DESKTOP_LIVE2D_RPC_PORT` 覆盖（仅开发调试用途）。
-- token 策略：
-  - 默认启动时随机生成。
-  - 若提供 `DESKTOP_LIVE2D_RPC_TOKEN` 则优先使用。
-  - 启动后写入运行时摘要（用于本机调试读取）。
-- `live2d:import` 覆盖策略：
-  - 默认允许覆盖目标目录。
-  - 覆盖前自动备份到 `data/backups/live2d/<timestamp>/`。
-- V1 方法范围（严格冻结）：
-  - 只保证 `state.get`、`param.set`、`chat.show` 三个方法完成并验收。
-  - `param.batchSet`、`motion.play`、`expression.set` 保留到后续里程碑。
+### Phase A：协议冻结与骨架升级
 
-## 14. 阶段执行进度
+交付：
+- 扩展 RPC 方法表与 schema（新增 chat panel/model/tool 调用方法）
+- 新增 `desktop.event` 通知管道
+- `tool.list/tool.invoke` 骨架（先返回占位）
 
-- M0（DONE）：
-  - 已冻结端口/token/导入覆盖策略/V1 方法范围，并完成文档固化。
-- M1（DONE）：
-  - 已实现：`live2d:import`、`desktop:up`、RPC 服务、IPC 转发、基础渲染与透明气泡。
-  - 已完成自动化测试（含新增 desktop-live2d 用例）。
-  - 已完成 GUI 冒烟：启动成功并验证 `state.get`、`chat.show` RPC 回包。
-  - 已完成布局修复：由固定缩放改为按模型边界自适应缩放与底部对齐，避免“仅显示大腿/模型过大”。
-  - 已提供可编辑配置文件：`config/desktop-live2d.json`（位置/清晰度/大小参数可调）。
+测试：
+- `rpcValidator` 新方法 schema 全覆盖
+- `rpcServer` 通知发送与错误码回包测试
+- 限流规则按方法分桶测试
+
+文档与留痕：
+- 更新施工方案 + README
+- 更新 `PROGRESS_TODO.md` 阶段状态
+- 提交 commit（phase A）
+
+### Phase B：聊天框 UI 闭环
+
+交付：
+- Renderer 新增 ChatPanel（历史、输入、显隐）
+- 新增 IPC：`chat.input.submit`（renderer -> main）
+- `chat.panel.*` 方法可用
+
+测试：
+- Renderer 纯函数/状态机测试（历史截断、显隐、追加）
+- IPC bridge 测试（submit 事件透传）
+- RPC 到 UI 端到端集成测试
+
+文档与留痕：
+- 补充聊天框交互说明与配置字段
+- 更新阶段进度
+- 提交 commit（phase B）
+
+### Phase C：RPC 消息传递与网关转发
+
+交付：
+- Main 新增 runtime 消息订阅与 desktop 事件桥接
+- 对话增量消息可从 runtime 推到聊天框
+- `runtime.final` 与 UI 状态对齐
+
+测试：
+- 网关事件转发单测（start/event/final）
+- 断线重连与消息丢失保护测试
+- 压测：高频 `chat.panel.append` 不阻塞渲染
+
+文档与留痕：
+- 更新消息时序图与异常处理章节
+- 更新进度登记
+- 提交 commit（phase C）
+
+### Phase D：Tool Calling 暴露与模型控制
+
+交付：
+- Gateway Tool Adapter：tool -> desktop RPC 映射
+- `tool.list` 返回动态能力
+- `tool.invoke` 打通到模型控制方法
+- `model.motion.play` / `model.expression.set` 最小可用
+
+测试：
+- tool adapter 映射和拒绝路径测试
+- `tool.invoke` 参数错误/白名单拦截测试
+- 从 runtime 发 tool call 到模型动作的集成测试
+
+文档与留痕：
+- 更新 tools 契约文档（参数、错误、示例）
+- 更新进度登记
+- 提交 commit（phase D）
+
+### Phase E：稳定性与发布前收敛
+
+交付：
+- 性能优化（节流、批处理、重绘最小化）
+- 可观测性补全（traceId、latency、errorCode）
+- 回归脚本与 smoke checklist 固化
+
+测试：
+- 全量自动化回归（`npm test`）
+- 手工 smoke（窗口、拖拽、清晰度、聊天框、tool calling）
+- 30 分钟稳定性测试（内存/GPU/消息吞吐）
+
+文档与留痕：
+- 最终验收报告
+- 更新 `README` 使用章节
+- 提交 commit（phase E）
+
+## 9. 测试矩阵（按能力维度）
+
+- 协议层
+  - 方法白名单
+  - schema 校验
+  - 错误码一致性
+- 链路层
+  - RPC -> IPC -> Renderer 成功/超时/失败
+  - runtime 事件 -> desktop.event -> UI
+- UI 层
+  - 聊天框消息列表与输入交互
+  - 气泡显示与自动消失
+  - 模型缩放/清晰度/位置配置生效
+- 工具层
+  - tool.list/tool.invoke 契约
+  - 映射正确性与拒绝路径
+  - 审计日志完整性
+
+## 10. 当前阶段状态（重规划后）
+
+- 已完成
+  - M1 基线：模型渲染、透明气泡、基础 RPC、配置文件、右下角放置、拖拽
+- 进行中
+  - Phase A：协议冻结与接口扩展（本次重规划起点）
+- 未开始
+  - Phase B：聊天框 UI
+  - Phase C：RPC 事件转发
+  - Phase D：Tool Calling 暴露
+  - Phase E：稳定性收敛
+
+## 11. 阶段完成定义（DoD）
+
+每个阶段完成必须同时满足：
+1. 代码实现完成，且对应新增测试通过。
+2. `PROGRESS_TODO.md` 更新阶段状态与变更日志。
+3. 本施工方案中对应章节同步更新。
+4. 形成独立 commit 留痕（可追溯到阶段目标）。
