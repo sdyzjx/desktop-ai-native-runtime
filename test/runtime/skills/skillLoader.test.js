@@ -33,7 +33,8 @@ test('loadSkills loads from workspace and yachiyo roots', () => {
   try {
     const config = {
       home: { envKey: 'YACHIYO_HOME', defaultPath: '~/yachiyo' },
-      load: { workspace: true, global: true, extraDirs: [] }
+      load: { workspace: true, global: true, extraDirs: [] },
+      limits: { maxCandidatesPerRoot: 300, maxSkillsLoadedPerSource: 200, maxSkillFileBytes: 262144 }
     };
     const skills = loadSkills({ workspaceDir: workspace, config });
     const names = skills.map((s) => s.name);
@@ -66,7 +67,8 @@ test('loadSkills precedence is workspace > yachiyo-global > extra', () => {
   try {
     const config = {
       home: { envKey: 'YACHIYO_HOME', defaultPath: '~/yachiyo' },
-      load: { workspace: true, global: true, extraDirs: [extra] }
+      load: { workspace: true, global: true, extraDirs: [extra] },
+      limits: { maxCandidatesPerRoot: 300, maxSkillsLoadedPerSource: 200, maxSkillFileBytes: 262144 }
     };
 
     const skills = loadSkills({ workspaceDir: workspace, config });
@@ -74,6 +76,42 @@ test('loadSkills precedence is workspace > yachiyo-global > extra', () => {
     assert.ok(dup);
     assert.equal(dup.source, 'workspace');
     assert.match(dup.description, /from workspace/);
+  } finally {
+    if (old === undefined) delete process.env.YACHIYO_HOME;
+    else process.env.YACHIYO_HOME = old;
+  }
+});
+
+test('loadSkills respects maxSkillsLoadedPerSource and maxSkillFileBytes', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-loader-limits-'));
+  const workspace = path.join(tmp, 'workspace');
+  const yhome = path.join(tmp, 'yachiyo');
+  const yskills = path.join(yhome, 'skills');
+
+  fs.mkdirSync(path.join(workspace, 'skills'), { recursive: true });
+  fs.mkdirSync(yskills, { recursive: true });
+
+  writeSkill(yskills, 's1', 'ok');
+  writeSkill(yskills, 's2', 'ok');
+
+  // oversized skill file
+  const bigDir = path.join(yskills, 'big');
+  fs.mkdirSync(bigDir, { recursive: true });
+  fs.writeFileSync(path.join(bigDir, 'SKILL.md'), 'x'.repeat(3000), 'utf8');
+
+  const old = process.env.YACHIYO_HOME;
+  process.env.YACHIYO_HOME = yhome;
+
+  try {
+    const config = {
+      home: { envKey: 'YACHIYO_HOME', defaultPath: '~/yachiyo' },
+      load: { workspace: false, global: true, extraDirs: [] },
+      limits: { maxCandidatesPerRoot: 300, maxSkillsLoadedPerSource: 1, maxSkillFileBytes: 1024 }
+    };
+
+    const skills = loadSkills({ workspaceDir: workspace, config });
+    assert.equal(skills.length, 1);
+    assert.notEqual(skills[0].name, 'big');
   } finally {
     if (old === undefined) delete process.env.YACHIYO_HOME;
     else process.env.YACHIYO_HOME = old;

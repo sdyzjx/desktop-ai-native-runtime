@@ -3,17 +3,21 @@ const path = require('path');
 const { getRuntimePaths } = require('./runtimePaths');
 const { parseFrontmatter } = require('./frontmatter');
 
-function listSkillDirs(rootDir) {
+function listSkillDirs(rootDir, maxCandidates = 300) {
   if (!rootDir || !fs.existsSync(rootDir)) return [];
   const entries = fs.readdirSync(rootDir, { withFileTypes: true });
   return entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+    .slice(0, Math.max(1, maxCandidates))
     .map((e) => path.join(rootDir, e.name));
 }
 
-function readSkillFromDir(dirPath, source) {
+function readSkillFromDir(dirPath, source, maxSkillFileBytes = 262144) {
   const skillPath = path.join(dirPath, 'SKILL.md');
   if (!fs.existsSync(skillPath)) return null;
+
+  const st = fs.statSync(skillPath);
+  if (st.size > maxSkillFileBytes) return null;
 
   const raw = fs.readFileSync(skillPath, 'utf8');
   const fm = parseFrontmatter(raw);
@@ -54,15 +58,22 @@ function resolveSkillRoots({ workspaceDir, config }) {
 
 function loadSkills({ workspaceDir, config }) {
   const roots = resolveSkillRoots({ workspaceDir, config });
+  const limits = config.limits || {};
+  const maxCandidatesPerRoot = Number(limits.maxCandidatesPerRoot || 300);
+  const maxSkillsLoadedPerSource = Number(limits.maxSkillsLoadedPerSource || 200);
+  const maxSkillFileBytes = Number(limits.maxSkillFileBytes || 262144);
 
   const merged = new Map();
   for (const root of roots) {
-    const dirs = listSkillDirs(root.dir);
+    const dirs = listSkillDirs(root.dir, maxCandidatesPerRoot);
+    let loadedCount = 0;
     for (const dirPath of dirs) {
+      if (loadedCount >= maxSkillsLoadedPerSource) break;
       try {
-        const skill = readSkillFromDir(dirPath, root.source);
+        const skill = readSkillFromDir(dirPath, root.source, maxSkillFileBytes);
         if (!skill) continue;
         merged.set(skill.name, skill);
+        loadedCount += 1;
       } catch {
         // skip malformed skills
       }
