@@ -7,12 +7,19 @@
   <link rel="stylesheet" href="/system.css" />
   <link rel="stylesheet" href="/chat.css" />
 </head>
-<body>
+<body class="chat-page">
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-top">
         <button id="newSessionBtn" class="btn btn-primary">+ New chat</button>
         <a class="config-link" href="/config.html">Provider Config</a>
+
+        <section class="persona-panel">
+          <div class="persona-title">Persona</div>
+          <input id="personaCustomName" class="persona-input" type="text" placeholder="自定义称呼（留空=主人）" />
+          <button id="savePersonaBtn" class="btn">保存称呼</button>
+          <div id="personaHint" class="persona-hint"></div>
+        </section>
       </div>
       <div class="session-title">Sessions</div>
       <div id="sessionList" class="session-list"></div>
@@ -48,11 +55,21 @@
       <footer class="composer-wrap">
         <div class="composer-inner">
           <textarea id="chatInput" rows="1" placeholder="Send a message..."></textarea>
-          <button id="sendBtn" class="btn btn-send">Send</button>
+          <div class="composer-actions">
+            <input id="imageInput" type="file" accept="image/*" multiple hidden />
+            <button id="addImageBtn" class="btn btn-attach" type="button">Image</button>
+            <button id="sendBtn" class="btn btn-send" type="button">Send</button>
+          </div>
         </div>
-        <div class="composer-tip">Enter 发送（输入法选词时不会发送），Shift+Enter 换行。</div>
+        <div id="uploadPreviewList" class="upload-preview-list"></div>
+        <div class="composer-tip">Enter 发送（输入法选词时不会发送），Shift+Enter 换行。支持图片上传与多模态提问。</div>
       </footer>
     </main>
+  </div>
+
+  <div id="imageLightbox" class="image-lightbox" aria-hidden="true">
+    <button id="lightboxCloseBtn" class="btn lightbox-close-btn" type="button">Close</button>
+    <img id="lightboxImage" class="lightbox-image" alt="preview" />
   </div>
 
   <script src="/chat.js"></script>

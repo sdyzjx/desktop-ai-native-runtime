@@ -1,6 +1,26 @@
 const { v4: uuidv4 } = require('uuid');
 const { RpcErrorCode, createRpcError, createRpcResult, toRpcEvent } = require('./jsonRpc');
 
+function normalizeInputImages(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return null;
+
+  const images = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const dataUrl = typeof item.data_url === 'string' ? item.data_url.trim() : '';
+    if (!dataUrl) return null;
+    images.push({
+      name: typeof item.name === 'string' ? item.name.trim() : '',
+      mime_type: typeof item.mime_type === 'string' ? item.mime_type.trim() : '',
+      size_bytes: Number(item.size_bytes) || 0,
+      data_url: dataUrl
+    });
+  }
+
+  return images;
+}
+
 class RuntimeRpcWorker {
   constructor({ queue, runner, bus }) {
     this.queue = queue;
@@ -39,9 +59,17 @@ class RuntimeRpcWorker {
 
     const params = request.params || {};
     const input = typeof params.input === 'string' ? params.input : '';
-    if (!input.trim()) {
+    const inputImages = normalizeInputImages(params.input_images);
+    if (inputImages === null) {
       if (request.id !== undefined) {
-        context.send?.(createRpcError(request.id, RpcErrorCode.INVALID_PARAMS, 'params.input must be non-empty string'));
+        context.send?.(createRpcError(request.id, RpcErrorCode.INVALID_PARAMS, 'params.input_images must be an array of image objects'));
+      }
+      return;
+    }
+
+    if (!input.trim() && inputImages.length === 0) {
+      if (request.id !== undefined) {
+        context.send?.(createRpcError(request.id, RpcErrorCode.INVALID_PARAMS, 'params.input must be non-empty string when params.input_images is empty'));
       }
       return;
     }
@@ -56,7 +84,8 @@ class RuntimeRpcWorker {
       const prepared = await context.buildRunContext?.({
         request,
         session_id: sessionId,
-        input
+        input,
+        input_images: inputImages
       });
       if (prepared && typeof prepared === 'object' && !Array.isArray(prepared)) {
         runtimeContext = prepared;
@@ -70,6 +99,7 @@ class RuntimeRpcWorker {
         request,
         session_id: sessionId,
         input,
+        input_images: inputImages,
         runtime_context: runtimeContext
       });
       if (Array.isArray(prepared)) {
@@ -84,6 +114,7 @@ class RuntimeRpcWorker {
         request,
         session_id: sessionId,
         input,
+        input_images: inputImages,
         runtime_context: runtimeContext
       });
     } catch {
@@ -95,6 +126,7 @@ class RuntimeRpcWorker {
     const result = await this.runner.run({
       sessionId,
       input,
+      inputImages,
       seedMessages,
       runtimeContext,
       onEvent: (event) => {
@@ -118,6 +150,7 @@ class RuntimeRpcWorker {
         request,
         session_id: sessionId,
         input,
+        input_images: inputImages,
         runtime_context: runtimeContext,
         ...payload
       });

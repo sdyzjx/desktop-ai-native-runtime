@@ -175,6 +175,46 @@ test('ToolLoopRunner injects seedMessages into reasoner prompt', async () => {
   dispatcher.stop();
 });
 
+test('ToolLoopRunner builds multimodal user message from inputImages', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor(localTools);
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let seenMessages = [];
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => ({
+      async decide({ messages }) {
+        seenMessages = messages;
+        return { type: 'final', output: 'ok-image' };
+      }
+    }),
+    listTools: () => executor.listTools(),
+    maxStep: 1,
+    toolResultTimeoutMs: 500
+  });
+
+  const sampleDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgU8Vf4QAAAAASUVORK5CYII=';
+  const result = await runner.run({
+    sessionId: 's-image',
+    input: 'describe this image',
+    inputImages: [{ data_url: sampleDataUrl, name: 'tiny.png', mime_type: 'image/png', size_bytes: 67 }]
+  });
+
+  assert.equal(result.state, 'DONE');
+  assert.equal(result.output, 'ok-image');
+  const userMessage = seenMessages[seenMessages.length - 1];
+  assert.equal(userMessage.role, 'user');
+  assert.equal(Array.isArray(userMessage.content), true);
+  assert.equal(userMessage.content[0].type, 'text');
+  assert.equal(userMessage.content[0].text, 'describe this image');
+  assert.equal(userMessage.content[1].type, 'image_url');
+  assert.equal(userMessage.content[1].image_url.url, sampleDataUrl);
+
+  dispatcher.stop();
+});
+
 test('ToolLoopRunner passes runtimeContext workspace and permission to tool execution', async () => {
   const bus = new RuntimeEventBus();
   const executor = new ToolExecutor({
@@ -260,6 +300,63 @@ test('ToolLoopRunner injects skills system prompt when resolver is provided', as
   assert.equal(result.state, 'DONE');
   assert.equal(result.output, 'ok-skills');
   assert.match(seenMessages[1].content, /available_skills/);
+
+  dispatcher.stop();
+});
+
+test('ToolLoopRunner injects persona system prompt when resolver is provided', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor(localTools);
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let seenMessages = [];
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => ({
+      async decide({ messages }) {
+        seenMessages = messages;
+        return { type: 'final', output: 'ok-persona' };
+      }
+    }),
+    listTools: () => executor.listTools(),
+    resolvePersonaContext: async () => ({ prompt: 'Persona Core: test', mode: 'hybrid' }),
+    maxStep: 1,
+    toolResultTimeoutMs: 500
+  });
+
+  const result = await runner.run({ sessionId: 's5', input: 'hello' });
+  assert.equal(result.state, 'DONE');
+  assert.equal(result.output, 'ok-persona');
+  assert.match(seenMessages[1].content, /Persona Core/);
+
+  dispatcher.stop();
+});
+
+test('ToolLoopRunner injects persona tool hint on persona-modification keywords', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor(localTools);
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let seenMessages = [];
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => ({
+      async decide({ messages }) {
+        seenMessages = messages;
+        return { type: 'final', output: 'ok-hint' };
+      }
+    }),
+    listTools: () => executor.listTools(),
+    maxStep: 1,
+    toolResultTimeoutMs: 500
+  });
+
+  const result = await runner.run({ sessionId: 's6', input: '请帮我修改人格称呼，叫我小主人' });
+  assert.equal(result.state, 'DONE');
+  assert.equal(result.output, 'ok-hint');
+  assert.equal(seenMessages.some((m) => /persona\.update_profile/.test(String(m.content || ''))), true);
 
   dispatcher.stop();
 });

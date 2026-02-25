@@ -31,6 +31,9 @@ test('tool permission policy gates memory tools by permission level', () => {
 
   assert.equal(isToolAllowedForPermission('add', 'low'), true);
   assert.equal(isToolAllowedForPermission('add', 'high'), true);
+  assert.equal(isToolAllowedForPermission('persona.update_profile', 'low'), true);
+  assert.equal(isToolAllowedForPermission('persona.update_profile', 'medium'), true);
+  assert.equal(isToolAllowedForPermission('persona.update_profile', 'high'), true);
 });
 
 test('shell profile builds correct allowlist per permission level', () => {

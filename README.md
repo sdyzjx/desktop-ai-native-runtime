@@ -109,11 +109,26 @@ Detailed construction plan:
 - `docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`
 - `docs/modules/desktop-live2d/module-reference.md`
 
+## Multimodal Image Input
+
+Chat UI supports image upload with multimodal model calls:
+- send text + image, or image-only messages
+- click image in chat history to open lightbox preview
+- image preview remains available after service restart (file-backed session image store)
+
+Runtime/API support:
+- Legacy websocket `type=run` accepts `input_images[]`
+- JSON-RPC `runtime.run` accepts `params.input_images[]`
+
 ## Persistence
 
 Session persistence is enabled by default (file-backed):
 - default path: `data/session-store`
 - override path: `SESSION_STORE_DIR=/your/path`
+
+Session image persistence:
+- default path: `data/session-images`
+- override path: `SESSION_IMAGE_STORE_DIR=/your/path`
 
 Session APIs:
 - `GET /api/sessions`
@@ -122,6 +137,7 @@ Session APIs:
 - `GET /api/sessions/:sessionId/memory`
 - `GET /api/memory`
 - `GET /api/memory/search?q=<keyword>`
+- `GET /api/session-images/:sessionId/:fileName`
 
 ## Context Management
 
@@ -211,6 +227,25 @@ Runtime sends:
 
 Provider config now has a dedicated page (`/config.html`) with graphical form editing and raw YAML editing.
 
+## LLM Reliability (Retry)
+
+OpenAI-compatible LLM requests now include transient failure retry:
+- network/socket/timeout style failures: retry
+- HTTP retriable statuses: `408`, `409`, `429`, `5xx`
+
+Provider config optional fields (per provider):
+- `max_retries` (default `2`)
+- `retry_delay_ms` (default `300`)
+
+Env fallback:
+- `LLM_REQUEST_MAX_RETRIES`
+- `LLM_REQUEST_RETRY_DELAY_MS`
+
+Multimodal input limits:
+- `MAX_INPUT_IMAGES` (default `4`)
+- `MAX_INPUT_IMAGE_BYTES` (default `8MB`)
+- `MAX_INPUT_IMAGE_DATA_URL_CHARS` (default `ceil(MAX_INPUT_IMAGE_BYTES * 1.5)`)
+
 ## Repo Layout
 - `apps/gateway`: websocket gateway + rpc queue ingress
 - `apps/runtime`: event bus, rpc worker, llm reasoner, tool loop
@@ -229,6 +264,7 @@ Detailed feature implementation record:
 Module-level runtime docs:
 - `docs/modules/runtime/session-workspace-permission.md`
 - `docs/modules/runtime/skills-runtime.md`
+- `docs/modules/runtime/multimodal-image-runtime.md`
 
 Practical usage cases:
 - `docs/TEST_SKILL_SMOKE_GUIDE.md`
