@@ -3,6 +3,15 @@ class ToolExecutor {
     this.registry = registry;
   }
 
+  listTools() {
+    return Object.entries(this.registry).map(([name, tool]) => ({
+      name,
+      type: tool.type || 'local',
+      description: tool.description || '',
+      input_schema: tool.input_schema || { type: 'object', properties: {}, additionalProperties: true }
+    }));
+  }
+
   async execute(toolCall) {
     const tool = this.registry[toolCall.name];
     if (!tool) {

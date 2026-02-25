@@ -14,7 +14,37 @@ function echo({ text }) {
 }
 
 module.exports = {
-  get_time: { type: 'local', run: () => getTime() },
-  add: { type: 'local', run: add },
-  echo: { type: 'local', run: echo }
+  get_time: {
+    type: 'local',
+    description: 'Get local current date-time string in zh-CN locale.',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+    run: () => getTime()
+  },
+  add: {
+    type: 'local',
+    description: 'Add two numbers and return the sum.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        a: { type: 'number' },
+        b: { type: 'number' }
+      },
+      required: ['a', 'b'],
+      additionalProperties: false
+    },
+    run: add
+  },
+  echo: {
+    type: 'local',
+    description: 'Echo user input text back to user.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string' }
+      },
+      required: ['text'],
+      additionalProperties: false
+    },
+    run: echo
+  }
 };

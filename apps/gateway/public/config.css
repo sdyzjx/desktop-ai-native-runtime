@@ -1,0 +1,171 @@
+:root {
+  color-scheme: dark;
+  --bg: #1f1f1f;
+  --panel: #1a1a1a;
+  --line: #333;
+  --text: #ececec;
+  --muted: #a2a2a2;
+  --primary: #10a37f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Söhne", "Helvetica Neue", "Noto Sans SC", sans-serif;
+}
+
+.config-shell {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+}
+
+.config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.config-header h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.config-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+select,
+input,
+textarea {
+  background: #252525;
+  color: var(--text);
+  border: 1px solid #3c3c3c;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+select,
+input {
+  width: 100%;
+}
+
+.provider-cards {
+  display: grid;
+  gap: 12px;
+}
+
+.provider-card {
+  border: 1px solid #353535;
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.provider-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.provider-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.provider-grid .full {
+  grid-column: 1 / -1;
+}
+
+.btn {
+  border: 1px solid #3f3f3f;
+  border-radius: 10px;
+  background: #272727;
+  color: var(--text);
+  cursor: pointer;
+  padding: 8px 12px;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.btn:hover {
+  background: #323232;
+}
+
+.btn-primary {
+  border-color: transparent;
+  background: var(--primary);
+  color: #fff;
+}
+
+.status {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status.ok {
+  color: #34c759;
+}
+
+.status.err {
+  color: #ff5f56;
+}
+
+.raw-yaml {
+  width: 100%;
+  min-height: 280px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@media (max-width: 860px) {
+  .config-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .provider-grid {
+    grid-template-columns: 1fr;
+  }
+}

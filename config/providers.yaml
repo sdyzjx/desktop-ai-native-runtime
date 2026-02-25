@@ -1,0 +1,16 @@
+active_provider: qwen35_plus
+providers:
+  qwen35_plus:
+    type: openai_compatible
+    display_name: Qwen 3.5 Plus
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    model: qwen3.5-plus
+    api_key_env: DASHSCOPE_API_KEY
+    timeout_ms: 20000
+  openai:
+    type: openai_compatible
+    display_name: OpenAI
+    base_url: https://api.openai.com/v1
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    timeout_ms: 20000

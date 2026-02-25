@@ -1,9 +1,10 @@
 # ToolLoopRunner
 
-Implements native ReAct loop:
-Reason -> Act -> Observe -> Reason ...
+Native ReAct runtime loop with real LLM decisioning.
 
-Planned files:
-- state_machine.ts
-- step_runner.ts
-- loop_runner.ts
+Loop cycle:
+- Ask LLM for next step (final or tool)
+- Publish tool call request to EventBus
+- Wait for tool result event
+- Feed observation back into message context
+- Repeat until done/maxStep/error
