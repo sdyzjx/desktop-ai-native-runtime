@@ -15,7 +15,7 @@ const { LlmProviderManager } = require('../runtime/config/llmProviderManager');
 const { ToolConfigManager } = require('../runtime/config/toolConfigManager');
 const { FileSessionStore } = require('../runtime/session/fileSessionStore');
 const { buildRecentContextMessages } = require('../runtime/session/contextBuilder');
-const { LongTermMemoryStore } = require('../runtime/session/longTermMemoryStore');
+const { getDefaultLongTermMemoryStore } = require('../runtime/session/longTermMemoryStore');
 const { loadMemorySop } = require('../runtime/session/memorySopLoader');
 
 const app = express();
@@ -30,7 +30,7 @@ const executor = new ToolExecutor(toolRuntime.registry, { policy: toolRuntime.po
 const providerStore = new ProviderConfigStore();
 const llmManager = new LlmProviderManager({ store: providerStore });
 const sessionStore = new FileSessionStore();
-const longTermMemoryStore = new LongTermMemoryStore();
+const longTermMemoryStore = getDefaultLongTermMemoryStore();
 
 const contextMaxMessages = Math.max(0, Number(process.env.CONTEXT_MAX_MESSAGES) || 12);
 const contextMaxChars = Math.max(0, Number(process.env.CONTEXT_MAX_CHARS) || 12000);

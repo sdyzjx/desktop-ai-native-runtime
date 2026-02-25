@@ -1,6 +1,6 @@
-const { LongTermMemoryStore } = require('../../session/longTermMemoryStore');
+const { getDefaultLongTermMemoryStore } = require('../../session/longTermMemoryStore');
 
-const memoryStore = new LongTermMemoryStore();
+const memoryStore = getDefaultLongTermMemoryStore();
 
 async function memoryWrite(args = {}, context = {}) {
   const content = typeof args.content === 'string' ? args.content : '';

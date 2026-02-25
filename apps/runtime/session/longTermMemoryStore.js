@@ -71,7 +71,7 @@ class LongTermMemoryStore {
   }
 
   async writeStore(store) {
-    const tempPath = `${this.filePath}.tmp-${process.pid}-${Date.now()}`;
+    const tempPath = `${this.filePath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     await fs.writeFile(tempPath, JSON.stringify(store, null, 2), 'utf8');
     await fs.rename(tempPath, this.filePath);
   }
@@ -192,4 +192,13 @@ class LongTermMemoryStore {
   }
 }
 
-module.exports = { LongTermMemoryStore };
+let defaultStoreInstance = null;
+
+function getDefaultLongTermMemoryStore() {
+  if (!defaultStoreInstance) {
+    defaultStoreInstance = new LongTermMemoryStore();
+  }
+  return defaultStoreInstance;
+}
+
+module.exports = { LongTermMemoryStore, getDefaultLongTermMemoryStore };
