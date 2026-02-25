@@ -28,14 +28,7 @@
       }
 
       #drag-handle {
-        position: fixed;
-        left: 0;
-        right: 0;
-        top: 0;
-        height: 28px;
-        -webkit-app-region: drag;
-        pointer-events: auto;
-        z-index: 12;
+        display: none;
       }
 
       #bubble-layer {
@@ -105,6 +98,35 @@
         font-size: 12px;
         letter-spacing: 0.03em;
         color: #b7c6e9;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      #chat-panel-header-title {
+        font-size: 12px;
+        letter-spacing: 0.03em;
+      }
+
+      #chat-panel-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .chat-panel-action {
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 8px;
+        padding: 2px 7px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #e8f0ff;
+        font-size: 11px;
+        cursor: pointer;
+      }
+
+      .chat-panel-action:hover {
+        background: rgba(255, 255, 255, 0.16);
       }
 
       #chat-panel-messages {
@@ -182,7 +204,13 @@
     <div id="drag-handle"></div>
     <div id="stage"></div>
     <div id="chat-panel">
-      <div id="chat-panel-header">Desktop Chat</div>
+      <div id="chat-panel-header">
+        <span id="chat-panel-header-title">Desktop Chat</span>
+        <div id="chat-panel-header-actions">
+          <button class="chat-panel-action" id="pet-hide" type="button">Hide</button>
+          <button class="chat-panel-action" id="pet-close" type="button">Close</button>
+        </div>
+      </div>
       <div id="chat-panel-messages"></div>
       <div id="chat-panel-composer">
         <input id="chat-input" type="text" maxlength="4000" placeholder="Type message..." />

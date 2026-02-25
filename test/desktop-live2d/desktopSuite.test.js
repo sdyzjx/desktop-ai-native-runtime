@@ -10,9 +10,16 @@ const {
   writeRuntimeSummary,
   computeWindowBounds,
   computeRightBottomWindowBounds,
+  resolveWindowMetrics,
+  resolveWindowSizeForChatPanel,
+  resizeWindowKeepingBottomRight,
   normalizeChatInputPayload,
   normalizeWindowDragPayload,
+  normalizeWindowControlPayload,
+  normalizeChatPanelVisibilityPayload,
   createWindowDragListener,
+  createWindowControlListener,
+  createChatPanelVisibilityListener,
   createChatInputListener,
   handleDesktopRpcRequest,
   isNewSessionCommand
@@ -101,6 +108,77 @@ test('computeWindowBounds supports top-left and center anchors', () => {
   assert.deepEqual(center, { x: 410, y: 120 });
 });
 
+test('resolveWindowMetrics returns compact profile and chat default visibility', () => {
+  const metrics = resolveWindowMetrics({
+    window: {
+      width: 460,
+      height: 620,
+      compactWidth: 280,
+      compactHeight: 540,
+      compactWhenChatHidden: true
+    },
+    chat: {
+      panel: {
+        enabled: true,
+        defaultVisible: false
+      }
+    }
+  });
+
+  assert.equal(metrics.expandedWidth, 460);
+  assert.equal(metrics.expandedHeight, 620);
+  assert.equal(metrics.compactWidth, 280);
+  assert.equal(metrics.compactHeight, 540);
+  assert.equal(metrics.defaultChatPanelVisible, false);
+});
+
+test('resolveWindowSizeForChatPanel switches expanded/compact by visibility', () => {
+  const metrics = resolveWindowMetrics({
+    window: {
+      width: 460,
+      height: 620,
+      compactWidth: 300,
+      compactHeight: 560
+    },
+    chat: {
+      panel: {
+        enabled: true,
+        defaultVisible: false
+      }
+    }
+  });
+
+  assert.deepEqual(resolveWindowSizeForChatPanel({ windowMetrics: metrics, chatPanelVisible: true }), {
+    width: 460,
+    height: 620
+  });
+  assert.deepEqual(resolveWindowSizeForChatPanel({ windowMetrics: metrics, chatPanelVisible: false }), {
+    width: 300,
+    height: 560
+  });
+});
+
+test('resizeWindowKeepingBottomRight preserves anchor while changing size', () => {
+  const calls = [];
+  const fakeWindow = {
+    getBounds() {
+      return { x: 1000, y: 300, width: 460, height: 620 };
+    },
+    setBounds(bounds) {
+      calls.push(bounds);
+    }
+  };
+
+  resizeWindowKeepingBottomRight({
+    window: fakeWindow,
+    width: 300,
+    height: 560
+  });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], { x: 1160, y: 360, width: 300, height: 560 });
+});
+
 test('normalizeChatInputPayload sanitizes and validates payload', () => {
   const result = normalizeChatInputPayload({
     role: 'assistant',
@@ -133,6 +211,15 @@ test('normalizeWindowDragPayload validates action and screen coordinates', () =>
   assert.equal(normalizeWindowDragPayload({ action: 'start', screenX: 'x', screenY: 2 }), null);
 });
 
+test('normalizeWindowControlPayload and normalizeChatPanelVisibilityPayload validate payloads', () => {
+  assert.deepEqual(normalizeWindowControlPayload({ action: 'hide' }), { action: 'hide' });
+  assert.deepEqual(normalizeWindowControlPayload({ action: ' close_pet ' }), { action: 'close_pet' });
+  assert.equal(normalizeWindowControlPayload({ action: 'quit' }), null);
+
+  assert.deepEqual(normalizeChatPanelVisibilityPayload({ visible: true }), { visible: true });
+  assert.equal(normalizeChatPanelVisibilityPayload({ visible: 'true' }), null);
+});
+
 test('createWindowDragListener repositions window across start/move/end', () => {
   const fakeWindow = {
     x: 300,
@@ -162,6 +249,65 @@ test('createWindowDragListener repositions window across start/move/end', () => 
   listener({ sender }, { action: 'end', screenX: 1142, screenY: 755 });
   listener({ sender }, { action: 'move', screenX: 1160, screenY: 760 });
   assert.deepEqual([fakeWindow.x, fakeWindow.y], [342, 475]);
+});
+
+test('createWindowControlListener handles hide and close actions for active window sender', () => {
+  const webContents = { id: 3 };
+  const window = {
+    webContents,
+    isDestroyed() {
+      return false;
+    }
+  };
+  let hideCount = 0;
+  let closeCount = 0;
+  const listener = createWindowControlListener({
+    window,
+    onHide: () => { hideCount += 1; },
+    onClosePet: () => { closeCount += 1; }
+  });
+
+  listener({ sender: webContents }, { action: 'hide' });
+  listener({ sender: webContents }, { action: 'close_pet' });
+  listener({ sender: { id: 99 } }, { action: 'hide' });
+
+  assert.equal(hideCount, 1);
+  assert.equal(closeCount, 1);
+});
+
+test('createChatPanelVisibilityListener resizes when visibility changes', () => {
+  const webContents = { id: 6 };
+  const setBoundsCalls = [];
+  const state = { x: 1000, y: 300, width: 460, height: 620 };
+  const window = {
+    webContents,
+    isDestroyed() {
+      return false;
+    },
+    getBounds() {
+      return { ...state };
+    },
+    setBounds(bounds) {
+      setBoundsCalls.push(bounds);
+      state.x = bounds.x;
+      state.y = bounds.y;
+      state.width = bounds.width;
+      state.height = bounds.height;
+    }
+  };
+  const metrics = resolveWindowMetrics({
+    window: { width: 460, height: 620, compactWidth: 300, compactHeight: 560 },
+    chat: { panel: { enabled: true, defaultVisible: false } }
+  });
+
+  const listener = createChatPanelVisibilityListener({ window, windowMetrics: metrics });
+  listener({ sender: webContents }, { visible: false });
+  listener({ sender: webContents }, { visible: false });
+  listener({ sender: webContents }, { visible: true });
+
+  assert.equal(setBoundsCalls.length, 2);
+  assert.deepEqual(setBoundsCalls[0], { x: 1160, y: 360, width: 300, height: 560 });
+  assert.deepEqual(setBoundsCalls[1], { x: 1000, y: 300, width: 460, height: 620 });
 });
 
 test('createChatInputListener forwards normalized payload to callback', () => {

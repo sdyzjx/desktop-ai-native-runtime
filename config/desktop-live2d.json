@@ -4,6 +4,9 @@
     "height": 620,
     "minWidth": 360,
     "minHeight": 480,
+    "compactWhenChatHidden": true,
+    "compactWidth": 300,
+    "compactHeight": 560,
     "placement": {
       "anchor": "bottom-right",
       "marginRight": 18,

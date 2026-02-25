@@ -16,7 +16,9 @@ const CHANNELS = Object.freeze({
   rendererError: 'live2d:renderer:error',
   getRuntimeConfig: 'live2d:get-runtime-config',
   chatInputSubmit: 'live2d:chat:input:submit',
-  windowDrag: 'live2d:window:drag'
+  windowDrag: 'live2d:window:drag',
+  windowControl: 'live2d:window:control',
+  chatPanelVisibility: 'live2d:chat:panel-visibility'
 });
 
 function isNewSessionCommand(text) {
@@ -90,6 +92,139 @@ function createWindowDragListener({ BrowserWindow } = {}) {
     if (normalized.action === 'end') {
       dragStates.delete(senderId);
     }
+  };
+}
+
+function toPositiveInt(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+}
+
+function resolveWindowMetrics(uiConfig) {
+  const windowConfig = uiConfig?.window || {};
+  const chatPanelConfig = uiConfig?.chat?.panel || {};
+
+  const expandedWidth = toPositiveInt(windowConfig.width, 460);
+  const expandedHeight = toPositiveInt(windowConfig.height, 620);
+  const compactWhenChatHidden = windowConfig.compactWhenChatHidden !== false;
+  const compactWidth = toPositiveInt(windowConfig.compactWidth, Math.min(expandedWidth, 300));
+  const compactHeight = toPositiveInt(windowConfig.compactHeight, Math.min(expandedHeight, 560));
+
+  const minWidthRaw = toPositiveInt(windowConfig.minWidth, 360);
+  const minHeightRaw = toPositiveInt(windowConfig.minHeight, 480);
+
+  return {
+    expandedWidth,
+    expandedHeight,
+    compactWidth,
+    compactHeight,
+    compactWhenChatHidden,
+    minWidth: Math.max(120, Math.min(minWidthRaw, expandedWidth, compactWhenChatHidden ? compactWidth : expandedWidth)),
+    minHeight: Math.max(160, Math.min(minHeightRaw, expandedHeight, compactWhenChatHidden ? compactHeight : expandedHeight)),
+    defaultChatPanelVisible: Boolean(chatPanelConfig.enabled && chatPanelConfig.defaultVisible)
+  };
+}
+
+function resolveWindowSizeForChatPanel({ windowMetrics, chatPanelVisible }) {
+  if (!windowMetrics?.compactWhenChatHidden || chatPanelVisible) {
+    return {
+      width: windowMetrics?.expandedWidth || 460,
+      height: windowMetrics?.expandedHeight || 620
+    };
+  }
+  return {
+    width: windowMetrics.compactWidth,
+    height: windowMetrics.compactHeight
+  };
+}
+
+function resizeWindowKeepingBottomRight({ window, width, height }) {
+  if (!window || typeof window.getBounds !== 'function' || typeof window.setBounds !== 'function') {
+    return;
+  }
+
+  const bounds = window.getBounds();
+  if (bounds.width === width && bounds.height === height) {
+    return;
+  }
+
+  const right = bounds.x + bounds.width;
+  const bottom = bounds.y + bounds.height;
+
+  window.setBounds({
+    x: Math.round(right - width),
+    y: Math.round(bottom - height),
+    width,
+    height
+  }, true);
+}
+
+function normalizeWindowControlPayload(payload) {
+  const action = String(payload?.action || '').trim().toLowerCase();
+  if (!['hide', 'close_pet'].includes(action)) {
+    return null;
+  }
+  return { action };
+}
+
+function createWindowControlListener({ window, onHide = null, onClosePet = null } = {}) {
+  return (event, payload) => {
+    if (!window || window.isDestroyed() || event?.sender !== window.webContents) {
+      return;
+    }
+
+    const normalized = normalizeWindowControlPayload(payload);
+    if (!normalized) {
+      return;
+    }
+
+    if (normalized.action === 'hide') {
+      if (typeof onHide === 'function') {
+        onHide();
+      }
+      return;
+    }
+
+    if (normalized.action === 'close_pet' && typeof onClosePet === 'function') {
+      onClosePet();
+    }
+  };
+}
+
+function normalizeChatPanelVisibilityPayload(payload) {
+  if (typeof payload?.visible !== 'boolean') {
+    return null;
+  }
+  return {
+    visible: payload.visible
+  };
+}
+
+function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
+  let lastVisible = null;
+  return (event, payload) => {
+    if (!window || window.isDestroyed() || event?.sender !== window.webContents) {
+      return;
+    }
+
+    const normalized = normalizeChatPanelVisibilityPayload(payload);
+    if (!normalized || normalized.visible === lastVisible) {
+      return;
+    }
+    lastVisible = normalized.visible;
+
+    const nextSize = resolveWindowSizeForChatPanel({
+      windowMetrics,
+      chatPanelVisible: normalized.visible
+    });
+    resizeWindowKeepingBottomRight({
+      window,
+      width: nextSize.width,
+      height: nextSize.height
+    });
   };
 }
 
@@ -179,11 +314,13 @@ async function startDesktopSuite({
     logger.error?.('[desktop-live2d] gateway_session_bootstrap_failed', err);
   }
 
+  const windowMetrics = resolveWindowMetrics(config.uiConfig);
   const window = createMainWindow({
     BrowserWindow,
     preloadPath: path.join(__dirname, 'preload.js'),
     display: screen?.getPrimaryDisplay?.(),
-    uiConfig: config.uiConfig
+    uiConfig: config.uiConfig,
+    windowMetrics
   });
 
   ipcMain.handle(CHANNELS.getRuntimeConfig, () => ({
@@ -194,7 +331,51 @@ async function startDesktopSuite({
   }));
   const windowDragListener = createWindowDragListener({ BrowserWindow });
   ipcMain.on(CHANNELS.windowDrag, windowDragListener);
-  const chatInputListener = createChatInputListener({
+  const chatPanelVisibilityListener = createChatPanelVisibilityListener({ window, windowMetrics });
+  ipcMain.on(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
+  let windowControlListener = null;
+  let chatInputListener = null;
+
+  const closePetWindow = async () => {
+    if (!window || window.isDestroyed()) {
+      return;
+    }
+
+    ipcMain.off(CHANNELS.windowDrag, windowDragListener);
+    ipcMain.off(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
+    if (windowControlListener) {
+      ipcMain.off(CHANNELS.windowControl, windowControlListener);
+    }
+    if (chatInputListener) {
+      ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
+    }
+
+    if (rpcServerRef) {
+      await rpcServerRef.stop();
+      rpcServerRef = null;
+    }
+    if (ipcBridgeRef) {
+      ipcBridgeRef.dispose();
+      ipcBridgeRef = null;
+    }
+    if (!window.isDestroyed()) {
+      window.destroy();
+    }
+  };
+  windowControlListener = createWindowControlListener({
+    window,
+    onHide: () => {
+      if (!window.isDestroyed()) {
+        window.hide();
+      }
+    },
+    onClosePet: () => {
+      void closePetWindow();
+    }
+  });
+  ipcMain.on(CHANNELS.windowControl, windowControlListener);
+
+  chatInputListener = createChatInputListener({
     logger,
     onChatInput: (payload) => {
       if (typeof onChatInput === 'function') {
@@ -331,10 +512,18 @@ async function startDesktopSuite({
 
     ipcMain.removeHandler(CHANNELS.getRuntimeConfig);
     ipcMain.off(CHANNELS.windowDrag, windowDragListener);
+    ipcMain.off(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
+    ipcMain.off(CHANNELS.windowControl, windowControlListener);
     ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
 
-    await rpcServer.stop();
-    bridge.dispose();
+    if (rpcServerRef) {
+      await rpcServerRef.stop();
+      rpcServerRef = null;
+    }
+    if (ipcBridgeRef) {
+      ipcBridgeRef.dispose();
+      ipcBridgeRef = null;
+    }
 
     if (!window.isDestroyed()) {
       window.destroy();
@@ -415,14 +604,16 @@ async function handleDesktopRpcRequest({ request, bridge, rendererTimeoutMs }) {
   });
 }
 
-function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig }) {
+function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windowMetrics }) {
   const windowConfig = uiConfig?.window || {};
-  const width = Number(windowConfig.width) || 460;
-  const height = Number(windowConfig.height) || 620;
+  const initialSize = resolveWindowSizeForChatPanel({
+    windowMetrics,
+    chatPanelVisible: windowMetrics?.defaultChatPanelVisible
+  });
   const placement = windowConfig.placement || {};
   const windowBounds = computeWindowBounds({
-    width,
-    height,
+    width: initialSize.width,
+    height: initialSize.height,
     display,
     anchor: String(placement.anchor || 'bottom-right'),
     marginRight: Number(placement.marginRight) || 18,
@@ -434,12 +625,12 @@ function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig }) {
   });
 
   const win = new BrowserWindow({
-    width,
-    height,
+    width: initialSize.width,
+    height: initialSize.height,
     x: windowBounds.x,
     y: windowBounds.y,
-    minWidth: Number(windowConfig.minWidth) || 360,
-    minHeight: Number(windowConfig.minHeight) || 480,
+    minWidth: windowMetrics?.minWidth || 220,
+    minHeight: windowMetrics?.minHeight || 320,
     frame: false,
     transparent: true,
     hasShadow: false,
@@ -557,10 +748,17 @@ module.exports = {
   createMainWindow,
   computeWindowBounds,
   computeRightBottomWindowBounds,
+  resolveWindowMetrics,
+  resolveWindowSizeForChatPanel,
+  resizeWindowKeepingBottomRight,
   writeRuntimeSummary,
   normalizeChatInputPayload,
   normalizeWindowDragPayload,
+  normalizeWindowControlPayload,
+  normalizeChatPanelVisibilityPayload,
   createWindowDragListener,
+  createWindowControlListener,
+  createChatPanelVisibilityListener,
   createChatInputListener,
   handleDesktopRpcRequest,
   isNewSessionCommand

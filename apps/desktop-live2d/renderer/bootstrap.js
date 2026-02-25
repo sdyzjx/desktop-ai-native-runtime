@@ -23,11 +23,14 @@
   const chatInputElement = document.getElementById('chat-input');
   const chatSendElement = document.getElementById('chat-send');
   const chatComposerElement = document.getElementById('chat-panel-composer');
+  const petHideElement = document.getElementById('pet-hide');
+  const petCloseElement = document.getElementById('pet-close');
 
   const chatStateApi = window.ChatPanelState;
   let runtimeUiConfig = null;
   let chatPanelState = null;
   let chatPanelEnabled = false;
+  let lastReportedPanelVisible = null;
 
   function createRpcError(code, message) {
     return { code, message };
@@ -71,6 +74,10 @@
   function applyChatPanelVisibility() {
     const visible = Boolean(chatPanelEnabled && chatPanelState?.visible);
     chatPanelElement?.classList.toggle('visible', visible);
+    if (typeof bridge?.sendChatPanelVisibility === 'function' && visible !== lastReportedPanelVisible) {
+      bridge.sendChatPanelVisibility({ visible });
+      lastReportedPanelVisible = visible;
+    }
     syncChatStateSummary();
   }
 
@@ -284,6 +291,12 @@
     if (chatSendElement) {
       chatSendElement.disabled = !chatPanelState.inputEnabled;
     }
+    petHideElement?.addEventListener('click', () => {
+      bridge?.sendWindowControl?.({ action: 'hide' });
+    });
+    petCloseElement?.addEventListener('click', () => {
+      bridge?.sendWindowControl?.({ action: 'close_pet' });
+    });
 
     renderChatMessages();
     applyChatPanelVisibility();
@@ -308,7 +321,7 @@
       if (chatInputElement) {
         chatInputElement.value = '';
       }
-      bridge.sendChatInput(payload);
+      bridge?.sendChatInput?.(payload);
     };
 
     chatSendElement?.addEventListener('click', submitInput);

@@ -78,6 +78,7 @@ UI config file:
 - `config/desktop-live2d.json`
 - Editable knobs include:
   - window position: `window.placement.anchor` / `margin*`
+  - compact mode (chat hidden): `window.compactWhenChatHidden` / `window.compactWidth` / `window.compactHeight`
   - model size/position: `layout.*`
   - clarity: `render.resolutionScale` / `render.maxDevicePixelRatio`
 
@@ -86,6 +87,8 @@ Current baseline (already done):
 - chat panel: history + local input + show/hide + clear + append
 - chat panel is hidden by default and toggles when clicking the character
 - chat panel default anchor moved to bottom-left to avoid covering face area
+- chat panel header includes `Hide` / `Close` controls for pet window
+- chat panel hidden state triggers compact window mode to reduce desktop occlusion
 - rpc methods: `state.get`, `param.set`, `model.param.set`, `model.param.batchSet`, `model.motion.play`, `model.expression.set`, `chat.show`, `chat.bubble.show`, `chat.panel.show`, `chat.panel.hide`, `chat.panel.append`, `chat.panel.clear`, `tool.list`, `tool.invoke`
 - right-bottom placement + drag-ready window + configurable layout/clarity
 - renderer-to-main submit event: `live2d:chat:input:submit`

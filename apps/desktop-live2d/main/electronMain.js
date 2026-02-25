@@ -33,9 +33,7 @@ app.on('before-quit', async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  // Keep gateway/runtime alive when pet window is intentionally hidden or closed.
 });
 
 app.on('activate', async () => {

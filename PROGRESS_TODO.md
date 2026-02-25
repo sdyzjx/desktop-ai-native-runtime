@@ -42,7 +42,7 @@ Branch: `codex/feature/electron-desktop`
 
 ## 2.2 Validation Status
 
-- Latest full test result on feature branch: `npm test` passed (`142/142`).
+- Latest full test result on feature branch: `npm test` passed (`150/150`).
 - Integration branch is intentionally **not merged into `main`** yet.
 
 ## 3. TODO / Next Actions
@@ -326,3 +326,41 @@ Do not add free-form items outside this format.
 - Update Log:
   - 2026-02-26 03:02 IN_PROGRESS requirement registered from latest user UX feedback.
   - 2026-02-26 03:06 REVIEW implementation + tests completed (`npm test` 142/142), waiting user desktop UX verification.
+
+### [REQ-20260226-007] Desktop pet hide/close controls and compact window mode
+- Created At: 2026-02-26 03:22
+- Source: user
+- Priority: P0
+- Status: REVIEW
+- Owner: runtime
+- Branch: `codex/feature/electron-desktop`
+- Description:
+  - Add explicit hide/close controls for desktop pet window without shutting down gateway service, and auto-shrink pet window when chat panel is hidden.
+- Acceptance Criteria:
+  1. Chat panel header provides `Hide` and `Close` controls.
+  2. `Hide` and `Close` do not stop local gateway backend process.
+  3. Chat panel visibility changes trigger expanded/compact window size switch.
+  4. Window compact behavior is configurable in `config/desktop-live2d.json`.
+- Impacted Modules:
+  - `apps/desktop-live2d/main/desktopSuite.js`
+  - `apps/desktop-live2d/main/preload.js`
+  - `apps/desktop-live2d/main/electronMain.js`
+  - `apps/desktop-live2d/renderer/index.html`
+  - `apps/desktop-live2d/renderer/bootstrap.js`
+  - `apps/desktop-live2d/main/config.js`
+  - `config/desktop-live2d.json`
+  - `test/desktop-live2d/desktopSuite.test.js`
+  - `test/desktop-live2d/config.test.js`
+- Risks/Dependencies:
+  - Closing pet window currently keeps process/gateway alive but does not auto-recreate window.
+  - Compact window defaults may require per-model fine tuning.
+- Plan:
+  1. Add new IPC channels for window control and chat panel visibility.
+  2. Add renderer controls and visibility reporting.
+  3. Add main-process window-size state machine and keep-gateway behavior.
+  4. Add tests for control payload validation and resize flow.
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-26 03:22 IN_PROGRESS implementation started from user UX requirement.
+  - 2026-02-26 03:29 REVIEW implementation + tests completed (`npm test` 150/150), waiting user runtime verification.

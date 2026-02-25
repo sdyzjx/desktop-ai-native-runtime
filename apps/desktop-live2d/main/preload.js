@@ -7,7 +7,9 @@ const CHANNELS = {
   rendererError: 'live2d:renderer:error',
   getRuntimeConfig: 'live2d:get-runtime-config',
   chatInputSubmit: 'live2d:chat:input:submit',
-  windowDrag: 'live2d:window:drag'
+  windowDrag: 'live2d:window:drag',
+  windowControl: 'live2d:window:control',
+  chatPanelVisibility: 'live2d:chat:panel-visibility'
 };
 
 contextBridge.exposeInMainWorld('desktopLive2dBridge', {
@@ -30,6 +32,12 @@ contextBridge.exposeInMainWorld('desktopLive2dBridge', {
   },
   sendWindowDrag(payload = {}) {
     ipcRenderer.send(CHANNELS.windowDrag, payload);
+  },
+  sendWindowControl(payload = {}) {
+    ipcRenderer.send(CHANNELS.windowControl, payload);
+  },
+  sendChatPanelVisibility(payload = {}) {
+    ipcRenderer.send(CHANNELS.chatPanelVisibility, payload);
   },
   getRuntimeConfig() {
     return ipcRenderer.invoke(CHANNELS.getRuntimeConfig);

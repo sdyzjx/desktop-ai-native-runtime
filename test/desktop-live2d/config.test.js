@@ -15,6 +15,9 @@ test('resolveDesktopLive2dConfig applies defaults and model relative path', () =
   assert.equal(config.gatewayExternal, false);
   assert.equal(config.uiConfig.chat.panel.enabled, true);
   assert.equal(config.uiConfig.chat.panel.defaultVisible, false);
+  assert.equal(config.uiConfig.window.compactWhenChatHidden, true);
+  assert.equal(config.uiConfig.window.compactWidth, 300);
+  assert.equal(config.uiConfig.window.compactHeight, 560);
 });
 
 test('resolveDesktopLive2dConfig respects env overrides', () => {
@@ -45,6 +48,7 @@ test('resolveDesktopLive2dConfig loads overrides from config/desktop-live2d.json
     JSON.stringify({
       window: {
         width: 520,
+        compactWidth: 280,
         placement: {
           anchor: 'top-left',
           marginTop: 30
@@ -68,6 +72,7 @@ test('resolveDesktopLive2dConfig loads overrides from config/desktop-live2d.json
 
   const config = resolveDesktopLive2dConfig({ env: {}, projectRoot });
   assert.equal(config.uiConfig.window.width, 520);
+  assert.equal(config.uiConfig.window.compactWidth, 280);
   assert.equal(config.uiConfig.window.placement.anchor, 'top-left');
   assert.equal(config.uiConfig.window.placement.marginTop, 30);
   assert.equal(config.uiConfig.render.resolutionScale, 1.2);

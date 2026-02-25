@@ -18,6 +18,9 @@ const DEFAULT_UI_CONFIG = Object.freeze({
     height: 620,
     minWidth: 360,
     minHeight: 480,
+    compactWhenChatHidden: true,
+    compactWidth: 300,
+    compactHeight: 560,
     placement: {
       anchor: 'bottom-right',
       marginRight: 18,
@@ -136,6 +139,9 @@ function normalizeUiConfig(raw) {
   merged.window.height = toPositiveInt(merged.window.height, DEFAULT_UI_CONFIG.window.height);
   merged.window.minWidth = toPositiveInt(merged.window.minWidth, DEFAULT_UI_CONFIG.window.minWidth);
   merged.window.minHeight = toPositiveInt(merged.window.minHeight, DEFAULT_UI_CONFIG.window.minHeight);
+  merged.window.compactWhenChatHidden = merged.window.compactWhenChatHidden !== false;
+  merged.window.compactWidth = toPositiveInt(merged.window.compactWidth, DEFAULT_UI_CONFIG.window.compactWidth);
+  merged.window.compactHeight = toPositiveInt(merged.window.compactHeight, DEFAULT_UI_CONFIG.window.compactHeight);
   merged.window.placement.anchor = String(merged.window.placement.anchor || 'bottom-right');
   merged.window.placement.marginRight = toPositiveInt(merged.window.placement.marginRight, DEFAULT_UI_CONFIG.window.placement.marginRight);
   merged.window.placement.marginBottom = toPositiveInt(merged.window.placement.marginBottom, DEFAULT_UI_CONFIG.window.placement.marginBottom);
