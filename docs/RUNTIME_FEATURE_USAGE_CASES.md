@@ -7,6 +7,8 @@ This guide provides practical, reproducible cases for newly integrated runtime f
 - session permission + workspace isolation
 - skills runtime
 - smoke-test skill
+- multimodal image upload + persisted preview
+- LLM transient network retry
 
 ## 2. Environment
 
@@ -100,9 +102,50 @@ tail -n 20 ~/yachiyo/logs/skills-telemetry.jsonl
 Expected:
 - contains `skills.turn` entries.
 
-## 5. API Cases
+## 5. Case Set: Multimodal Image
 
-## Case 5.1 session settings API validation
+## Case 5.1 upload image and ask multimodal question
+
+1. Open chat UI and click `Image`.
+2. Select one image under `8MB`.
+3. Ask: `请描述这张图片`.
+
+Expected:
+- request succeeds.
+- assistant returns image-aware answer.
+
+## Case 5.2 restart service and verify preview still works
+
+1. Send a multimodal message with image.
+2. Restart server:
+
+```bash
+npm run dev
+```
+
+3. Refresh page and reopen same session.
+4. Click message image thumbnail.
+
+Expected:
+- thumbnail still appears.
+- lightbox preview opens after restart.
+
+## Case 5.3 oversize image rejection
+
+Temporarily set strict limit:
+
+```bash
+MAX_INPUT_IMAGE_BYTES=1024 npm run dev
+```
+
+Upload a larger image.
+
+Expected:
+- request rejected with max-bytes validation error.
+
+## 6. API Cases
+
+## Case 6.1 session settings API validation
 
 ```bash
 curl -X PUT http://localhost:3000/api/sessions/<sid>/settings \
@@ -113,7 +156,7 @@ curl -X PUT http://localhost:3000/api/sessions/<sid>/settings \
 Expected:
 - HTTP 400.
 
-## Case 5.2 read current session settings
+## Case 6.2 read current session settings
 
 ```bash
 curl http://localhost:3000/api/sessions/<sid>/settings
@@ -122,7 +165,7 @@ curl http://localhost:3000/api/sessions/<sid>/settings
 Expected:
 - returns normalized `permission_level` and `workspace.root_dir`.
 
-## 6. Automated Validation
+## 7. Automated Validation
 
 ```bash
 npm test
