@@ -6,13 +6,26 @@ function formatDecisionEvent(decision) {
     return { type: 'final', preview: String(decision.output || '').slice(0, 160) };
   }
 
+  const tools = Array.isArray(decision.tools) && decision.tools.length > 0
+    ? decision.tools
+    : (decision.tool ? [decision.tool] : []);
+
   return {
     type: 'tool',
-    tool: {
-      name: decision.tool?.name,
-      args: decision.tool?.args || {}
-    }
+    tools: tools.map((t) => ({ name: t?.name, args: t?.args || {} }))
   };
+}
+
+function normalizeToolCalls(decision) {
+  const calls = Array.isArray(decision.tools) && decision.tools.length > 0
+    ? decision.tools
+    : (decision.tool ? [decision.tool] : []);
+
+  return calls.map((call) => ({
+    call_id: call.call_id || uuidv4(),
+    name: call.name,
+    args: call.args || {}
+  }));
 }
 
 class ToolLoopRunner {
@@ -38,8 +51,8 @@ class ToolLoopRunner {
         {
           role: 'system',
           content: [
-            'You are a runtime planner that can either return a final answer or call exactly one tool.',
-            'If a tool is needed, emit one tool call and wait for its result in the next turn.',
+            'You are a runtime planner that can either return a final answer or call tools.',
+            'If tools are needed, you may emit one or more tool calls and wait for results in the next turn.',
             'Keep answers concise.'
           ].join(' ')
         },
@@ -88,72 +101,84 @@ class ToolLoopRunner {
           return { output: decision.output, traceId, state: sm.state };
         }
 
-        const callId = decision.tool.call_id || uuidv4();
-        const toolCallPayload = {
-          trace_id: traceId,
-          session_id: sessionId,
-          step_index: ctx.stepIndex,
-          call_id: callId,
-          tool: {
-            name: decision.tool.name,
-            args: decision.tool.args || {}
-          }
-        };
+        const toolCalls = normalizeToolCalls(decision);
+        if (toolCalls.length === 0) {
+          sm.transition(RuntimeState.ERROR);
+          emit('tool.error', { error: '模型返回了 tool 类型但没有可执行的工具调用。' });
+          return { output: '运行错误：模型未返回可执行的工具调用。', traceId, state: sm.state };
+        }
 
         const assistantMessage = decision.assistantMessage || {
           role: 'assistant',
           content: null,
-          tool_calls: [
-            {
-              id: callId,
-              type: 'function',
-              function: {
-                name: decision.tool.name,
-                arguments: JSON.stringify(decision.tool.args || {})
-              }
+          tool_calls: toolCalls.map((call) => ({
+            id: call.call_id,
+            type: 'function',
+            function: {
+              name: call.name,
+              arguments: JSON.stringify(call.args || {})
             }
-          ]
+          }))
         };
 
-        emit('tool.call', {
-          call_id: callId,
-          name: decision.tool.name,
-          args: decision.tool.args || {}
-        });
-
-        this.bus.publish('tool.call.requested', toolCallPayload);
-
-        const toolResult = await this.bus.waitFor(
-          'tool.call.result',
-          (payload) => payload.trace_id === traceId && payload.call_id === callId,
-          this.toolResultTimeoutMs
-        );
-
-        if (!toolResult.ok) {
-          sm.transition(RuntimeState.ERROR);
-          emit('tool.error', { call_id: callId, error: toolResult.error, name: decision.tool.name });
-          return { output: `工具执行失败：${toolResult.error}`, traceId, state: sm.state };
+        if (!decision.assistantMessage) {
+          ctx.messages.push(assistantMessage);
+        } else {
+          // keep model's original message for traceability
+          ctx.messages.push(decision.assistantMessage);
         }
 
-        ctx.messages.push(assistantMessage);
-        ctx.messages.push({
-          role: 'tool',
-          tool_call_id: callId,
-          name: decision.tool.name,
-          content: String(toolResult.result)
-        });
+        for (const call of toolCalls) {
+          const toolCallPayload = {
+            trace_id: traceId,
+            session_id: sessionId,
+            step_index: ctx.stepIndex,
+            call_id: call.call_id,
+            tool: {
+              name: call.name,
+              args: call.args || {}
+            }
+          };
 
-        ctx.observations.push({
-          call_id: callId,
-          name: decision.tool.name,
-          result: toolResult.result
-        });
+          emit('tool.call', {
+            call_id: call.call_id,
+            name: call.name,
+            args: call.args || {}
+          });
 
-        emit('tool.result', {
-          call_id: callId,
-          name: decision.tool.name,
-          result: toolResult.result
-        });
+          this.bus.publish('tool.call.requested', toolCallPayload);
+
+          const toolResult = await this.bus.waitFor(
+            'tool.call.result',
+            (payload) => payload.trace_id === traceId && payload.call_id === call.call_id,
+            this.toolResultTimeoutMs
+          );
+
+          if (!toolResult.ok) {
+            sm.transition(RuntimeState.ERROR);
+            emit('tool.error', { call_id: call.call_id, error: toolResult.error, name: call.name, code: toolResult.code });
+            return { output: `工具执行失败：${toolResult.error}`, traceId, state: sm.state };
+          }
+
+          ctx.messages.push({
+            role: 'tool',
+            tool_call_id: call.call_id,
+            name: call.name,
+            content: String(toolResult.result)
+          });
+
+          ctx.observations.push({
+            call_id: call.call_id,
+            name: call.name,
+            result: toolResult.result
+          });
+
+          emit('tool.result', {
+            call_id: call.call_id,
+            name: call.name,
+            result: toolResult.result
+          });
+        }
       }
 
       sm.transition(RuntimeState.DONE);

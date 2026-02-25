@@ -10,6 +10,7 @@
     "test:ci": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
+    "ajv": "^8.17.1",
     "express": "^4.19.2",
     "uuid": "^11.0.3",
     "ws": "^8.18.0",

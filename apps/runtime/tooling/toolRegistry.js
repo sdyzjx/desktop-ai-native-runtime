@@ -1,0 +1,48 @@
+const builtin = require('./adapters/builtin');
+const fsAdapters = require('./adapters/fs');
+const shellAdapters = require('./adapters/shell');
+const { ToolingError, ErrorCode } = require('./errors');
+
+const ADAPTERS = {
+  ...builtin,
+  ...fsAdapters,
+  ...shellAdapters
+};
+
+class ToolRegistry {
+  constructor({ config }) {
+    this.config = config;
+    this.tools = new Map();
+
+    for (const def of config.tools || []) {
+      const run = ADAPTERS[def.adapter];
+      if (!run) {
+        throw new ToolingError(ErrorCode.CONFIG_ERROR, `adapter not found: ${def.adapter}`);
+      }
+
+      this.tools.set(def.name, {
+        name: def.name,
+        type: def.type || 'local',
+        description: def.description || '',
+        input_schema: def.input_schema,
+        run,
+        adapter: def.adapter
+      });
+    }
+  }
+
+  get(name) {
+    return this.tools.get(name) || null;
+  }
+
+  list() {
+    return Array.from(this.tools.values()).map((tool) => ({
+      name: tool.name,
+      type: tool.type,
+      description: tool.description,
+      input_schema: tool.input_schema
+    }));
+  }
+}
+
+module.exports = { ToolRegistry };

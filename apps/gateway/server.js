@@ -3,7 +3,6 @@ const { WebSocketServer } = require('ws');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-const tools = require('../runtime/executor/localTools');
 const { ToolExecutor } = require('../runtime/executor/toolExecutor');
 const { ToolLoopRunner } = require('../runtime/loop/toolLoopRunner');
 const { RuntimeEventBus } = require('../runtime/bus/eventBus');
@@ -13,6 +12,7 @@ const { RuntimeRpcWorker } = require('../runtime/rpc/runtimeRpcWorker');
 const { RpcErrorCode, createRpcError } = require('../runtime/rpc/jsonRpc');
 const { ProviderConfigStore } = require('../runtime/config/providerConfigStore');
 const { LlmProviderManager } = require('../runtime/config/llmProviderManager');
+const { ToolConfigManager } = require('../runtime/config/toolConfigManager');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -20,7 +20,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const bus = new RuntimeEventBus();
 const queue = new RpcInputQueue({ maxSize: 2000 });
-const executor = new ToolExecutor(tools);
+const toolConfigManager = new ToolConfigManager();
+const toolRuntime = toolConfigManager.buildRegistry();
+const executor = new ToolExecutor(toolRuntime.registry, { policy: toolRuntime.policy, exec: toolRuntime.exec });
 const providerStore = new ProviderConfigStore();
 const llmManager = new LlmProviderManager({ store: providerStore });
 
@@ -42,7 +44,8 @@ app.get('/health', (_, res) => {
   res.json({
     ok: true,
     queue_size: queue.size(),
-    llm: llmManager.getConfigSummary()
+    llm: llmManager.getConfigSummary(),
+    tools: toolConfigManager.getSummary()
   });
 });
 
@@ -60,6 +63,23 @@ app.get('/api/config/providers/config', (_, res) => {
 
 app.get('/api/config/providers/raw', (_, res) => {
   res.json({ ok: true, yaml: llmManager.loadYaml() });
+});
+
+
+app.get('/api/config/tools/config', (_, res) => {
+  try {
+    res.json({ ok: true, data: toolConfigManager.getConfig() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.get('/api/config/tools/raw', (_, res) => {
+  try {
+    res.json({ ok: true, yaml: toolConfigManager.loadYaml() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
 });
 
 app.put('/api/config/providers/config', (req, res) => {
@@ -94,9 +114,11 @@ app.put('/api/config/providers/raw', (req, res) => {
 
 const port = Number(process.env.PORT) || 3000;
 
-const server = app.listen(port, () => {
+const host = process.env.HOST || '0.0.0.0';
+
+const server = app.listen(port, host, () => {
   const summary = llmManager.getConfigSummary();
-  console.log(`Debug web: http://localhost:${port}`);
+  console.log(`Debug web: http://localhost:${port} (listening on ${host})`);
   console.log(`LLM provider: ${summary.active_provider} / ${summary.active_model} / has_api_key=${summary.has_api_key}`);
 });
 
