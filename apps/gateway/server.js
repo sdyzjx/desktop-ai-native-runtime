@@ -17,6 +17,7 @@ const { FileSessionStore } = require('../runtime/session/fileSessionStore');
 const { buildRecentContextMessages } = require('../runtime/session/contextBuilder');
 const { getDefaultLongTermMemoryStore } = require('../runtime/session/longTermMemoryStore');
 const { loadMemorySop } = require('../runtime/session/memorySopLoader');
+const { SkillRuntimeManager } = require('../runtime/skills/skillRuntimeManager');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -31,6 +32,7 @@ const providerStore = new ProviderConfigStore();
 const llmManager = new LlmProviderManager({ store: providerStore });
 const sessionStore = new FileSessionStore();
 const longTermMemoryStore = getDefaultLongTermMemoryStore();
+const skillRuntimeManager = new SkillRuntimeManager({ workspaceDir: process.cwd() });
 
 const contextMaxMessages = Math.max(0, Number(process.env.CONTEXT_MAX_MESSAGES) || 12);
 const contextMaxChars = Math.max(0, Number(process.env.CONTEXT_MAX_CHARS) || 12000);
@@ -42,6 +44,7 @@ const runner = new ToolLoopRunner({
   bus,
   getReasoner: () => llmManager.getReasoner(),
   listTools: () => executor.listTools(),
+  resolveSkillsContext: ({ sessionId, input }) => skillRuntimeManager.buildTurnContext({ sessionId, input }),
   maxStep: 8,
   toolResultTimeoutMs: 10000
 });
