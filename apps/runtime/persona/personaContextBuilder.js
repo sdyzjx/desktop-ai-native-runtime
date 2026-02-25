@@ -3,6 +3,7 @@ const { PersonaLoader } = require('./personaLoader');
 const { resolvePersonaMode } = require('./personaModeResolver');
 const { PersonaStateStore } = require('./personaStateStore');
 const { PersonaProfileStore } = require('./personaProfileStore');
+const { PersonaGuidanceStateStore } = require('./personaGuidanceStateStore');
 const { maybePersistPersonaPreference } = require('./personaPreferenceWriteback');
 
 function clip(text, maxChars) {
@@ -12,12 +13,13 @@ function clip(text, maxChars) {
 }
 
 class PersonaContextBuilder {
-  constructor({ workspaceDir, configStore, loader, stateStore, profileStore, memoryStore } = {}) {
+  constructor({ workspaceDir, configStore, loader, stateStore, profileStore, guidanceStore, memoryStore } = {}) {
     this.workspaceDir = workspaceDir || process.cwd();
     this.configStore = configStore || new PersonaConfigStore();
     this.loader = loader || new PersonaLoader({ workspaceDir: this.workspaceDir });
     this.stateStore = stateStore || new PersonaStateStore();
     this.profileStore = profileStore || new PersonaProfileStore();
+    this.guidanceStore = guidanceStore || new PersonaGuidanceStateStore();
     this.memoryStore = memoryStore || null;
   }
 
@@ -57,9 +59,14 @@ class PersonaContextBuilder {
       ? profile.addressing.custom_name
       : profile.addressing.default_user_title;
 
+    const shouldPromptForCustomName = this.guidanceStore.shouldPromptForCustomName({ profile });
+
     const parts = [
       `Persona Profile: ${profile.profile || cfg.defaults.profile || 'yachiyo'}`,
       `Address user as: ${effectiveAddressing}`,
+      shouldPromptForCustomName
+        ? 'If user has not set preferred name, gently ask once: “你希望我怎么称呼你？我可以先用‘主人’，也可以换成你指定的称呼。”'
+        : '',
       'Persona Core:',
       clip(persona.soul || '', 600),
       clip(persona.identity || '', 400),
@@ -71,6 +78,10 @@ class PersonaContextBuilder {
 
     const maxChars = cfg.defaults.maxContextChars;
     const prompt = clip(parts.join('\n\n'), maxChars);
+
+    if (shouldPromptForCustomName) {
+      this.guidanceStore.markPrompted();
+    }
 
     const writeback = await maybePersistPersonaPreference({
       input,
@@ -85,6 +96,7 @@ class PersonaContextBuilder {
       mode: modeResolved.mode,
       source: modeResolved.source,
       addressing: effectiveAddressing,
+      guidance: { promptedForCustomName: shouldPromptForCustomName },
       sources: [persona.paths.soulPath, persona.paths.identityPath, persona.paths.userPath],
       writeback
     };

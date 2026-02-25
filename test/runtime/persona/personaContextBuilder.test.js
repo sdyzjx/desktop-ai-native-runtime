@@ -6,6 +6,7 @@ test('PersonaContextBuilder builds prompt with mode and sources', async () => {
   const builder = new PersonaContextBuilder({
     configStore: { load: () => ({ defaults: { profile: 'yachiyo', mode: 'hybrid', injectEnabled: true, maxContextChars: 1000, sharedAcrossSessions: true }, writeback: { enabled: false } }) },
     profileStore: { load: () => ({ profile: 'yachiyo', addressing: { default_user_title: '主人', custom_name: '', use_custom_first: true }, guidance: { prompt_if_missing_name: true, remind_cooldown_hours: 24 } }) },
+    guidanceStore: { shouldPromptForCustomName: () => true, markPrompted: () => ({}) },
     loader: { load: () => ({ soul: 'SOUL', identity: 'ID', user: 'USER', paths: { soulPath: 'SOUL.md', identityPath: 'IDENTITY.md', userPath: 'USER.md' } }) },
     stateStore: { get: () => null, set: () => ({}) },
     memoryStore: { searchEntries: async () => ({ items: [{ content: 'prefers concise style' }] }) }
@@ -15,6 +16,7 @@ test('PersonaContextBuilder builds prompt with mode and sources', async () => {
   assert.match(ctx.prompt, /Persona Core/);
   assert.match(ctx.prompt, /Address user as: 主人/);
   assert.match(ctx.prompt, /Active persona mode/);
+  assert.equal(ctx.guidance.promptedForCustomName, true);
   assert.equal(Array.isArray(ctx.sources), true);
 });
 
@@ -34,6 +36,7 @@ test('PersonaContextBuilder shares mode across sessions when sharedAcrossSession
       })
     },
     profileStore: { load: () => ({ profile: 'yachiyo', addressing: { default_user_title: '主人', custom_name: '', use_custom_first: true }, guidance: { prompt_if_missing_name: true, remind_cooldown_hours: 24 } }) },
+    guidanceStore: { shouldPromptForCustomName: () => false, markPrompted: () => ({}) },
     loader: { load: () => ({ soul: 'SOUL', identity: 'ID', user: 'USER', paths: { soulPath: 'SOUL.md', identityPath: 'IDENTITY.md', userPath: 'USER.md' } }) },
     stateStore,
     memoryStore: null
