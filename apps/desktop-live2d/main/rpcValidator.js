@@ -2,18 +2,51 @@ const Ajv = require('ajv');
 
 const { RPC_METHODS_V1 } = require('./constants');
 
+const PARAM_SET_SCHEMA = {
+  type: 'object',
+  required: ['name', 'value'],
+  additionalProperties: false,
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 128 },
+    value: { type: 'number' }
+  }
+};
+
 const METHOD_SCHEMAS = Object.freeze({
   'state.get': {
     type: 'object',
     additionalProperties: false
   },
-  'param.set': {
+  'param.set': PARAM_SET_SCHEMA,
+  'model.param.set': PARAM_SET_SCHEMA,
+  'model.param.batchSet': {
     type: 'object',
-    required: ['name', 'value'],
+    required: ['updates'],
     additionalProperties: false,
     properties: {
-      name: { type: 'string', minLength: 1, maxLength: 128 },
-      value: { type: 'number' }
+      updates: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 60,
+        items: PARAM_SET_SCHEMA
+      }
+    }
+  },
+  'model.motion.play': {
+    type: 'object',
+    required: ['group'],
+    additionalProperties: false,
+    properties: {
+      group: { type: 'string', minLength: 1, maxLength: 128 },
+      index: { type: 'integer', minimum: 0, maximum: 1024 }
+    }
+  },
+  'model.expression.set': {
+    type: 'object',
+    required: ['name'],
+    additionalProperties: false,
+    properties: {
+      name: { type: 'string', minLength: 1, maxLength: 128 }
     }
   },
   'chat.show': {
@@ -60,6 +93,20 @@ const METHOD_SCHEMAS = Object.freeze({
       text: { type: 'string', minLength: 1, maxLength: 4000 },
       timestamp: { type: 'integer', minimum: 0 },
       requestId: { type: 'string', minLength: 1, maxLength: 128 }
+    }
+  },
+  'tool.list': {
+    type: 'object',
+    additionalProperties: false
+  },
+  'tool.invoke': {
+    type: 'object',
+    required: ['name'],
+    additionalProperties: false,
+    properties: {
+      name: { type: 'string', minLength: 1, maxLength: 128 },
+      arguments: { type: 'object', additionalProperties: true },
+      traceId: { type: 'string', minLength: 1, maxLength: 128 }
     }
   }
 });

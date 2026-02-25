@@ -353,11 +353,12 @@ flowchart LR
   - M1 基线：模型渲染、透明气泡、基础 RPC、配置文件、右下角放置、拖拽
   - Phase A：协议冻结与文档同步
   - Phase B：聊天框 UI（历史/输入/显隐）+ `chat.panel.*` RPC + `chat.input.submit` IPC
+  - Phase C：runtime 事件转发（gateway runtime notification -> `desktop.event` -> renderer `runtime.final` 对齐）
+  - Phase D：tool-calling 暴露（`tool.list` / `tool.invoke`）+ `model.*` 最小控制能力
 - 进行中
-  - Phase C：RPC 事件转发
-- 未开始
-  - Phase D：Tool Calling 暴露
   - Phase E：稳定性收敛
+- 未开始
+  - 无
 
 ## 11. 阶段完成定义（DoD）
 

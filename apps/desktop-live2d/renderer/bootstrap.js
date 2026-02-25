@@ -149,6 +149,78 @@
     return { ok: true };
   }
 
+  function setModelParamsBatch(params) {
+    const updates = Array.isArray(params?.updates) ? params.updates : [];
+    if (updates.length === 0) {
+      throw createRpcError(-32602, 'model.param.batchSet requires non-empty updates array');
+    }
+
+    for (const update of updates) {
+      setModelParam(update);
+    }
+    return {
+      ok: true,
+      applied: updates.length
+    };
+  }
+
+  function playModelMotion(params) {
+    if (!live2dModel || !state.modelLoaded) {
+      throw createRpcError(-32004, 'model not loaded');
+    }
+
+    const group = String(params?.group || '').trim();
+    if (!group) {
+      throw createRpcError(-32602, 'model.motion.play requires non-empty group');
+    }
+
+    const hasIndex = params && Object.prototype.hasOwnProperty.call(params, 'index');
+    const index = Number(params?.index);
+    if (hasIndex && !Number.isInteger(index)) {
+      throw createRpcError(-32602, 'model.motion.play index must be integer');
+    }
+
+    if (typeof live2dModel.motion !== 'function') {
+      throw createRpcError(-32005, 'motion() is unavailable on this model runtime');
+    }
+
+    if (hasIndex) {
+      live2dModel.motion(group, index);
+    } else {
+      live2dModel.motion(group);
+    }
+
+    return {
+      ok: true,
+      group,
+      index: hasIndex ? index : null
+    };
+  }
+
+  function setModelExpression(params) {
+    if (!live2dModel || !state.modelLoaded) {
+      throw createRpcError(-32004, 'model not loaded');
+    }
+
+    const name = String(params?.name || '').trim();
+    if (!name) {
+      throw createRpcError(-32602, 'model.expression.set requires non-empty name');
+    }
+
+    if (typeof live2dModel.expression === 'function') {
+      live2dModel.expression(name);
+      return { ok: true, name };
+    }
+
+    const expressionManager = live2dModel.internalModel?.motionManager?.expressionManager;
+    if (expressionManager && typeof expressionManager.setExpression === 'function') {
+      expressionManager.setExpression(name);
+      return { ok: true, name };
+    }
+
+    throw createRpcError(-32005, 'expression() is unavailable on this model runtime');
+  }
+
   function getState() {
     syncChatStateSummary();
     return {
@@ -371,8 +443,14 @@
       let result;
       if (method === 'state.get') {
         result = getState();
-      } else if (method === 'param.set') {
+      } else if (method === 'param.set' || method === 'model.param.set') {
         result = setModelParam(params);
+      } else if (method === 'model.param.batchSet') {
+        result = setModelParamsBatch(params);
+      } else if (method === 'model.motion.play') {
+        result = playModelMotion(params);
+      } else if (method === 'model.expression.set') {
+        result = setModelExpression(params);
       } else if (method === 'chat.show' || method === 'chat.bubble.show') {
         result = showBubble(params);
       } else if (method === 'chat.panel.show') {

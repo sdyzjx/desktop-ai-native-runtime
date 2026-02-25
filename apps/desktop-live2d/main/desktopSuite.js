@@ -6,6 +6,8 @@ const { validateModelAssetDirectory } = require('./modelAssets');
 const { GatewaySupervisor } = require('./gatewaySupervisor');
 const { Live2dRpcServer } = require('./rpcServer');
 const { IpcRpcBridge } = require('./ipcBridge');
+const { GatewayRuntimeClient } = require('./gatewayRuntimeClient');
+const { listDesktopTools, resolveToolInvoke } = require('./toolRegistry');
 
 const CHANNELS = Object.freeze({
   invoke: 'live2d:rpc:invoke',
@@ -50,6 +52,50 @@ async function startDesktopSuite({
 
   await gatewaySupervisor.start();
 
+  let rpcServerRef = null;
+  let ipcBridgeRef = null;
+  const gatewayRuntimeClient = new GatewayRuntimeClient({
+    gatewayUrl: config.gatewayUrl,
+    sessionId: 'desktop-live2d-chat',
+    logger,
+    onNotification: (desktopEvent) => {
+      rpcServerRef?.notify({
+        method: 'desktop.event',
+        params: desktopEvent
+      });
+
+      if (desktopEvent.type !== 'runtime.final' || !ipcBridgeRef) {
+        return;
+      }
+
+      const output = String(desktopEvent.data?.output || '').trim();
+      if (!output) {
+        return;
+      }
+
+      void ipcBridgeRef.invoke({
+        method: 'chat.panel.append',
+        params: {
+          role: 'assistant',
+          text: output,
+          timestamp: Date.now()
+        }
+      }).catch((err) => {
+        logger.error?.('[desktop-live2d] failed to append runtime.final into chat panel', err);
+      });
+
+      void ipcBridgeRef.invoke({
+        method: 'chat.bubble.show',
+        params: {
+          text: output,
+          durationMs: 5000
+        }
+      }).catch((err) => {
+        logger.error?.('[desktop-live2d] failed to render runtime.final bubble', err);
+      });
+    }
+  });
+
   const window = createMainWindow({
     BrowserWindow,
     preloadPath: path.join(__dirname, 'preload.js'),
@@ -63,7 +109,40 @@ async function startDesktopSuite({
     gatewayUrl: config.gatewayUrl,
     uiConfig: config.uiConfig
   }));
-  const chatInputListener = createChatInputListener({ logger, onChatInput });
+  const chatInputListener = createChatInputListener({
+    logger,
+    onChatInput: (payload) => {
+      if (typeof onChatInput === 'function') {
+        onChatInput(payload);
+      }
+
+      void gatewayRuntimeClient.runInput({ input: payload.text }).catch((err) => {
+        logger.error?.('[desktop-live2d] gateway runtime input failed', err);
+        rpcServerRef?.notify({
+          method: 'desktop.event',
+          params: {
+            type: 'runtime.error',
+            timestamp: Date.now(),
+            data: {
+              message: err?.message || String(err || 'unknown runtime error')
+            }
+          }
+        });
+
+        if (!ipcBridgeRef) {
+          return;
+        }
+        void ipcBridgeRef.invoke({
+          method: 'chat.panel.append',
+          params: {
+            role: 'system',
+            text: `[runtime error] ${err?.message || String(err || 'unknown runtime error')}`,
+            timestamp: Date.now()
+          }
+        }).catch(() => {});
+      });
+    }
+  });
   ipcMain.on(CHANNELS.chatInputSubmit, chatInputListener);
 
   const rendererReadyPromise = waitForRendererReady({ ipcMain, timeoutMs: 15000 });
@@ -78,15 +157,21 @@ async function startDesktopSuite({
     resultChannel: CHANNELS.result,
     timeoutMs: config.rendererTimeoutMs
   });
+  ipcBridgeRef = bridge;
 
   const rpcServer = new Live2dRpcServer({
     host: config.rpcHost,
     port: config.rpcPort,
     token: config.rpcToken,
-    requestHandler: async ({ method, params }) => bridge.invoke({ method, params, timeoutMs: config.rendererTimeoutMs }),
+    requestHandler: async (request) => handleDesktopRpcRequest({
+      request,
+      bridge,
+      rendererTimeoutMs: config.rendererTimeoutMs
+    }),
     logger
   });
   const rpcInfo = await rpcServer.start();
+  rpcServerRef = rpcServer;
 
   const summary = {
     startedAt: new Date().toISOString(),
@@ -97,12 +182,18 @@ async function startDesktopSuite({
     methods: [
       'state.get',
       'param.set',
+      'model.param.set',
+      'model.param.batchSet',
+      'model.motion.play',
+      'model.expression.set',
       'chat.show',
       'chat.bubble.show',
       'chat.panel.show',
       'chat.panel.hide',
       'chat.panel.append',
-      'chat.panel.clear'
+      'chat.panel.clear',
+      'tool.list',
+      'tool.invoke'
     ]
   };
   writeRuntimeSummary(config.runtimeSummaryPath, summary);
@@ -164,6 +255,37 @@ function createChatInputListener({ logger = console, onChatInput = null } = {}) 
       onChatInput(normalized);
     }
   };
+}
+
+async function handleDesktopRpcRequest({ request, bridge, rendererTimeoutMs }) {
+  if (request.method === 'tool.list') {
+    return {
+      tools: listDesktopTools()
+    };
+  }
+
+  if (request.method === 'tool.invoke') {
+    const resolved = resolveToolInvoke({
+      name: request.params?.name,
+      args: request.params?.arguments
+    });
+    const result = await bridge.invoke({
+      method: resolved.method,
+      params: resolved.params,
+      timeoutMs: rendererTimeoutMs
+    });
+    return {
+      ok: true,
+      tool: resolved.toolName,
+      result
+    };
+  }
+
+  return bridge.invoke({
+    method: request.method,
+    params: request.params,
+    timeoutMs: rendererTimeoutMs
+  });
 }
 
 function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig }) {
@@ -310,5 +432,6 @@ module.exports = {
   computeRightBottomWindowBounds,
   writeRuntimeSummary,
   normalizeChatInputPayload,
-  createChatInputListener
+  createChatInputListener,
+  handleDesktopRpcRequest
 };

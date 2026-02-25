@@ -144,6 +144,28 @@ class Live2dRpcServer {
       wss.close((err) => (err ? reject(err) : resolve()));
     });
   }
+
+  notify({ method, params }) {
+    if (!this.wss || typeof method !== 'string' || !method) {
+      return 0;
+    }
+
+    let count = 0;
+    const payload = {
+      jsonrpc: '2.0',
+      method,
+      params: params ?? {}
+    };
+
+    for (const client of this.wss.clients) {
+      if (client.readyState !== 1) {
+        continue;
+      }
+      sendJson(client, payload);
+      count += 1;
+    }
+    return count;
+  }
 }
 
 function normalizeError(err) {

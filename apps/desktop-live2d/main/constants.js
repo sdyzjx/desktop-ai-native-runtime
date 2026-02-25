@@ -12,12 +12,18 @@ const DEFAULT_RENDERER_TIMEOUT_MS = 3000;
 const RPC_METHODS_V1 = Object.freeze([
   'state.get',
   'param.set',
+  'model.param.set',
+  'model.param.batchSet',
+  'model.motion.play',
+  'model.expression.set',
   'chat.show',
   'chat.bubble.show',
   'chat.panel.show',
   'chat.panel.hide',
   'chat.panel.append',
-  'chat.panel.clear'
+  'chat.panel.clear',
+  'tool.list',
+  'tool.invoke'
 ]);
 
 module.exports = {

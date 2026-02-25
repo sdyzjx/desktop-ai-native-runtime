@@ -71,3 +71,35 @@ test('Live2dRpcServer closes unauthorized connection', async () => {
 
   await server.stop();
 });
+
+test('Live2dRpcServer sends desktop.event notifications to connected clients', async () => {
+  const port = await getFreePort();
+  const server = new Live2dRpcServer({
+    host: '127.0.0.1',
+    port,
+    token: 'notify-token',
+    requestHandler: async () => ({ ok: true })
+  });
+
+  await server.start();
+
+  const ws = new WebSocket(`ws://127.0.0.1:${port}?token=notify-token`);
+  await waitForOpen(ws);
+
+  const notified = waitForMessage(ws);
+  const count = server.notify({
+    method: 'desktop.event',
+    params: {
+      type: 'runtime.event',
+      data: { event: 'plan' }
+    }
+  });
+  assert.equal(count, 1);
+
+  const message = await notified;
+  assert.equal(message.method, 'desktop.event');
+  assert.equal(message.params.type, 'runtime.event');
+
+  ws.close();
+  await server.stop();
+});

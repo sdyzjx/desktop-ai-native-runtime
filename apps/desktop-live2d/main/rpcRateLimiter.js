@@ -3,12 +3,18 @@ class RpcRateLimiter {
     this.limitsPerSecond = {
       'state.get': 30,
       'param.set': 60,
+      'model.param.set': 60,
+      'model.param.batchSet': 30,
+      'model.motion.play': 20,
+      'model.expression.set': 20,
       'chat.show': 10,
       'chat.bubble.show': 10,
       'chat.panel.show': 20,
       'chat.panel.hide': 20,
       'chat.panel.append': 30,
       'chat.panel.clear': 10,
+      'tool.list': 20,
+      'tool.invoke': 40,
       ...(limitsPerSecond || {})
     };
     this.windows = new Map();

@@ -32,6 +32,21 @@ test('validateRpcRequest accepts chat panel append payload', () => {
   assert.equal(result.request.method, 'chat.panel.append');
 });
 
+test('validateRpcRequest accepts tool.invoke payload', () => {
+  const result = validateRpcRequest({
+    jsonrpc: '2.0',
+    id: 'tool-1',
+    method: 'tool.invoke',
+    params: {
+      name: 'desktop_model_set_param',
+      arguments: { name: 'ParamAngleX', value: 1.5 }
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.request.method, 'tool.invoke');
+});
+
 test('validateRpcRequest rejects non-whitelisted method', () => {
   const result = validateRpcRequest({
     jsonrpc: '2.0',
@@ -62,6 +77,23 @@ test('validateRpcRequest rejects unknown role in chat.panel.append', () => {
     id: 'bad-role',
     method: 'chat.panel.append',
     params: { role: 'invalid', text: 'hello' }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, -32602);
+});
+
+test('validateRpcRequest rejects invalid model.param.batchSet payload', () => {
+  const result = validateRpcRequest({
+    jsonrpc: '2.0',
+    id: 'batch-bad',
+    method: 'model.param.batchSet',
+    params: {
+      updates: [
+        { name: 'ParamAngleX', value: 1 },
+        { name: '', value: 2 }
+      ]
+    }
   });
 
   assert.equal(result.ok, false);

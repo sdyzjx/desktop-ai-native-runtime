@@ -42,7 +42,7 @@ Branch: `codex/feature/electron-desktop`
 
 ## 2.2 Validation Status
 
-- Latest full test result on feature branch: `npm test` passed (`121/121`).
+- Latest full test result on feature branch: `npm test` passed (`134/134`).
 - Integration branch is intentionally **not merged into `main`** yet.
 
 ## 3. TODO / Next Actions
@@ -61,17 +61,23 @@ Branch: `codex/feature/electron-desktop`
   - rpc methods `chat.panel.*`
   - tests for history truncation / append / ipc submit
 
-3. `IN_PROGRESS` Implement Phase C RPC message forwarding
+3. `DONE` Implement Phase C RPC message forwarding
 - Scope:
   - runtime event -> desktop event bridge
   - event notification contract (`desktop.event`)
   - tests for ordering, reconnection, and timeout handling
 
-4. `TODO` Implement Phase D model-control tool-calling exposure
+4. `DONE` Implement Phase D model-control tool-calling exposure
 - Scope:
   - `tool.list` / `tool.invoke`
   - strict tool whitelist + schema + rate limit + audit log
   - tests for mapping success and rejection paths
+
+5. `IN_PROGRESS` Execute Phase E stabilization and release hardening
+- Scope:
+  - stress and regression checklist
+  - telemetry/trace observability completion
+  - packaging and release sanity verification
 
 ## 3.2 Merge Gate (before `main`)
 
@@ -265,3 +271,6 @@ Do not add free-form items outside this format.
   - 2026-02-26 02:16 IN_PROGRESS requirement created from user feedback.
   - 2026-02-26 02:16 DONE Phase A docs replanned and synchronized (`construction plan`, `README`, `progress register`).
   - 2026-02-26 02:20 DONE Phase B delivered (`chat.panel.*` rpc + chat panel UI + submit IPC + tests).
+  - 2026-02-26 02:34 DONE Phase C delivered (gateway runtime notification forwarding to `desktop.event` + renderer final sync).
+  - 2026-02-26 02:34 DONE Phase D delivered (`tool.list`/`tool.invoke` + `model.*` control methods + whitelist tests).
+  - 2026-02-26 02:34 IN_PROGRESS Phase E stabilization started.

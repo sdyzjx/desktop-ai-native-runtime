@@ -78,13 +78,14 @@ UI config file:
 Current baseline (already done):
 - transparent desktop Live2D window
 - chat panel: history + local input + show/hide + clear + append
-- rpc methods: `state.get`, `param.set`, `chat.show`, `chat.bubble.show`, `chat.panel.show`, `chat.panel.hide`, `chat.panel.append`, `chat.panel.clear`
+- rpc methods: `state.get`, `param.set`, `model.param.set`, `model.param.batchSet`, `model.motion.play`, `model.expression.set`, `chat.show`, `chat.bubble.show`, `chat.panel.show`, `chat.panel.hide`, `chat.panel.append`, `chat.panel.clear`, `tool.list`, `tool.invoke`
 - right-bottom placement + drag-ready window + configurable layout/clarity
 - renderer-to-main submit event: `live2d:chat:input:submit`
+- runtime forwarding: gateway `runtime.*` notification -> desktop `desktop.event` -> renderer final response append
+- agent tool-calling surface: `tool.list` + whitelisted `tool.invoke`
 
 Current gaps under active development:
-- RPC request + event-stream forwarding contract
-- model-control tool-calling exposure for agent integration
+- Phase E stabilization: observability hardening, stress regression, and release checklist
 
 Detailed construction plan:
 - `docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`

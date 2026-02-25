@@ -11,7 +11,8 @@ const {
   computeWindowBounds,
   computeRightBottomWindowBounds,
   normalizeChatInputPayload,
-  createChatInputListener
+  createChatInputListener,
+  handleDesktopRpcRequest
 } = require('../../apps/desktop-live2d/main/desktopSuite');
 
 class FakeIpcMain extends EventEmitter {}
@@ -132,4 +133,45 @@ test('createChatInputListener forwards normalized payload to callback', () => {
   assert.equal(received.length, 1);
   assert.equal(received[0].role, 'tool');
   assert.equal(received[0].text, 'invoke');
+});
+
+test('handleDesktopRpcRequest returns tool list without touching renderer bridge', async () => {
+  const result = await handleDesktopRpcRequest({
+    request: { method: 'tool.list', params: {} },
+    bridge: {
+      invoke: async () => {
+        throw new Error('should not be called');
+      }
+    },
+    rendererTimeoutMs: 3000
+  });
+
+  assert.ok(Array.isArray(result.tools));
+  assert.ok(result.tools.some((tool) => tool.name === 'desktop_chat_show'));
+});
+
+test('handleDesktopRpcRequest maps tool.invoke to renderer method', async () => {
+  const calls = [];
+  const result = await handleDesktopRpcRequest({
+    request: {
+      method: 'tool.invoke',
+      params: {
+        name: 'desktop_model_set_param',
+        arguments: { name: 'ParamAngleX', value: 3 }
+      }
+    },
+    bridge: {
+      invoke: async (payload) => {
+        calls.push(payload);
+        return { ok: true };
+      }
+    },
+    rendererTimeoutMs: 3456
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'model.param.set');
+  assert.equal(calls[0].timeoutMs, 3456);
+  assert.deepEqual(calls[0].params, { name: 'ParamAngleX', value: 3 });
+  assert.equal(result.ok, true);
 });

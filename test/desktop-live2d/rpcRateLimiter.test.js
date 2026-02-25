@@ -37,3 +37,14 @@ test('RpcRateLimiter applies default quota for chat.panel.append', () => {
   const blocked = limiter.check({ clientId: 'panel-user', method: 'chat.panel.append', nowMs: 1200 });
   assert.equal(blocked.ok, false);
 });
+
+test('RpcRateLimiter applies default quota for tool.invoke', () => {
+  const limiter = new RpcRateLimiter();
+  for (let i = 0; i < 40; i += 1) {
+    const result = limiter.check({ clientId: 'tool-user', method: 'tool.invoke', nowMs: 5000 });
+    assert.equal(result.ok, true);
+  }
+
+  const blocked = limiter.check({ clientId: 'tool-user', method: 'tool.invoke', nowMs: 5500 });
+  assert.equal(blocked.ok, false);
+});
