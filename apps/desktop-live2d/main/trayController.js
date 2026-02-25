@@ -1,0 +1,113 @@
+const path = require('node:path');
+
+const TRAY_TOOLTIP = 'Yachiyo Desktop Pet';
+const TRAY_ICON_RELATIVE_PATH = path.join('assets', 'live2d', 'yachiyo-kaguya', '八千代辉夜姬头像1.png');
+
+function resolveTrayIconPath({ projectRoot = process.cwd() } = {}) {
+  return path.resolve(projectRoot, TRAY_ICON_RELATIVE_PATH);
+}
+
+function createTrayImage({ nativeImage, iconPath, size = 18 } = {}) {
+  if (!nativeImage || typeof nativeImage.createFromPath !== 'function') {
+    return null;
+  }
+
+  const icon = nativeImage.createFromPath(iconPath);
+  if (!icon || typeof icon.isEmpty !== 'function' || icon.isEmpty()) {
+    return null;
+  }
+
+  if (typeof icon.resize !== 'function') {
+    return icon;
+  }
+
+  return icon.resize({
+    width: size,
+    height: size,
+    quality: 'best'
+  });
+}
+
+function createTrayController({
+  Tray,
+  Menu,
+  nativeImage,
+  projectRoot = process.cwd(),
+  tooltip = TRAY_TOOLTIP,
+  onShow = null,
+  onHide = null,
+  onQuit = null
+} = {}) {
+  if (typeof Tray !== 'function' || !Menu || typeof Menu.buildFromTemplate !== 'function') {
+    throw new Error('createTrayController requires Electron Tray/Menu');
+  }
+
+  const iconPath = resolveTrayIconPath({ projectRoot });
+  const icon = createTrayImage({ nativeImage, iconPath });
+  const tray = new Tray(icon || nativeImage?.createEmpty?.());
+
+  if (typeof tray.setToolTip === 'function') {
+    tray.setToolTip(tooltip);
+  }
+
+  const menu = Menu.buildFromTemplate([
+    {
+      label: 'Show Pet',
+      click: () => {
+        if (typeof onShow === 'function') {
+          void onShow();
+        }
+      }
+    },
+    {
+      label: 'Hide Pet',
+      click: () => {
+        if (typeof onHide === 'function') {
+          onHide();
+        }
+      }
+    },
+    {
+      type: 'separator'
+    },
+    {
+      label: 'Quit',
+      click: () => {
+        if (typeof onQuit === 'function') {
+          onQuit();
+        }
+      }
+    }
+  ]);
+
+  if (typeof tray.setContextMenu === 'function') {
+    tray.setContextMenu(menu);
+  }
+
+  if (typeof tray.on === 'function') {
+    tray.on('click', () => {
+      if (typeof onShow === 'function') {
+        void onShow();
+      }
+    });
+  }
+
+  return {
+    tray,
+    menu,
+    iconPath,
+    destroy() {
+      if (typeof tray?.destroy === 'function') {
+        tray.destroy();
+      }
+    }
+  };
+}
+
+module.exports = {
+  TRAY_TOOLTIP,
+  TRAY_ICON_RELATIVE_PATH,
+  resolveTrayIconPath,
+  createTrayImage,
+  createTrayController
+};

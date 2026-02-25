@@ -39,8 +39,10 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
   }, {
     send: (payload) => sends.push(payload),
     sendEvent: (payload) => sendEvents.push(payload),
-    buildPromptMessages: async ({ session_id: sessionId, input }) => {
+    buildPromptMessages: async ({ session_id: sessionId, input, input_images: inputImages }) => {
       buildPromptCalled = sessionId === 'abc' && input === 'hello';
+      assert.equal(Array.isArray(inputImages), true);
+      assert.equal(inputImages.length, 0);
       return [
         { role: 'user', content: 'earlier question' },
         { role: 'assistant', content: 'earlier answer' }
@@ -100,6 +102,57 @@ test('RuntimeRpcWorker returns method_not_found on unsupported method', async ()
 
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.equal(sends[0].error.code, -32601);
+
+  worker.stop();
+});
+
+test('RuntimeRpcWorker accepts image-only input_images and forwards to runner', async () => {
+  const queue = new RpcInputQueue();
+  const bus = new RuntimeEventBus();
+  const sampleDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgU8Vf4QAAAAASUVORK5CYII=';
+
+  let seenInput = null;
+  let seenInputImages = null;
+  const runner = {
+    async run({ input, inputImages }) {
+      seenInput = input;
+      seenInputImages = inputImages;
+      return { output: 'ok:image', traceId: 't-img-1', state: 'DONE' };
+    }
+  };
+
+  const worker = new RuntimeRpcWorker({ queue, runner, bus });
+  worker.start();
+
+  const sends = [];
+  const accepted = await queue.submit({
+    jsonrpc: '2.0',
+    id: 'img-1',
+    method: 'runtime.run',
+    params: {
+      session_id: 'img-session',
+      input: '',
+      input_images: [
+        {
+          name: 'tiny.png',
+          mime_type: 'image/png',
+          size_bytes: 67,
+          data_url: sampleDataUrl
+        }
+      ]
+    }
+  }, {
+    send: (payload) => sends.push(payload)
+  });
+
+  assert.equal(accepted.accepted, true);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  assert.equal(seenInput, '');
+  assert.equal(Array.isArray(seenInputImages), true);
+  assert.equal(seenInputImages.length, 1);
+  assert.equal(seenInputImages[0].name, 'tiny.png');
+  assert.equal(sends.some((item) => item.id === 'img-1' && item.result?.output === 'ok:image'), true);
 
   worker.stop();
 });

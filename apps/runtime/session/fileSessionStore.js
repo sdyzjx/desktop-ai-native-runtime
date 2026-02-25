@@ -260,7 +260,8 @@ class FileSessionStore {
         state: run.state || null,
         mode: run.mode || null,
         permission_level: run.permission_level || null,
-        workspace_root: run.workspace_root || null
+        workspace_root: run.workspace_root || null,
+        metadata: run.metadata || {}
       };
 
       session.runs.push(entry);

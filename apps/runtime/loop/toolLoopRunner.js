@@ -1,6 +1,60 @@
 const { v4: uuidv4 } = require('uuid');
 const { RuntimeState, RuntimeStateMachine } = require('./stateMachine');
 
+function isValidMessageContent(content) {
+  if (typeof content === 'string') {
+    return content.trim().length > 0;
+  }
+
+  if (!Array.isArray(content) || content.length === 0) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== 'object' || Array.isArray(part)) return false;
+    if (part.type === 'text') {
+      return typeof part.text === 'string' && part.text.trim().length > 0;
+    }
+    if (part.type === 'image_url') {
+      return typeof part.image_url?.url === 'string' && part.image_url.url.trim().length > 0;
+    }
+    return false;
+  });
+}
+
+function normalizeInputImages(inputImages) {
+  if (!Array.isArray(inputImages)) return [];
+  return inputImages
+    .filter((image) => image && typeof image === 'object' && typeof image.data_url === 'string')
+    .map((image) => ({
+      data_url: image.data_url.trim(),
+      name: typeof image.name === 'string' ? image.name.trim() : '',
+      mime_type: typeof image.mime_type === 'string' ? image.mime_type.trim() : '',
+      size_bytes: Number(image.size_bytes) || 0
+    }))
+    .filter((image) => image.data_url.length > 0);
+}
+
+function buildCurrentUserMessage(input, inputImages = []) {
+  const text = typeof input === 'string' ? input.trim() : '';
+  const images = normalizeInputImages(inputImages);
+
+  if (images.length === 0) {
+    return { role: 'user', content: text };
+  }
+
+  const content = [];
+  if (text) {
+    content.push({ type: 'text', text });
+  }
+
+  for (const image of images) {
+    content.push({
+      type: 'image_url',
+      image_url: { url: image.data_url }
+    });
+  }
+
+  return { role: 'user', content };
+}
+
 function formatDecisionEvent(decision) {
   if (decision.type === 'final') {
     return { type: 'final', preview: String(decision.output || '').slice(0, 160) };
@@ -28,27 +82,45 @@ function normalizeToolCalls(decision) {
   }));
 }
 
+function shouldHintPersonaTool(input) {
+  const text = String(input || '').toLowerCase();
+  if (!text.trim()) return false;
+  const keywords = ['修改人格', '人格', '称呼', '叫我', 'persona', 'nickname', 'custom name'];
+  return keywords.some((kw) => text.includes(kw));
+}
+
 class ToolLoopRunner {
-  constructor({ bus, getReasoner, listTools, resolveSkillsContext, maxStep = 8, toolResultTimeoutMs = 10000 }) {
+  constructor({ bus, getReasoner, listTools, resolvePersonaContext, resolveSkillsContext, maxStep = 8, toolResultTimeoutMs = 10000 }) {
     this.bus = bus;
     this.getReasoner = getReasoner;
     this.listTools = listTools;
+    this.resolvePersonaContext = resolvePersonaContext;
     this.resolveSkillsContext = resolveSkillsContext;
     this.maxStep = maxStep;
     this.toolResultTimeoutMs = toolResultTimeoutMs;
   }
 
-  async run({ sessionId, input, seedMessages = [], runtimeContext = {}, onEvent }) {
+  async run({ sessionId, input, inputImages = [], seedMessages = [], runtimeContext = {}, onEvent }) {
     const sm = new RuntimeStateMachine();
     const traceId = uuidv4();
     const priorMessages = Array.isArray(seedMessages)
       ? seedMessages.filter((msg) => (
         msg
         && (msg.role === 'system' || msg.role === 'user' || msg.role === 'assistant')
-        && typeof msg.content === 'string'
-        && msg.content.trim().length > 0
+        && isValidMessageContent(msg.content)
       ))
       : [];
+    const currentUserMessage = buildCurrentUserMessage(input, inputImages);
+    const normalizedInputImages = normalizeInputImages(inputImages);
+
+    let personaContext = null;
+    if (typeof this.resolvePersonaContext === 'function') {
+      try {
+        personaContext = await this.resolvePersonaContext({ sessionId, input });
+      } catch {
+        personaContext = null;
+      }
+    }
 
     let skillsContext = null;
     if (typeof this.resolveSkillsContext === 'function') {
@@ -59,8 +131,16 @@ class ToolLoopRunner {
       }
     }
 
+    const personaPrompt = personaContext?.prompt && String(personaContext.prompt).trim()
+      ? String(personaContext.prompt)
+      : null;
+
     const skillsPrompt = skillsContext?.prompt && String(skillsContext.prompt).trim()
       ? String(skillsContext.prompt)
+      : null;
+
+    const personaToolHint = shouldHintPersonaTool(input)
+      ? 'User intent likely about persona/addressing. Prefer persona.update_profile tool call with {custom_name}.'
       : null;
 
     const ctx = {
@@ -76,12 +156,16 @@ class ToolLoopRunner {
             'You are a runtime planner that can either return a final answer or call tools.',
             'If tools are needed, you may emit one or more tool calls and wait for results in the next turn.',
             'Long-term memory operations must go through tools (memory_write / memory_search).',
+            'When user asks to modify persona/addressing/custom title (e.g. 修改人格/修改称呼/叫我xxx), call persona.update_profile with {custom_name}.',
+            'Use persona.update_profile even in low permission sessions; this is globally allowed.',
             'Keep answers concise.'
           ].join(' ')
         },
+        ...(personaPrompt ? [{ role: 'system', content: personaPrompt }] : []),
         ...(skillsPrompt ? [{ role: 'system', content: skillsPrompt }] : []),
+        ...(personaToolHint ? [{ role: 'system', content: personaToolHint }] : []),
         ...priorMessages,
-        { role: 'user', content: input }
+        currentUserMessage
       ]
     };
 
@@ -103,8 +187,10 @@ class ToolLoopRunner {
     sm.transition(RuntimeState.RUNNING);
     emit('plan', {
       input,
+      input_images: normalizedInputImages.length,
       max_step: this.maxStep,
       context_messages: priorMessages.length,
+      persona_mode: personaContext?.mode || null,
       skills_selected: skillsContext?.selected?.length || 0,
       skills_clipped_by: skillsContext?.clippedBy || null
     });

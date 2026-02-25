@@ -76,3 +76,22 @@ test('LlmProviderManager saveConfig invalidates reasoner cache', () => {
   assert.notEqual(reasoner1, reasoner2);
   assert.equal(manager.getConfigSummary().active_model, 'm2');
 });
+
+test('LlmProviderManager passes retry settings to reasoner from provider config', () => {
+  const { manager } = createManagerWithConfig([
+    'active_provider: y',
+    'providers:',
+    '  y:',
+    '    type: openai_compatible',
+    '    display_name: Y',
+    '    base_url: http://127.0.0.1:4100',
+    '    model: m-retry',
+    '    api_key: key-1',
+    '    max_retries: 4',
+    '    retry_delay_ms: 120'
+  ].join('\n'));
+
+  const reasoner = manager.getReasoner();
+  assert.equal(reasoner.maxRetries, 4);
+  assert.equal(reasoner.retryDelayMs, 120);
+});

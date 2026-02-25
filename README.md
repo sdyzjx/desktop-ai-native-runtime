@@ -51,11 +51,84 @@ curl http://localhost:3000/health
 - Chat UI: `http://localhost:3000/`
 - Provider config UI: `http://localhost:3000/config.html`
 
+## Desktop Live2D (Replanned)
+
+1. Import model assets into project path:
+
+```bash
+npm run live2d:import
+```
+
+2. Start desktop suite (gateway + live2d window + RPC):
+
+```bash
+npm run desktop:up
+```
+
+3. Run quick desktop RPC smoke after startup:
+
+```bash
+npm run desktop:smoke
+```
+
+Runtime summary file:
+- `data/desktop-live2d/runtime-summary.json`
+
+UI config file:
+- `config/desktop-live2d.json`
+- Editable knobs include:
+  - window position: `window.placement.anchor` / `margin*`
+  - compact mode (chat hidden): `window.compactWhenChatHidden` / `window.compactWidth` / `window.compactHeight`
+  - model size/position: `layout.*` (use `layout.lockScaleOnResize` + `layout.lockPositionOnResize` to keep avatar pose stable while toggling chat panel)
+  - clarity: `render.resolutionScale` / `render.maxDevicePixelRatio`
+
+Current baseline (already done):
+- transparent desktop Live2D window
+- chat panel: history + local input + show/hide + clear + append
+- chat panel is hidden by default and toggles when clicking the character
+- chat panel default anchor moved to bottom-left to avoid covering face area
+- chat panel header includes `Hide` / `Close` controls for pet window
+- chat panel hidden state triggers compact window mode to reduce desktop occlusion
+- tray icon stays available after hide; click tray icon to summon pet window again
+- rpc methods: `state.get`, `param.set`, `model.param.set`, `model.param.batchSet`, `model.motion.play`, `model.expression.set`, `chat.show`, `chat.bubble.show`, `chat.panel.show`, `chat.panel.hide`, `chat.panel.append`, `chat.panel.clear`, `tool.list`, `tool.invoke`
+- right-bottom placement + drag-ready window + configurable layout/clarity
+- renderer-to-main submit event: `live2d:chat:input:submit`
+- runtime forwarding: gateway `runtime.*` notification -> desktop `desktop.event` -> renderer final response append
+- agent tool-calling surface: `tool.list` + whitelisted `tool.invoke`
+- desktop chat session bootstrap: startup creates a fresh `desktop-*` session
+- desktop `/new` command: creates and switches to a fresh gateway session
+- web chat sync: `/api/sessions` polling keeps desktop-side sessions/messages visible in web UI
+
+Desktop chat commands:
+- `/new`: create and switch desktop runtime session (chat panel clears and starts new thread)
+
+Current gaps under active development:
+- Phase E stabilization: observability hardening, stress regression, and release checklist
+
+Detailed construction plan:
+- `docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`
+- `docs/modules/desktop-live2d/module-reference.md`
+
+## Multimodal Image Input
+
+Chat UI supports image upload with multimodal model calls:
+- send text + image, or image-only messages
+- click image in chat history to open lightbox preview
+- image preview remains available after service restart (file-backed session image store)
+
+Runtime/API support:
+- Legacy websocket `type=run` accepts `input_images[]`
+- JSON-RPC `runtime.run` accepts `params.input_images[]`
+
 ## Persistence
 
 Session persistence is enabled by default (file-backed):
 - default path: `data/session-store`
 - override path: `SESSION_STORE_DIR=/your/path`
+
+Session image persistence:
+- default path: `data/session-images`
+- override path: `SESSION_IMAGE_STORE_DIR=/your/path`
 
 Session APIs:
 - `GET /api/sessions`
@@ -64,6 +137,7 @@ Session APIs:
 - `GET /api/sessions/:sessionId/memory`
 - `GET /api/memory`
 - `GET /api/memory/search?q=<keyword>`
+- `GET /api/session-images/:sessionId/:fileName`
 
 ## Context Management
 
@@ -153,6 +227,25 @@ Runtime sends:
 
 Provider config now has a dedicated page (`/config.html`) with graphical form editing and raw YAML editing.
 
+## LLM Reliability (Retry)
+
+OpenAI-compatible LLM requests now include transient failure retry:
+- network/socket/timeout style failures: retry
+- HTTP retriable statuses: `408`, `409`, `429`, `5xx`
+
+Provider config optional fields (per provider):
+- `max_retries` (default `2`)
+- `retry_delay_ms` (default `300`)
+
+Env fallback:
+- `LLM_REQUEST_MAX_RETRIES`
+- `LLM_REQUEST_RETRY_DELAY_MS`
+
+Multimodal input limits:
+- `MAX_INPUT_IMAGES` (default `4`)
+- `MAX_INPUT_IMAGE_BYTES` (default `8MB`)
+- `MAX_INPUT_IMAGE_DATA_URL_CHARS` (default `ceil(MAX_INPUT_IMAGE_BYTES * 1.5)`)
+
 ## Repo Layout
 - `apps/gateway`: websocket gateway + rpc queue ingress
 - `apps/runtime`: event bus, rpc worker, llm reasoner, tool loop
@@ -171,6 +264,7 @@ Detailed feature implementation record:
 Module-level runtime docs:
 - `docs/modules/runtime/session-workspace-permission.md`
 - `docs/modules/runtime/skills-runtime.md`
+- `docs/modules/runtime/multimodal-image-runtime.md`
 
 Practical usage cases:
 - `docs/TEST_SKILL_SMOKE_GUIDE.md`

@@ -9,6 +9,7 @@ policy:
     - memory_search
     - workspace.write_file
     - shell.exec
+    - persona.update_profile
   deny: []
   byProvider: {}
 
@@ -106,4 +107,15 @@ tools:
         command: { type: string }
         timeoutSec: { type: integer, minimum: 1, maximum: 120 }
       required: [command]
+      additionalProperties: false
+
+  - name: persona.update_profile
+    type: local
+    adapter: builtin.persona_update_via_curl
+    description: Update global persona profile by calling gateway persona API via curl.
+    input_schema:
+      type: object
+      properties:
+        custom_name: { type: string }
+      required: [custom_name]
       additionalProperties: false

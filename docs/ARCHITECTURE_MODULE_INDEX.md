@@ -12,6 +12,12 @@
 - `docs/modules/runtime/multi-tool-loop.md`
 - `docs/modules/runtime/session-workspace-permission.md`
 - `docs/modules/runtime/skills-runtime.md`
+- `docs/modules/runtime/multimodal-image-runtime.md`
+
+## Desktop Live2D
+
+- `docs/modules/desktop-live2d/README.md`
+- `docs/modules/desktop-live2d/module-reference.md`
 
 ## Feature Guides
 

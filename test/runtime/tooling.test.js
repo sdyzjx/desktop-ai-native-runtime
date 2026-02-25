@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -159,4 +160,42 @@ test('shell.exec applies low/medium/high permission profiles', async () => {
   );
   assert.equal(mediumReadOutsideWorkspaceDenied.ok, false);
   assert.equal(mediumReadOutsideWorkspaceDenied.code, 'PERMISSION_DENIED');
+});
+
+test('persona.update_profile is callable at low permission and updates via curl', async () => {
+  const reqBodies = [];
+  const server = http.createServer((req, res) => {
+    if (req.method === 'PUT' && req.url === '/api/persona/profile') {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        reqBodies.push(JSON.parse(raw || '{}'));
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: true, data: { addressing: { custom_name: '小主人' } } }));
+      });
+      return;
+    }
+    res.writeHead(404).end('not found');
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const previousBase = process.env.PERSONA_API_BASE_URL;
+  process.env.PERSONA_API_BASE_URL = `http://127.0.0.1:${port}`;
+
+  try {
+    const executor = buildExecutor();
+    const result = await executor.execute(
+      { name: 'persona.update_profile', args: { custom_name: '小主人' } },
+      { permission_level: 'low' }
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(reqBodies.length, 1);
+    assert.equal(reqBodies[0].profile.addressing.custom_name, '小主人');
+  } finally {
+    if (previousBase) process.env.PERSONA_API_BASE_URL = previousBase;
+    else delete process.env.PERSONA_API_BASE_URL;
+    server.close();
+  }
 });
