@@ -263,3 +263,32 @@ test('ToolLoopRunner injects skills system prompt when resolver is provided', as
 
   dispatcher.stop();
 });
+
+test('ToolLoopRunner injects persona system prompt when resolver is provided', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor(localTools);
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let seenMessages = [];
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => ({
+      async decide({ messages }) {
+        seenMessages = messages;
+        return { type: 'final', output: 'ok-persona' };
+      }
+    }),
+    listTools: () => executor.listTools(),
+    resolvePersonaContext: async () => ({ prompt: 'Persona Core: test', mode: 'hybrid' }),
+    maxStep: 1,
+    toolResultTimeoutMs: 500
+  });
+
+  const result = await runner.run({ sessionId: 's5', input: 'hello' });
+  assert.equal(result.state, 'DONE');
+  assert.equal(result.output, 'ok-persona');
+  assert.match(seenMessages[1].content, /Persona Core/);
+
+  dispatcher.stop();
+});
