@@ -28,6 +28,7 @@ const { SkillRuntimeManager } = require('../runtime/skills/skillRuntimeManager')
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+app.use('/assets', express.static(path.join(__dirname, '..', '..', 'assets')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const bus = new RuntimeEventBus();

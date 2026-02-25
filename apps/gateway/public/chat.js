@@ -1,6 +1,9 @@
 const STORAGE_KEY = 'yachiyo_sessions_v1';
+const THEME_STORAGE_KEY = 'yachiyo_theme_v1';
 const SESSION_PERMISSION_LEVELS = ['low', 'medium', 'high'];
 const DEFAULT_SESSION_PERMISSION_LEVEL = 'medium';
+const THEME_PREFERENCES = ['auto', 'light', 'dark'];
+const DEFAULT_THEME_PREFERENCE = 'auto';
 
 const elements = {
   sidebar: document.getElementById('sidebar'),
@@ -10,6 +13,7 @@ const elements = {
   activeSessionName: document.getElementById('activeSessionName'),
   runtimeStatus: document.getElementById('runtimeStatus'),
   sessionPermissionSelect: document.getElementById('sessionPermissionSelect'),
+  themeSelect: document.getElementById('themeSelect'),
   messageList: document.getElementById('messageList'),
   chatInput: document.getElementById('chatInput'),
   sendBtn: document.getElementById('sendBtn')
@@ -20,7 +24,9 @@ const state = {
   activeSessionId: null,
   pending: null,
   ws: null,
-  wsReady: false
+  wsReady: false,
+  isComposing: false,
+  themePreference: DEFAULT_THEME_PREFERENCE
 };
 
 function updateComposerState() {
@@ -59,6 +65,37 @@ function normalizePermissionLevel(value) {
     return value;
   }
   return DEFAULT_SESSION_PERMISSION_LEVEL;
+}
+
+function normalizeThemePreference(value) {
+  if (typeof value === 'string' && THEME_PREFERENCES.includes(value)) {
+    return value;
+  }
+  return DEFAULT_THEME_PREFERENCE;
+}
+
+function resolveTheme(preference) {
+  if (preference === 'auto') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  return preference;
+}
+
+function applyTheme(preference) {
+  const normalizedPreference = normalizeThemePreference(preference);
+  const theme = resolveTheme(normalizedPreference);
+  document.documentElement.setAttribute('data-theme', theme);
+  state.themePreference = normalizedPreference;
+  elements.themeSelect.value = normalizedPreference;
+}
+
+function loadThemePreference() {
+  const raw = localStorage.getItem(THEME_STORAGE_KEY);
+  applyTheme(raw);
+}
+
+function persistThemePreference(preference) {
+  localStorage.setItem(THEME_STORAGE_KEY, normalizeThemePreference(preference));
 }
 
 function normalizeSessionShape(raw) {
@@ -114,7 +151,9 @@ function sortSessions() {
 }
 
 function setStatus(text) {
-  elements.runtimeStatus.textContent = text;
+  const statusText = String(text || '');
+  elements.runtimeStatus.textContent = statusText;
+  elements.runtimeStatus.classList.toggle('running', /^Running\b/.test(statusText));
 }
 
 function ensureSessionTitle(session) {
@@ -371,11 +410,17 @@ function bindEvents() {
 
   elements.chatInput.addEventListener('input', autosizeInput);
   elements.chatInput.addEventListener('input', updateComposerState);
+  elements.chatInput.addEventListener('compositionstart', () => {
+    state.isComposing = true;
+  });
+  elements.chatInput.addEventListener('compositionend', () => {
+    state.isComposing = false;
+  });
   elements.chatInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      sendMessage();
-    }
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    if (event.isComposing || state.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    sendMessage();
   });
 
   elements.menuBtn.onclick = () => {
@@ -391,11 +436,30 @@ function bindEvents() {
     renderSessions();
     void persistSessionPermission(session);
   });
+
+  elements.themeSelect.addEventListener('change', () => {
+    const nextPreference = normalizeThemePreference(elements.themeSelect.value);
+    persistThemePreference(nextPreference);
+    applyTheme(nextPreference);
+  });
+
+  const themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+  const handleThemeMediaChange = () => {
+    if (state.themePreference !== 'auto') return;
+    applyTheme('auto');
+  };
+  if (typeof themeMedia.addEventListener === 'function') {
+    themeMedia.addEventListener('change', handleThemeMediaChange);
+  } else if (typeof themeMedia.addListener === 'function') {
+    themeMedia.addListener(handleThemeMediaChange);
+  }
 }
 
 function bootstrap() {
   loadSessions();
+  loadThemePreference();
   bindEvents();
+  setStatus('Idle');
   connectWs();
   autosizeInput();
   updateComposerState();
