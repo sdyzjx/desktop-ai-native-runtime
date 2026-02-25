@@ -15,6 +15,7 @@
   let hideBubbleTimer = null;
   let dragPointerState = null;
   let suppressModelTapUntil = 0;
+  let stableModelScale = null;
 
   const stageContainer = document.getElementById('stage');
   const bubbleElement = document.getElementById('bubble');
@@ -428,6 +429,7 @@
 
     const modelUrl = new URL(modelRelativePath, window.location.href).toString();
     live2dModel = await Live2DModel.from(modelUrl);
+    stableModelScale = null;
     bindModelInteraction();
 
     pixiApp.stage.addChild(live2dModel);
@@ -557,6 +559,7 @@
 
     const stageSize = getStageSize();
     const layoutConfig = runtimeUiConfig?.layout || {};
+    const lockScaleOnResize = layoutConfig.lockScaleOnResize !== false;
     const layout = window.Live2DLayout.computeModelLayout({
       stageWidth: stageSize.width,
       stageHeight: stageSize.height,
@@ -567,8 +570,16 @@
       ...layoutConfig
     });
 
+    if (stableModelScale === null || !Number.isFinite(stableModelScale)) {
+      stableModelScale = layout.scale;
+    }
+    const nextScale = lockScaleOnResize ? stableModelScale : layout.scale;
+    if (!lockScaleOnResize) {
+      stableModelScale = layout.scale;
+    }
+
     if (typeof live2dModel.scale?.set === 'function') {
-      live2dModel.scale.set(layout.scale);
+      live2dModel.scale.set(nextScale);
     }
     if (typeof live2dModel.pivot?.set === 'function') {
       live2dModel.pivot.set(layout.pivotX, layout.pivotY);
@@ -578,7 +589,7 @@
     }
 
     state.layout = {
-      scale: layout.scale,
+      scale: nextScale,
       positionX: layout.positionX,
       positionY: layout.positionY,
       pivotX: layout.pivotX,

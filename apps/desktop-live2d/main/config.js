@@ -44,7 +44,8 @@ const DEFAULT_UI_CONFIG = Object.freeze({
     pivotYRatio: 0.97,
     scaleMultiplier: 0.9,
     minScale: 0.04,
-    maxScale: 2
+    maxScale: 2,
+    lockScaleOnResize: true
   },
   chat: {
     panel: {
@@ -154,6 +155,10 @@ function normalizeUiConfig(raw) {
   for (const key of Object.keys(layoutDefaults)) {
     if (key === 'horizontalAlign') {
       merged.layout[key] = String(merged.layout[key] || layoutDefaults[key]);
+      continue;
+    }
+    if (key === 'lockScaleOnResize') {
+      merged.layout[key] = merged.layout[key] !== false;
       continue;
     }
     merged.layout[key] = toFiniteNumber(merged.layout[key], layoutDefaults[key]);

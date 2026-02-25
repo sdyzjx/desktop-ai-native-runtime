@@ -32,7 +32,8 @@
     "pivotYRatio": 0.97,
     "scaleMultiplier": 0.9,
     "minScale": 0.04,
-    "maxScale": 2
+    "maxScale": 2,
+    "lockScaleOnResize": true
   },
   "chat": {
     "panel": {

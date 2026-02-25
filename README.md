@@ -79,7 +79,7 @@ UI config file:
 - Editable knobs include:
   - window position: `window.placement.anchor` / `margin*`
   - compact mode (chat hidden): `window.compactWhenChatHidden` / `window.compactWidth` / `window.compactHeight`
-  - model size/position: `layout.*`
+  - model size/position: `layout.*` (use `layout.lockScaleOnResize` to keep avatar scale stable while toggling chat panel)
   - clarity: `render.resolutionScale` / `render.maxDevicePixelRatio`
 
 Current baseline (already done):
