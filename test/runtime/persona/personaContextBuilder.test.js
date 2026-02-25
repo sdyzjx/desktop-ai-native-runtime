@@ -31,7 +31,7 @@ test('PersonaContextBuilder shares mode across sessions when sharedAcrossSession
     configStore: {
       load: () => ({
         defaults: { profile: 'yachiyo', mode: 'hybrid', injectEnabled: true, maxContextChars: 1000, sharedAcrossSessions: true },
-        source: { preferredRoot: '~/.openclaw/workspace', allowWorkspaceOverride: false },
+        source: { preferredRoot: '.', allowWorkspaceOverride: false },
         writeback: { enabled: false }
       })
     },

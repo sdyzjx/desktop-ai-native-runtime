@@ -9,7 +9,7 @@
 
 ## Behavior Guarantees
 
-- Global persona profile lives under `~/.openclaw/workspace/persona/profile.yaml`.
+- Global persona profile is now versioned in repo at `persona/profile.yaml` (default load path).
 - Persona modifications are globally effective across sessions.
 - `persona.update_profile` is allowed in low/medium/high permission levels.
 

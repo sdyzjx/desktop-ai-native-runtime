@@ -18,7 +18,7 @@ function expandHome(inputPath) {
 }
 
 function resolvePersonaRoot({ workspaceDir, config }) {
-  const preferredRoot = expandHome(config?.source?.preferredRoot || '~/.openclaw/workspace');
+  const preferredRoot = expandHome(config?.source?.preferredRoot || '.');
   if (config?.source?.allowWorkspaceOverride === true && workspaceDir) {
     return workspaceDir;
   }

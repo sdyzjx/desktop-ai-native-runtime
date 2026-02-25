@@ -4,7 +4,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { PersonaProfileStore, normalizeProfile } = require('../../../apps/runtime/persona/personaProfileStore');
+const {
+  PersonaProfileStore,
+  normalizeProfile,
+  DEFAULT_PROFILE_PATH
+} = require('../../../apps/runtime/persona/personaProfileStore');
 
 test('PersonaProfileStore creates default profile with 主人', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'persona-profile-'));
@@ -29,4 +33,8 @@ test('PersonaProfileStore save merges nested fields', () => {
 test('normalizeProfile handles invalid root', () => {
   const normalized = normalizeProfile(null);
   assert.equal(normalized.profile, 'yachiyo');
+});
+
+test('default profile path points to repo persona/profile.yaml', () => {
+  assert.match(DEFAULT_PROFILE_PATH, /persona[\\/]profile\.yaml$/);
 });

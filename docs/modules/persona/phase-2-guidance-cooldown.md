@@ -5,7 +5,7 @@
 
 ## Implementation
 - Added `apps/runtime/persona/personaGuidanceStateStore.js`
-  - State file: `~/.openclaw/workspace/persona/state.json`
+  - State file (repo default): `persona/state.json`
   - API:
     - `shouldPromptForCustomName(profile)`
     - `markPrompted()`

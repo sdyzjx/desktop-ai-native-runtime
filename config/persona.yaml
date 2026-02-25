@@ -8,7 +8,7 @@ defaults:
   sharedAcrossSessions: true
 
 source:
-  preferredRoot: ~/.openclaw/workspace
+  preferredRoot: .
   allowWorkspaceOverride: false
 
 modes:

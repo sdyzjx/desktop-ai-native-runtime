@@ -1,9 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const YAML = require('yaml');
 
-const DEFAULT_PROFILE_PATH = path.join(os.homedir(), '.openclaw', 'workspace', 'persona', 'profile.yaml');
+const DEFAULT_PROFILE_PATH = path.resolve(process.cwd(), 'persona', 'profile.yaml');
 
 const DEFAULT_PROFILE = {
   version: 1,
