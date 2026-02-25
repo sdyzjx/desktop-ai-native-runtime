@@ -105,3 +105,59 @@ test('OpenAIReasoner returns final decision for text response', async () => {
     server.close();
   }
 });
+
+test('OpenAIReasoner retries on transient network failure and succeeds', async () => {
+  let requestCount = 0;
+  const { server, port } = await startMockServer((req, res) => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      req.socket.destroy();
+      return;
+    }
+
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: 'retry-success'
+        }
+      }]
+    }));
+  });
+
+  try {
+    const reasoner = new OpenAIReasoner({
+      apiKey: 'k',
+      baseUrl: `http://127.0.0.1:${port}`,
+      model: 'mock',
+      timeoutMs: 2000,
+      maxRetries: 1,
+      retryDelayMs: 10
+    });
+    const decision = await reasoner.decide({ messages: [{ role: 'user', content: 'x' }], tools: [] });
+
+    assert.equal(decision.type, 'final');
+    assert.equal(decision.output, 'retry-success');
+    assert.equal(requestCount, 2);
+  } finally {
+    server.close();
+  }
+});
+
+test('OpenAIReasoner reports contextual error after retries exhausted', async () => {
+  const port = await getFreePort();
+  const reasoner = new OpenAIReasoner({
+    apiKey: 'k',
+    baseUrl: `http://127.0.0.1:${port}`,
+    model: 'mock-timeout',
+    timeoutMs: 800,
+    maxRetries: 1,
+    retryDelayMs: 10
+  });
+
+  await assert.rejects(
+    () => reasoner.decide({ messages: [{ role: 'user', content: 'x' }], tools: [] }),
+    /after 2 attempt\(s\).*base_url=.*mock-timeout/i
+  );
+});

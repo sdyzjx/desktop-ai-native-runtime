@@ -1,0 +1,27 @@
+version: 1
+
+defaults:
+  profile: yachiyo
+  mode: hybrid
+  injectEnabled: true
+  maxContextChars: 1500
+  sharedAcrossSessions: true
+
+source:
+  preferredRoot: ~/.openclaw/workspace
+  allowWorkspaceOverride: false
+
+modes:
+  rational:
+    style: concise, structured, technical
+  idol:
+    style: warm, expressive, encouraging
+  hybrid:
+    style: balanced rational(60) poetic(40)
+  strict:
+    style: minimal emotion, high precision
+
+writeback:
+  enabled: true
+  explicitOnly: false
+  minSignals: 3

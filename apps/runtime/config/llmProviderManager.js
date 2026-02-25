@@ -32,12 +32,25 @@ class LlmProviderManager {
       );
     }
 
+    const maxRetries = Number(
+      provider.max_retries !== undefined
+        ? provider.max_retries
+        : process.env.LLM_REQUEST_MAX_RETRIES
+    );
+    const retryDelayMs = Number(
+      provider.retry_delay_ms !== undefined
+        ? provider.retry_delay_ms
+        : process.env.LLM_REQUEST_RETRY_DELAY_MS
+    );
+
     const key = JSON.stringify({
       name: snapshot.active_name,
       base_url: provider.base_url,
       model: provider.model,
       timeout_ms: provider.timeout_ms || 20000,
-      api_key: apiKey
+      api_key: apiKey,
+      max_retries: Number.isFinite(maxRetries) ? maxRetries : undefined,
+      retry_delay_ms: Number.isFinite(retryDelayMs) ? retryDelayMs : undefined
     });
 
     if (this.cacheKey === key && this.cachedReasoner) {
@@ -48,7 +61,9 @@ class LlmProviderManager {
       apiKey,
       baseUrl: provider.base_url,
       model: provider.model,
-      timeoutMs: Number(provider.timeout_ms) || 20000
+      timeoutMs: Number(provider.timeout_ms) || 20000,
+      maxRetries: Number.isFinite(maxRetries) ? maxRetries : undefined,
+      retryDelayMs: Number.isFinite(retryDelayMs) ? retryDelayMs : undefined
     });
     this.cacheKey = key;
     return this.cachedReasoner;

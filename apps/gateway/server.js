@@ -1,4 +1,5 @@
 const express = require('express');
+const fs = require('node:fs/promises');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
@@ -25,6 +26,8 @@ const {
 } = require('../runtime/session/sessionPermissions');
 const { canReadLongTermMemory } = require('../runtime/security/sessionPermissionPolicy');
 const { SkillRuntimeManager } = require('../runtime/skills/skillRuntimeManager');
+const { PersonaContextBuilder } = require('../runtime/persona/personaContextBuilder');
+const { PersonaProfileStore } = require('../runtime/persona/personaProfileStore');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -42,17 +45,89 @@ const sessionStore = new FileSessionStore();
 const longTermMemoryStore = getDefaultLongTermMemoryStore();
 const workspaceManager = getDefaultSessionWorkspaceManager();
 const skillRuntimeManager = new SkillRuntimeManager({ workspaceDir: process.cwd() });
+const personaProfileStore = new PersonaProfileStore();
+const personaContextBuilder = new PersonaContextBuilder({
+  workspaceDir: process.cwd(),
+  profileStore: personaProfileStore,
+  memoryStore: longTermMemoryStore
+});
 
 const contextMaxMessages = Math.max(0, Number(process.env.CONTEXT_MAX_MESSAGES) || 12);
 const contextMaxChars = Math.max(0, Number(process.env.CONTEXT_MAX_CHARS) || 12000);
 const memoryBootstrapMaxEntries = Math.max(0, Number(process.env.MEMORY_BOOTSTRAP_MAX_ENTRIES) || 10);
 const memoryBootstrapMaxChars = Math.max(0, Number(process.env.MEMORY_BOOTSTRAP_MAX_CHARS) || 2400);
 const memorySopMaxChars = Math.max(0, Number(process.env.MEMORY_SOP_MAX_CHARS) || 8000);
+const maxInputImageBytes = Math.max(1024, Number(process.env.MAX_INPUT_IMAGE_BYTES) || 8 * 1024 * 1024);
+const maxInputImages = Math.max(0, Number(process.env.MAX_INPUT_IMAGES) || 4);
+const maxInputImageDataUrlChars = Math.max(
+  128,
+  Number(process.env.MAX_INPUT_IMAGE_DATA_URL_CHARS) || Math.ceil(maxInputImageBytes * 1.5)
+);
+const sessionImageStoreDir = path.resolve(
+  process.env.SESSION_IMAGE_STORE_DIR || path.resolve(process.cwd(), 'data/session-images')
+);
+
+function extensionFromMimeType(mimeType) {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized === 'image/jpeg' || normalized === 'image/jpg') return 'jpg';
+  if (normalized === 'image/png') return 'png';
+  if (normalized === 'image/webp') return 'webp';
+  if (normalized === 'image/gif') return 'gif';
+  if (normalized === 'image/bmp') return 'bmp';
+  if (normalized === 'image/avif') return 'avif';
+  return 'img';
+}
+
+function sanitizeToken(value) {
+  return String(value || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 80);
+}
+
+function buildSessionImagePublicUrl(sessionId, fileName) {
+  return `/api/session-images/${encodeURIComponent(sessionId)}/${encodeURIComponent(fileName)}`;
+}
+
+function decodeImageDataUrl(dataUrl) {
+  const commaIndex = dataUrl.indexOf(',');
+  const base64Payload = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1).replace(/\s+/g, '') : '';
+  return Buffer.from(base64Payload, 'base64');
+}
+
+async function persistSessionInputImages(sessionId, inputImages = []) {
+  if (!Array.isArray(inputImages) || inputImages.length === 0) return [];
+
+  const encodedSessionId = encodeURIComponent(String(sessionId));
+  const sessionDir = path.join(sessionImageStoreDir, encodedSessionId);
+  await fs.mkdir(sessionDir, { recursive: true });
+
+  const persisted = [];
+  for (const image of inputImages) {
+    const ext = extensionFromMimeType(image.mime_type);
+    const clientId = sanitizeToken(image.client_id) || sanitizeToken(image.name) || uuidv4().replaceAll('-', '');
+    const fileName = `${clientId}.${ext}`;
+    const filePath = path.join(sessionDir, fileName);
+    const binary = decodeImageDataUrl(image.data_url);
+    await fs.writeFile(filePath, binary);
+
+    persisted.push({
+      client_id: clientId,
+      name: image.name,
+      mime_type: image.mime_type,
+      size_bytes: image.size_bytes || binary.length,
+      file_name: fileName,
+      url: buildSessionImagePublicUrl(sessionId, fileName)
+    });
+  }
+
+  return persisted;
+}
 
 const runner = new ToolLoopRunner({
   bus,
   getReasoner: () => llmManager.getReasoner(),
   listTools: () => executor.listTools(),
+  resolvePersonaContext: ({ sessionId, input }) => personaContextBuilder.build({ sessionId, input }),
   resolveSkillsContext: ({ sessionId, input }) => skillRuntimeManager.buildTurnContext({ sessionId, input }),
   maxStep: 8,
   toolResultTimeoutMs: 10000
@@ -63,6 +138,29 @@ dispatcher.start();
 
 const worker = new RuntimeRpcWorker({ queue, runner, bus });
 worker.start();
+
+app.get('/api/session-images/:sessionId/:fileName', async (req, res) => {
+  const safeSessionId = encodeURIComponent(String(req.params.sessionId || ''));
+  const safeFileName = String(req.params.fileName || '');
+  if (!safeFileName || safeFileName.includes('/') || safeFileName.includes('\\')) {
+    res.status(400).json({ ok: false, error: 'invalid file name' });
+    return;
+  }
+
+  const sessionDir = path.resolve(path.join(sessionImageStoreDir, safeSessionId));
+  const absolutePath = path.resolve(path.join(sessionDir, safeFileName));
+  if (!absolutePath.startsWith(`${sessionDir}${path.sep}`)) {
+    res.status(400).json({ ok: false, error: 'invalid image path' });
+    return;
+  }
+
+  try {
+    await fs.access(absolutePath);
+    res.sendFile(absolutePath);
+  } catch {
+    res.status(404).json({ ok: false, error: 'image not found' });
+  }
+});
 
 app.get('/health', async (_, res) => {
   const sessionStats = await sessionStore.getStats();
@@ -163,6 +261,30 @@ app.get('/api/memory/search', async (req, res) => {
   res.json({ ok: true, data: result });
 });
 
+app.get('/api/persona/profile', (_, res) => {
+  try {
+    const profile = personaProfileStore.load();
+    res.json({ ok: true, data: profile });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.put('/api/persona/profile', (req, res) => {
+  const profilePatch = req.body?.profile;
+  if (!profilePatch || typeof profilePatch !== 'object' || Array.isArray(profilePatch)) {
+    res.status(400).json({ ok: false, error: 'body.profile must be an object' });
+    return;
+  }
+
+  try {
+    const updated = personaProfileStore.save(profilePatch);
+    res.json({ ok: true, data: updated });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
 app.get('/api/config/providers', (_, res) => {
   res.json({ ok: true, data: llmManager.getConfigSummary() });
 });
@@ -241,10 +363,83 @@ function sendSafe(ws, payload) {
   ws.send(JSON.stringify(payload));
 }
 
+function normalizeInputImages(rawInputImages) {
+  if (rawInputImages === undefined || rawInputImages === null) {
+    return { ok: true, images: [] };
+  }
+
+  if (!Array.isArray(rawInputImages)) {
+    return { ok: false, error: 'params.input_images must be an array' };
+  }
+
+  if (rawInputImages.length > maxInputImages) {
+    return { ok: false, error: `params.input_images exceeds limit (${maxInputImages})` };
+  }
+
+  const images = [];
+  for (const rawImage of rawInputImages) {
+    if (!rawImage || typeof rawImage !== 'object' || Array.isArray(rawImage)) {
+      return { ok: false, error: 'params.input_images entries must be objects' };
+    }
+
+    const dataUrl = typeof rawImage.data_url === 'string' ? rawImage.data_url.trim() : '';
+    if (!/^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(dataUrl)) {
+      return { ok: false, error: 'params.input_images[].data_url must be a valid image data URL' };
+    }
+
+    if (dataUrl.length > maxInputImageDataUrlChars) {
+      return { ok: false, error: `params.input_images[].data_url exceeds max chars (${maxInputImageDataUrlChars})` };
+    }
+
+    const commaIndex = dataUrl.indexOf(',');
+    const base64Payload = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1).replace(/\s+/g, '') : '';
+    const padding = base64Payload.endsWith('==') ? 2 : (base64Payload.endsWith('=') ? 1 : 0);
+    const estimatedBytes = Math.max(0, Math.floor((base64Payload.length * 3) / 4) - padding);
+    if (estimatedBytes > maxInputImageBytes) {
+      return { ok: false, error: `params.input_images[] exceeds max bytes (${maxInputImageBytes})` };
+    }
+
+    const declaredBytes = Number(rawImage.size_bytes) || 0;
+    if (declaredBytes > maxInputImageBytes) {
+      return { ok: false, error: `params.input_images[].size_bytes exceeds max bytes (${maxInputImageBytes})` };
+    }
+
+    images.push({
+      client_id: typeof rawImage.client_id === 'string' ? sanitizeToken(rawImage.client_id) : '',
+      name: typeof rawImage.name === 'string' ? rawImage.name.trim() : '',
+      mime_type: typeof rawImage.mime_type === 'string' ? rawImage.mime_type.trim() : '',
+      size_bytes: declaredBytes || estimatedBytes,
+      data_url: dataUrl
+    });
+  }
+
+  return { ok: true, images };
+}
+
 async function enqueueRpc(ws, rpcPayload, mode) {
   const requestInput = String(rpcPayload.params?.input || '');
+  const normalizedImages = normalizeInputImages(rpcPayload.params?.input_images);
   const requestId = rpcPayload.id ?? null;
   const requestedPermissionLevel = rpcPayload.params?.permission_level;
+
+  if (!normalizedImages.ok) {
+    if (mode === 'legacy') {
+      sendSafe(ws, { type: 'error', message: normalizedImages.error });
+      return;
+    }
+    sendSafe(ws, createRpcError(requestId, RpcErrorCode.INVALID_PARAMS, normalizedImages.error));
+    return;
+  }
+
+  const inputImages = normalizedImages.images;
+  if (!requestInput.trim() && inputImages.length === 0) {
+    if (mode === 'legacy') {
+      sendSafe(ws, { type: 'error', message: 'input text or input_images is required' });
+      return;
+    }
+    sendSafe(ws, createRpcError(requestId, RpcErrorCode.INVALID_PARAMS, 'params.input or params.input_images is required'));
+    return;
+  }
 
   if (requestedPermissionLevel !== undefined && !isSessionPermissionLevel(requestedPermissionLevel)) {
     if (mode === 'legacy') {
@@ -328,6 +523,18 @@ async function enqueueRpc(ws, rpcPayload, mode) {
     },
     onRunStart: async ({ session_id: sessionId, runtime_context: runtimeContext }) => {
       await sessionStore.createSessionIfNotExists({ sessionId, title: 'New chat' });
+      let persistedInputImages = [];
+      try {
+        persistedInputImages = await persistSessionInputImages(sessionId, inputImages);
+      } catch {
+        persistedInputImages = inputImages.map((image) => ({
+          client_id: image.client_id || '',
+          name: image.name,
+          mime_type: image.mime_type,
+          size_bytes: image.size_bytes,
+          url: ''
+        }));
+      }
       await sessionStore.appendMessage(sessionId, {
         role: 'user',
         content: requestInput,
@@ -335,7 +542,14 @@ async function enqueueRpc(ws, rpcPayload, mode) {
         metadata: {
           mode,
           permission_level: runtimeContext?.permission_level || normalizeSessionPermissionLevel(requestedPermissionLevel),
-          workspace_root: runtimeContext?.workspace_root || null
+          workspace_root: runtimeContext?.workspace_root || null,
+          input_images: persistedInputImages.map((image) => ({
+            client_id: image.client_id || '',
+            name: image.name,
+            mime_type: image.mime_type,
+            size_bytes: image.size_bytes,
+            url: image.url || ''
+          }))
         }
       });
     },
@@ -368,7 +582,10 @@ async function enqueueRpc(ws, rpcPayload, mode) {
         state,
         mode,
         permission_level: permissionLevel,
-        workspace_root: runtimeContext?.workspace_root || settings?.workspace?.root_dir || null
+        workspace_root: runtimeContext?.workspace_root || settings?.workspace?.root_dir || null,
+        metadata: {
+          input_images_count: inputImages.length
+        }
       });
     },
     sendEvent: (eventPayload) => {
@@ -428,7 +645,8 @@ wss.on('connection', (ws) => {
         params: {
           session_id: msg.session_id || `web-${uuidv4()}`,
           input: msg.input || '',
-          permission_level: msg.permission_level
+          permission_level: msg.permission_level,
+          input_images: msg.input_images
         }
       };
 
