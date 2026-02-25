@@ -66,8 +66,10 @@ function validateConfig(config) {
 }
 
 class ProviderConfigStore {
-  constructor({ configPath = path.resolve(process.cwd(), 'config/providers.yaml') } = {}) {
-    this.configPath = configPath;
+  constructor({ configPath } = {}) {
+    this.configPath = configPath
+      || process.env.PROVIDER_CONFIG_PATH
+      || path.resolve(process.cwd(), 'config/providers.yaml');
     this.ensureExists();
   }
 

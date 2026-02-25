@@ -92,9 +92,11 @@ app.put('/api/config/providers/raw', (req, res) => {
   }
 });
 
-const server = app.listen(3000, () => {
+const port = Number(process.env.PORT) || 3000;
+
+const server = app.listen(port, () => {
   const summary = llmManager.getConfigSummary();
-  console.log('Debug web: http://localhost:3000');
+  console.log(`Debug web: http://localhost:${port}`);
   console.log(`LLM provider: ${summary.active_provider} / ${summary.active_model} / has_api_key=${summary.has_api_key}`);
 });
 

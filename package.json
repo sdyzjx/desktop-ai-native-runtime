@@ -5,7 +5,9 @@
   "type": "commonjs",
   "scripts": {
     "dev": "node apps/gateway/server.js",
-    "start": "node apps/gateway/server.js"
+    "start": "node apps/gateway/server.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:ci": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
     "express": "^4.19.2",

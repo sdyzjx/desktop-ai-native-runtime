@@ -49,6 +49,23 @@ curl http://localhost:3000/health
 - Chat UI: `http://localhost:3000/`
 - Provider config UI: `http://localhost:3000/config.html`
 
+## Testing
+
+Run the complete test suite:
+
+```bash
+npm test
+```
+
+CI-equivalent command:
+
+```bash
+npm run test:ci
+```
+
+Detailed testing guide:
+- `docs/TESTING.md`
+
 ## Runtime Message Paths
 
 ### Legacy Web Debug Message (backward compatible)
@@ -100,4 +117,4 @@ Provider config now has a dedicated page (`/config.html`) with graphical form ed
 - `packages/*`: shared protocol/contracts placeholders
 
 ## Next
-See `docs/IMPLEMENTATION_PLAN.md` and `docs/ARCHITECTURE.md`.
+See `docs/IMPLEMENTATION_PLAN.md`, `docs/ARCHITECTURE.md`, and `docs/TESTING.md`.
