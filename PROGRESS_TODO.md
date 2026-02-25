@@ -196,10 +196,7 @@ Do not add free-form items outside this format.
   2. Add gateway health wait utility with test coverage.
   3. Validate with `npm test` and manual desktop launch.
 - Commits/PR:
-  - `999237a` (Phase A docs replan)
-  - `a401e63` (Phase B chat panel + rpc + submit ipc)
-  - `a329295` (Phase C/D runtime forwarding + tool-calling bridge)
-  - TDB (Phase E finalization)
+  - TDB
 - Update Log:
   - 2026-02-25 23:59 IN_PROGRESS desktop shell bootstrap started.
   - 2026-02-26 00:04 REVIEW code + tests completed (85/85 pass), waiting manual desktop smoke.
@@ -229,10 +226,10 @@ Do not add free-form items outside this format.
   2. Implement M1 minimal loop with import/startup/RPC/IPC/renderer bubble.
   3. Expand to M2/M3 control and packaging milestones.
 - Commits/PR:
-  - `999237a` (Phase A docs replan)
-  - `a401e63` (Phase B chat panel + RPC + submit IPC)
-  - `a329295` (Phase C/D runtime forwarding + tool-calling bridge)
-  - `13eb4a1` (Phase E smoke script + smoke tests + docs sync)
+  - `d89e99f` (M0 doc baseline)
+  - `d9258f8` (M1 implementation baseline)
+  - `392243d` (layout hotfix)
+  - `59dc03a` (configurability patch)
 - Update Log:
   - 2026-02-26 01:02 IN_PROGRESS requirement registered and development started.
   - 2026-02-26 01:06 DONE M0 baseline decisions frozen (port/token/import strategy/V1 method scope).
@@ -272,7 +269,11 @@ Do not add free-form items outside this format.
   4. Phase D: deliver tool-calling exposure and model-control mapping.
   5. Phase E: stabilization, observability, and release smoke.
 - Commits/PR:
-  - TDB
+  - `999237a` (Phase A docs replan)
+  - `a401e63` (Phase B chat panel + RPC + submit IPC)
+  - `a329295` (Phase C/D runtime forwarding + tool-calling bridge)
+  - `13eb4a1` (Phase E smoke script + smoke tests + docs sync)
+  - `5df6279` (progress trace sync)
 - Update Log:
   - 2026-02-26 02:16 IN_PROGRESS requirement created from user feedback.
   - 2026-02-26 02:16 DONE Phase A docs replanned and synchronized (`construction plan`, `README`, `progress register`).
