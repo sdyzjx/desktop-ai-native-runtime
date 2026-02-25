@@ -366,3 +366,32 @@ Do not add free-form items outside this format.
   - 2026-02-26 03:29 REVIEW implementation + tests completed (`npm test` 150/150), waiting user runtime verification.
   - 2026-02-26 03:36 REVIEW tray summon added (hide -> tray icon -> click to restore pet), tests updated (`npm test` 153/153).
   - 2026-02-26 03:44 REVIEW click-flicker hardening delivered (tap cooldown gate + resize-aware panel reveal + no-op transform skip), tests updated (`npm test` 156/156).
+
+### [REQ-20260226-008] Desktop Live2D 模块级细粒度文档补全
+- Created At: 2026-02-26 04:12
+- Source: user
+- Priority: P1
+- Status: DONE
+- Owner: runtime
+- Branch: `codex/feature/electron-desktop`
+- Description:
+  - 为 desktop-live2d 子系统补齐模块级细粒度文档，覆盖 main/renderer/scripts 的调用方法、实现机制、调用链和运维命令。
+- Acceptance Criteria:
+  1. 提供完整模块清单及每模块 API 说明（导出方法、参数、返回、调用方）。
+  2. 提供 RPC/IPC 方法总览与示例调用。
+  3. 文档索引与 README 可直接跳转到模块文档。
+- Impacted Modules:
+  - `docs/modules/desktop-live2d/README.md`
+  - `docs/modules/desktop-live2d/module-reference.md`
+  - `docs/ARCHITECTURE_MODULE_INDEX.md`
+  - `README.md`
+- Risks/Dependencies:
+  - 后续若新增 RPC 或工具映射，需同步更新文档防止协议漂移。
+- Plan:
+  1. 逐模块梳理导出接口与调用链。
+  2. 编写模块级细粒度手册与调用示例。
+  3. 同步索引/README 并提交留痕。
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-26 04:12 DONE 模块级文档完成并同步索引。

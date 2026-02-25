@@ -107,6 +107,7 @@ Current gaps under active development:
 
 Detailed construction plan:
 - `docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`
+- `docs/modules/desktop-live2d/module-reference.md`
 
 ## Persistence
 
