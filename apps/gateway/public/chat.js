@@ -6,6 +6,7 @@ const THEME_PREFERENCES = ['auto', 'light', 'dark'];
 const DEFAULT_THEME_PREFERENCE = 'auto';
 const MAX_UPLOAD_IMAGES = 4;
 const MAX_UPLOAD_IMAGE_BYTES = 8 * 1024 * 1024;
+const LIGHTBOX_ANIMATION_MS = 220;
 
 const elements = {
   sidebar: document.getElementById('sidebar'),
@@ -24,7 +25,10 @@ const elements = {
   personaHint: document.getElementById('personaHint'),
   addImageBtn: document.getElementById('addImageBtn'),
   imageInput: document.getElementById('imageInput'),
-  uploadPreviewList: document.getElementById('uploadPreviewList')
+  uploadPreviewList: document.getElementById('uploadPreviewList'),
+  imageLightbox: document.getElementById('imageLightbox'),
+  lightboxImage: document.getElementById('lightboxImage'),
+  lightboxCloseBtn: document.getElementById('lightboxCloseBtn')
 };
 
 const state = {
@@ -32,6 +36,8 @@ const state = {
   activeSessionId: null,
   pending: null,
   pendingUploads: [],
+  messageImageCache: new Map(),
+  lightboxCloseTimer: null,
   ws: null,
   wsReady: false,
   isComposing: false,
@@ -124,7 +130,9 @@ function normalizeSessionShape(raw) {
           .map((image) => ({
             name: typeof image.name === 'string' ? image.name : 'image',
             mimeType: typeof image.mimeType === 'string' ? image.mimeType : 'image/*',
-            sizeBytes: Number(image.sizeBytes) || 0
+            sizeBytes: Number(image.sizeBytes) || 0,
+            previewUrl: typeof image.previewUrl === 'string' ? image.previewUrl : '',
+            clientId: typeof image.clientId === 'string' ? image.clientId : ''
           }))
         : []
     }))
@@ -234,7 +242,9 @@ function addMessage(session, role, content, options = {}) {
       ? options.images.map((image) => ({
         name: typeof image.name === 'string' ? image.name : 'image',
         mimeType: typeof image.mimeType === 'string' ? image.mimeType : 'image/*',
-        sizeBytes: Number(image.sizeBytes) || 0
+        sizeBytes: Number(image.sizeBytes) || 0,
+        previewUrl: typeof image.previewUrl === 'string' ? image.previewUrl : '',
+        clientId: typeof image.clientId === 'string' ? image.clientId : ''
       }))
       : []
   };
@@ -267,6 +277,69 @@ function formatBytes(size) {
   if (n < 1024) return `${n}B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
   return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function extensionFromMimeType(mimeType) {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized === 'image/jpeg' || normalized === 'image/jpg') return 'jpg';
+  if (normalized === 'image/png') return 'png';
+  if (normalized === 'image/webp') return 'webp';
+  if (normalized === 'image/gif') return 'gif';
+  if (normalized === 'image/bmp') return 'bmp';
+  if (normalized === 'image/avif') return 'avif';
+  return 'img';
+}
+
+function buildSessionImageUrl(sessionId, clientId, mimeType) {
+  if (!sessionId || !clientId) return '';
+  const ext = extensionFromMimeType(mimeType);
+  return `/api/session-images/${encodeURIComponent(sessionId)}/${encodeURIComponent(`${clientId}.${ext}`)}`;
+}
+
+function cacheMessageImages(messageId, uploads) {
+  if (!messageId || !Array.isArray(uploads) || uploads.length === 0) return;
+  state.messageImageCache.set(
+    messageId,
+    uploads.map((upload) => ({
+      clientId: upload.clientId,
+      name: upload.name,
+      mimeType: upload.mimeType,
+      sizeBytes: upload.sizeBytes,
+      dataUrl: upload.dataUrl
+    }))
+  );
+}
+
+function getCachedImageForMessage(messageId, imageIndex) {
+  const list = state.messageImageCache.get(messageId);
+  if (!Array.isArray(list)) return null;
+  return list[imageIndex] || null;
+}
+
+function openImageLightbox(src, altText = 'image') {
+  if (!src) return;
+  if (state.lightboxCloseTimer) {
+    clearTimeout(state.lightboxCloseTimer);
+    state.lightboxCloseTimer = null;
+  }
+  elements.lightboxImage.src = src;
+  elements.lightboxImage.alt = altText;
+  elements.imageLightbox.classList.add('open');
+  elements.imageLightbox.setAttribute('aria-hidden', 'false');
+}
+
+function closeImageLightbox() {
+  elements.imageLightbox.classList.remove('open');
+  elements.imageLightbox.setAttribute('aria-hidden', 'true');
+  if (state.lightboxCloseTimer) {
+    clearTimeout(state.lightboxCloseTimer);
+  }
+  state.lightboxCloseTimer = setTimeout(() => {
+    if (!elements.imageLightbox.classList.contains('open')) {
+      elements.lightboxImage.src = '';
+    }
+    state.lightboxCloseTimer = null;
+  }, LIGHTBOX_ANIMATION_MS);
 }
 
 function readFileAsDataUrl(file) {
@@ -336,6 +409,7 @@ async function onImageFilesSelected(fileList) {
       const dataUrl = await readFileAsDataUrl(file);
       state.pendingUploads.push({
         id: randomId('img'),
+        clientId: randomId('imgc'),
         name: file.name,
         mimeType: file.type || 'image/*',
         sizeBytes: file.size,
@@ -377,7 +451,36 @@ function renderMessages() {
     if (Array.isArray(msg.images) && msg.images.length > 0) {
       const attachmentList = document.createElement('div');
       attachmentList.className = 'message-attachments';
-      msg.images.forEach((image) => {
+      msg.images.forEach((image, imageIndex) => {
+        const cachedImage = getCachedImageForMessage(msg.id, imageIndex);
+        if (cachedImage?.dataUrl) {
+          const card = document.createElement('button');
+          card.className = 'message-image-card';
+          card.type = 'button';
+          card.dataset.previewSrc = cachedImage.dataUrl;
+          card.dataset.previewAlt = image.name || `image-${imageIndex + 1}`;
+          card.innerHTML = `
+            <img class="message-image-thumb" src="${escapeHtml(cachedImage.dataUrl)}" alt="${escapeHtml(image.name || `image-${imageIndex + 1}`)}" />
+            <div class="message-image-meta">${escapeHtml(image.name)} · ${formatBytes(image.sizeBytes)}</div>
+          `;
+          attachmentList.appendChild(card);
+          return;
+        }
+
+        if (image.previewUrl) {
+          const card = document.createElement('button');
+          card.className = 'message-image-card';
+          card.type = 'button';
+          card.dataset.previewSrc = image.previewUrl;
+          card.dataset.previewAlt = image.name || `image-${imageIndex + 1}`;
+          card.innerHTML = `
+            <img class="message-image-thumb" src="${escapeHtml(image.previewUrl)}" alt="${escapeHtml(image.name || `image-${imageIndex + 1}`)}" />
+            <div class="message-image-meta">${escapeHtml(image.name)} · ${formatBytes(image.sizeBytes)}</div>
+          `;
+          attachmentList.appendChild(card);
+          return;
+        }
+
         const chip = document.createElement('div');
         chip.className = 'message-attachment-chip';
         chip.textContent = `🖼 ${image.name} (${formatBytes(image.sizeBytes)})`;
@@ -523,13 +626,16 @@ function sendMessage() {
     text || '[Image]',
     {
       images: uploads.map((upload) => ({
+        clientId: upload.clientId,
         name: upload.name,
         mimeType: upload.mimeType,
-        sizeBytes: upload.sizeBytes
+        sizeBytes: upload.sizeBytes,
+        previewUrl: buildSessionImageUrl(session.id, upload.clientId, upload.mimeType)
       }))
     }
   );
   const assistantMsg = addMessage(session, 'assistant', 'Thinking...');
+  cacheMessageImages(userMsg.id, uploads);
   state.pending = {
     sessionId: session.id,
     userMsgId: userMsg.id,
@@ -550,6 +656,7 @@ function sendMessage() {
     input: text,
     permission_level: normalizePermissionLevel(session.permissionLevel),
     input_images: uploads.map((upload) => ({
+      client_id: upload.clientId,
       name: upload.name,
       mime_type: upload.mimeType,
       size_bytes: upload.sizeBytes,
@@ -637,6 +744,24 @@ function bindEvents() {
     const uploadId = target.dataset.uploadId;
     if (!uploadId) return;
     removePendingUpload(uploadId);
+  });
+  elements.messageList.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const trigger = target.closest('.message-image-card');
+    if (!(trigger instanceof HTMLElement)) return;
+    openImageLightbox(trigger.dataset.previewSrc, trigger.dataset.previewAlt || 'image');
+  });
+  elements.lightboxCloseBtn.onclick = closeImageLightbox;
+  elements.imageLightbox.addEventListener('click', (event) => {
+    if (event.target === elements.imageLightbox) {
+      closeImageLightbox();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && elements.imageLightbox.classList.contains('open')) {
+      closeImageLightbox();
+    }
   });
 
   elements.chatInput.addEventListener('input', autosizeInput);

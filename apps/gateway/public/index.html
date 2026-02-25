@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/system.css" />
   <link rel="stylesheet" href="/chat.css" />
 </head>
-<body>
+<body class="chat-page">
   <div class="app-shell">
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-top">
@@ -65,6 +65,11 @@
         <div class="composer-tip">Enter 发送（输入法选词时不会发送），Shift+Enter 换行。支持图片上传与多模态提问。</div>
       </footer>
     </main>
+  </div>
+
+  <div id="imageLightbox" class="image-lightbox" aria-hidden="true">
+    <button id="lightboxCloseBtn" class="btn lightbox-close-btn" type="button">Close</button>
+    <img id="lightboxImage" class="lightbox-image" alt="preview" />
   </div>
 
   <script src="/chat.js"></script>

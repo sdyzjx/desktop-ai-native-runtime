@@ -445,6 +445,7 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
       input: 'describe this uploaded image',
       input_images: [
         {
+          client_id: 'tiny-image-1',
           name: 'tiny.png',
           mime_type: 'image/png',
           size_bytes: 67,
@@ -454,6 +455,18 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     });
     assert.match(multimodalRun.final.output, /image analyzed/i);
     assert.equal(llm.state.sawMultimodalImageInput, true);
+    const mmSession = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/mm-s1`).then((r) => r.json());
+    assert.equal(mmSession.ok, true);
+    const mmUserMessage = mmSession.data.messages.find((msg) => msg.role === 'user');
+    assert.ok(mmUserMessage);
+    const mmInputImages = mmUserMessage.metadata?.input_images || [];
+    assert.equal(Array.isArray(mmInputImages), true);
+    assert.equal(mmInputImages.length, 1);
+    assert.match(mmInputImages[0].url, /\/api\/session-images\/mm-s1\/tiny-image-1\.png$/);
+
+    const mmImageResp = await fetch(`http://127.0.0.1:${gatewayPort}${mmInputImages[0].url}`);
+    assert.equal(mmImageResp.status, 200);
+    assert.match(mmImageResp.headers.get('content-type') || '', /^image\/png/);
 
     const saveMemory = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
       type: 'run',
