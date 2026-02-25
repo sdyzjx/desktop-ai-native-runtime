@@ -333,49 +333,20 @@ async function startDesktopSuite({
   ipcMain.on(CHANNELS.windowDrag, windowDragListener);
   const chatPanelVisibilityListener = createChatPanelVisibilityListener({ window, windowMetrics });
   ipcMain.on(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
-  let windowControlListener = null;
-  let chatInputListener = null;
-
-  const closePetWindow = async () => {
-    if (!window || window.isDestroyed()) {
-      return;
-    }
-
-    ipcMain.off(CHANNELS.windowDrag, windowDragListener);
-    ipcMain.off(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
-    if (windowControlListener) {
-      ipcMain.off(CHANNELS.windowControl, windowControlListener);
-    }
-    if (chatInputListener) {
-      ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
-    }
-
-    if (rpcServerRef) {
-      await rpcServerRef.stop();
-      rpcServerRef = null;
-    }
-    if (ipcBridgeRef) {
-      ipcBridgeRef.dispose();
-      ipcBridgeRef = null;
-    }
+  const hidePetWindow = () => {
     if (!window.isDestroyed()) {
-      window.destroy();
+      window.hide();
     }
   };
-  windowControlListener = createWindowControlListener({
+
+  const windowControlListener = createWindowControlListener({
     window,
-    onHide: () => {
-      if (!window.isDestroyed()) {
-        window.hide();
-      }
-    },
-    onClosePet: () => {
-      void closePetWindow();
-    }
+    onHide: hidePetWindow,
+    onClosePet: hidePetWindow
   });
   ipcMain.on(CHANNELS.windowControl, windowControlListener);
 
-  chatInputListener = createChatInputListener({
+  const chatInputListener = createChatInputListener({
     logger,
     onChatInput: (payload) => {
       if (typeof onChatInput === 'function') {

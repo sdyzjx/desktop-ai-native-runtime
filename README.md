@@ -89,6 +89,7 @@ Current baseline (already done):
 - chat panel default anchor moved to bottom-left to avoid covering face area
 - chat panel header includes `Hide` / `Close` controls for pet window
 - chat panel hidden state triggers compact window mode to reduce desktop occlusion
+- tray icon stays available after hide; click tray icon to summon pet window again
 - rpc methods: `state.get`, `param.set`, `model.param.set`, `model.param.batchSet`, `model.motion.play`, `model.expression.set`, `chat.show`, `chat.bubble.show`, `chat.panel.show`, `chat.panel.hide`, `chat.panel.append`, `chat.panel.clear`, `tool.list`, `tool.invoke`
 - right-bottom placement + drag-ready window + configurable layout/clarity
 - renderer-to-main submit event: `live2d:chat:input:submit`

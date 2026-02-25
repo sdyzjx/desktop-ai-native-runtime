@@ -194,6 +194,7 @@ flowchart LR
 - 聊天框默认布局锚点为窗口左下，避免遮挡角色面部区域。
 - 聊天框 Header 提供 `Hide` / `Close` 控制，且不影响 gateway 后台进程。
 - 聊天框隐藏时窗口自动切换到紧凑尺寸（`window.compact*` 可配置）。
+- Hide 后通过系统托盘图标可一键重新召唤桌宠窗口。
 - `chat.panel.append` 追加到历史并自动滚动到底部。
 - `chat.bubble.show` 不写历史（除非显式配置镜像）。
 - 输入提交后触发 `chat.input.submit` IPC 事件（由 Main 决定是否转发到 gateway）。
