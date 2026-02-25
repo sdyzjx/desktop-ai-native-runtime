@@ -46,9 +46,9 @@ const DEFAULT_UI_CONFIG = Object.freeze({
   chat: {
     panel: {
       enabled: true,
-      defaultVisible: true,
-      width: 340,
-      height: 260,
+      defaultVisible: false,
+      width: 320,
+      height: 220,
       maxMessages: 200,
       inputEnabled: true
     },

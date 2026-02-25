@@ -12,7 +12,8 @@ const {
   computeRightBottomWindowBounds,
   normalizeChatInputPayload,
   createChatInputListener,
-  handleDesktopRpcRequest
+  handleDesktopRpcRequest,
+  isNewSessionCommand
 } = require('../../apps/desktop-live2d/main/desktopSuite');
 
 class FakeIpcMain extends EventEmitter {}
@@ -174,4 +175,11 @@ test('handleDesktopRpcRequest maps tool.invoke to renderer method', async () => 
   assert.equal(calls[0].timeoutMs, 3456);
   assert.deepEqual(calls[0].params, { name: 'ParamAngleX', value: 3 });
   assert.equal(result.ok, true);
+});
+
+test('isNewSessionCommand matches /new command only', () => {
+  assert.equal(isNewSessionCommand('/new'), true);
+  assert.equal(isNewSessionCommand('  /NEW  '), true);
+  assert.equal(isNewSessionCommand('/new session'), false);
+  assert.equal(isNewSessionCommand('hello'), false);
 });

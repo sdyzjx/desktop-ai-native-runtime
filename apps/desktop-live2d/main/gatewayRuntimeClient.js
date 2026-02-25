@@ -1,6 +1,11 @@
 const { randomUUID } = require('node:crypto');
 const WebSocket = require('ws');
 
+function createDesktopSessionId() {
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  return `desktop-${stamp}-${randomUUID().slice(0, 8)}`;
+}
+
 function toGatewayWsUrl(gatewayUrl) {
   const parsed = new URL(gatewayUrl);
   parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -48,15 +53,73 @@ class GatewayRuntimeClient {
     sessionId = 'desktop-live2d',
     requestTimeoutMs = 120000,
     onNotification = null,
+    fetchImpl = globalThis.fetch,
     WebSocketImpl = WebSocket,
     logger = console
   }) {
+    this.gatewayUrl = String(gatewayUrl);
     this.gatewayWsUrl = toGatewayWsUrl(gatewayUrl);
     this.sessionId = sessionId;
     this.requestTimeoutMs = requestTimeoutMs;
     this.onNotification = onNotification;
+    this.fetchImpl = fetchImpl;
     this.WebSocketImpl = WebSocketImpl;
     this.logger = logger;
+  }
+
+  getSessionId() {
+    return this.sessionId;
+  }
+
+  setSessionId(sessionId) {
+    const normalized = String(sessionId || '').trim();
+    if (!normalized) {
+      throw new Error('sessionId must be non-empty');
+    }
+    this.sessionId = normalized;
+    return this.sessionId;
+  }
+
+  async createAndUseNewSession({ permissionLevel = 'medium' } = {}) {
+    const sessionId = createDesktopSessionId();
+    this.setSessionId(sessionId);
+    await this.ensureSession({ sessionId, permissionLevel });
+    return sessionId;
+  }
+
+  async ensureSession({ sessionId = this.sessionId, permissionLevel = 'medium' } = {}) {
+    if (typeof this.fetchImpl !== 'function') {
+      throw new Error('fetch is unavailable for gateway session bootstrap');
+    }
+
+    const url = new URL(`/api/sessions/${encodeURIComponent(sessionId)}/settings`, this.gatewayUrl);
+    const response = await this.fetchImpl(url, {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        settings: {
+          permission_level: permissionLevel
+        }
+      })
+    });
+
+    if (!response.ok) {
+      let bodyText = '';
+      try {
+        bodyText = await response.text();
+      } catch {
+        bodyText = '';
+      }
+      throw new Error(`failed to ensure gateway session ${sessionId}: status=${response.status} body=${bodyText}`);
+    }
+
+    try {
+      return await response.json();
+    } catch {
+      return { ok: true };
+    }
   }
 
   async runInput({ input, permissionLevel } = {}) {
@@ -150,6 +213,7 @@ class GatewayRuntimeClient {
 }
 
 module.exports = {
+  createDesktopSessionId,
   toGatewayWsUrl,
   mapGatewayMessageToDesktopEvent,
   GatewayRuntimeClient

@@ -14,6 +14,7 @@ test('resolveDesktopLive2dConfig applies defaults and model relative path', () =
   assert.ok(config.modelRelativePath.includes('assets/live2d/yachiyo-kaguya/八千代辉夜姬.model3.json'));
   assert.equal(config.gatewayExternal, false);
   assert.equal(config.uiConfig.chat.panel.enabled, true);
+  assert.equal(config.uiConfig.chat.panel.defaultVisible, false);
 });
 
 test('resolveDesktopLive2dConfig respects env overrides', () => {

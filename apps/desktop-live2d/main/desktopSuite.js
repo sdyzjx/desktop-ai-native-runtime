@@ -6,7 +6,7 @@ const { validateModelAssetDirectory } = require('./modelAssets');
 const { GatewaySupervisor } = require('./gatewaySupervisor');
 const { Live2dRpcServer } = require('./rpcServer');
 const { IpcRpcBridge } = require('./ipcBridge');
-const { GatewayRuntimeClient } = require('./gatewayRuntimeClient');
+const { GatewayRuntimeClient, createDesktopSessionId } = require('./gatewayRuntimeClient');
 const { listDesktopTools, resolveToolInvoke } = require('./toolRegistry');
 
 const CHANNELS = Object.freeze({
@@ -17,6 +17,10 @@ const CHANNELS = Object.freeze({
   getRuntimeConfig: 'live2d:get-runtime-config',
   chatInputSubmit: 'live2d:chat:input:submit'
 });
+
+function isNewSessionCommand(text) {
+  return String(text || '').trim().toLowerCase() === '/new';
+}
 
 async function startDesktopSuite({
   app,
@@ -95,6 +99,14 @@ async function startDesktopSuite({
       });
     }
   });
+  const initialSessionId = createDesktopSessionId();
+  gatewayRuntimeClient.setSessionId(initialSessionId);
+  try {
+    await gatewayRuntimeClient.ensureSession({ sessionId: initialSessionId, permissionLevel: 'medium' });
+    logger.info?.('[desktop-live2d] gateway_session_bootstrap_ok', { sessionId: initialSessionId });
+  } catch (err) {
+    logger.error?.('[desktop-live2d] gateway_session_bootstrap_failed', err);
+  }
 
   const window = createMainWindow({
     BrowserWindow,
@@ -114,6 +126,46 @@ async function startDesktopSuite({
     onChatInput: (payload) => {
       if (typeof onChatInput === 'function') {
         onChatInput(payload);
+      }
+
+      if (isNewSessionCommand(payload.text)) {
+        void gatewayRuntimeClient.createAndUseNewSession({ permissionLevel: 'medium' }).then((sessionId) => {
+          logger.info?.('[desktop-live2d] gateway_session_switched', { sessionId });
+          rpcServerRef?.notify({
+            method: 'desktop.event',
+            params: {
+              type: 'session.new',
+              timestamp: Date.now(),
+              data: {
+                session_id: sessionId
+              }
+            }
+          });
+
+          if (!ipcBridgeRef) {
+            return;
+          }
+
+          void ipcBridgeRef.invoke({ method: 'chat.panel.clear', params: {} }).catch(() => {});
+          void ipcBridgeRef.invoke({
+            method: 'chat.panel.append',
+            params: {
+              role: 'system',
+              text: `[session] switched to ${sessionId}`,
+              timestamp: Date.now()
+            }
+          }).catch(() => {});
+          void ipcBridgeRef.invoke({
+            method: 'chat.bubble.show',
+            params: {
+              text: 'New session created',
+              durationMs: 2200
+            }
+          }).catch(() => {});
+        }).catch((err) => {
+          logger.error?.('[desktop-live2d] /new session create failed', err);
+        });
+        return;
       }
 
       void gatewayRuntimeClient.runInput({ input: payload.text }).catch((err) => {
@@ -178,6 +230,7 @@ async function startDesktopSuite({
     rpcUrl: rpcInfo.url,
     rpcToken: config.rpcToken,
     gatewayUrl: config.gatewayUrl,
+    currentSessionId: gatewayRuntimeClient.getSessionId(),
     modelJsonPath: modelValidation.modelJsonPath,
     methods: [
       'state.get',
@@ -433,5 +486,6 @@ module.exports = {
   writeRuntimeSummary,
   normalizeChatInputPayload,
   createChatInputListener,
-  handleDesktopRpcRequest
+  handleDesktopRpcRequest,
+  isNewSessionCommand
 };

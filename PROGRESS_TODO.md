@@ -42,7 +42,7 @@ Branch: `codex/feature/electron-desktop`
 
 ## 2.2 Validation Status
 
-- Latest full test result on feature branch: `npm test` passed (`137/137`).
+- Latest full test result on feature branch: `npm test` passed (`142/142`).
 - Integration branch is intentionally **not merged into `main`** yet.
 
 ## 3. TODO / Next Actions
@@ -78,6 +78,13 @@ Branch: `codex/feature/electron-desktop`
   - stress and regression checklist
   - telemetry/trace observability completion
   - packaging and release sanity verification
+
+6. `DONE` Implement Phase F session sync + chat panel interaction polish
+- Scope:
+  - click-character to toggle chat panel (default hidden)
+  - panel anchor/mask update to avoid face blocking
+  - desktop startup new session + `/new` command session switch
+  - web-side session/message sync for desktop conversation visibility
 
 ## 3.2 Merge Gate (before `main`)
 
@@ -282,3 +289,40 @@ Do not add free-form items outside this format.
   - 2026-02-26 02:34 DONE Phase D delivered (`tool.list`/`tool.invoke` + `model.*` control methods + whitelist tests).
   - 2026-02-26 02:34 IN_PROGRESS Phase E stabilization started.
   - 2026-02-26 02:46 REVIEW Phase E automation baseline delivered (`desktop:smoke` + smoke tests + regression docs sync), waiting manual release smoke.
+
+### [REQ-20260226-006] Desktop chat panel interaction + cross-end session sync
+- Created At: 2026-02-26 03:02
+- Source: user
+- Priority: P0
+- Status: REVIEW
+- Owner: runtime
+- Branch: `codex/feature/electron-desktop`
+- Description:
+  - Make desktop chat panel non-resident (show on character click), avoid face overlap, and synchronize desktop messages/replies to web chat with startup session bootstrap and `/new` session command.
+- Acceptance Criteria:
+  1. Desktop chat panel default hidden and toggles on Live2D character click.
+  2. Default chat panel location does not cover character face region.
+  3. Desktop startup creates fresh gateway session; `/new` creates and switches to fresh session.
+  4. Web chat can observe desktop sessions/messages/replies via server sync.
+- Impacted Modules:
+  - `apps/desktop-live2d/main/gatewayRuntimeClient.js`
+  - `apps/desktop-live2d/main/desktopSuite.js`
+  - `apps/desktop-live2d/main/config.js`
+  - `apps/desktop-live2d/renderer/bootstrap.js`
+  - `apps/desktop-live2d/renderer/index.html`
+  - `apps/gateway/public/chat.js`
+  - `config/desktop-live2d.json`
+  - `test/desktop-live2d/*.test.js`
+- Risks/Dependencies:
+  - Cross-end sync currently uses poll loop; temporary network failures may delay visibility by one interval.
+  - UI overlap still depends on custom model proportions and user layout config.
+- Plan:
+  1. Add desktop session bootstrap + `/new` command pipeline in main runtime client/suite.
+  2. Adjust renderer/chat panel interaction and default placement.
+  3. Add web sync loop and follow-latest behavior for server sessions.
+  4. Add/refresh tests and run full regression.
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-26 03:02 IN_PROGRESS requirement registered from latest user UX feedback.
+  - 2026-02-26 03:06 REVIEW implementation + tests completed (`npm test` 142/142), waiting user desktop UX verification.

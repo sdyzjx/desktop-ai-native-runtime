@@ -79,6 +79,13 @@
     return { ok: true, visible: chatPanelState.visible };
   }
 
+  function toggleChatPanelVisible() {
+    if (!chatPanelEnabled || !chatPanelState) {
+      return { ok: false, visible: false };
+    }
+    return setChatPanelVisible(!chatPanelState.visible);
+  }
+
   function appendChatMessage(params, fallbackRole = 'assistant') {
     assertChatPanelEnabled();
     chatPanelState = chatStateApi.appendMessage(chatPanelState, params, fallbackRole);
@@ -368,6 +375,7 @@
 
     const modelUrl = new URL(modelRelativePath, window.location.href).toString();
     live2dModel = await Live2DModel.from(modelUrl);
+    bindModelInteraction();
 
     pixiApp.stage.addChild(live2dModel);
     applyAdaptiveLayout();
@@ -375,6 +383,22 @@
 
     state.modelLoaded = true;
     state.modelName = modelName || null;
+  }
+
+  function bindModelInteraction() {
+    if (!live2dModel || typeof live2dModel.on !== 'function') {
+      return;
+    }
+
+    if ('eventMode' in live2dModel) {
+      live2dModel.eventMode = 'static';
+    }
+    if ('interactive' in live2dModel) {
+      live2dModel.interactive = true;
+    }
+    live2dModel.on('pointertap', () => {
+      toggleChatPanelVisible();
+    });
   }
 
   function getStageSize() {

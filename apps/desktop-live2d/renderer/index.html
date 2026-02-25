@@ -21,12 +21,21 @@
         position: fixed;
         inset: 0;
         pointer-events: auto;
-        -webkit-app-region: drag;
-        cursor: grab;
       }
 
-      #stage:active {
-        cursor: grabbing;
+      #stage canvas {
+        -webkit-app-region: no-drag;
+      }
+
+      #drag-handle {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 28px;
+        -webkit-app-region: drag;
+        pointer-events: auto;
+        z-index: 12;
       }
 
       #bubble-layer {
@@ -63,10 +72,10 @@
 
       #chat-panel {
         position: fixed;
-        top: 12px;
-        right: 12px;
-        width: min(86vw, 340px);
-        height: min(58vh, 260px);
+        left: 12px;
+        bottom: 12px;
+        width: min(72vw, 320px);
+        height: min(42vh, 220px);
         display: flex;
         flex-direction: column;
         border: 1px solid rgba(255, 255, 255, 0.22);
@@ -170,6 +179,7 @@
     </style>
   </head>
   <body>
+    <div id="drag-handle"></div>
     <div id="stage"></div>
     <div id="chat-panel">
       <div id="chat-panel-header">Desktop Chat</div>

@@ -84,11 +84,19 @@ UI config file:
 Current baseline (already done):
 - transparent desktop Live2D window
 - chat panel: history + local input + show/hide + clear + append
+- chat panel is hidden by default and toggles when clicking the character
+- chat panel default anchor moved to bottom-left to avoid covering face area
 - rpc methods: `state.get`, `param.set`, `model.param.set`, `model.param.batchSet`, `model.motion.play`, `model.expression.set`, `chat.show`, `chat.bubble.show`, `chat.panel.show`, `chat.panel.hide`, `chat.panel.append`, `chat.panel.clear`, `tool.list`, `tool.invoke`
 - right-bottom placement + drag-ready window + configurable layout/clarity
 - renderer-to-main submit event: `live2d:chat:input:submit`
 - runtime forwarding: gateway `runtime.*` notification -> desktop `desktop.event` -> renderer final response append
 - agent tool-calling surface: `tool.list` + whitelisted `tool.invoke`
+- desktop chat session bootstrap: startup creates a fresh `desktop-*` session
+- desktop `/new` command: creates and switches to a fresh gateway session
+- web chat sync: `/api/sessions` polling keeps desktop-side sessions/messages visible in web UI
+
+Desktop chat commands:
+- `/new`: create and switch desktop runtime session (chat panel clears and starts new thread)
 
 Current gaps under active development:
 - Phase E stabilization: observability hardening, stress regression, and release checklist

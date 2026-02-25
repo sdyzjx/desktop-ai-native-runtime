@@ -189,6 +189,9 @@ flowchart LR
 
 ### 6.2 行为规则
 
+- 聊天框默认不常驻，初始 `defaultVisible=false`。
+- 点击 Live2D 角色触发聊天框显隐切换。
+- 聊天框默认布局锚点为窗口左下，避免遮挡角色面部区域。
 - `chat.panel.append` 追加到历史并自动滚动到底部。
 - `chat.bubble.show` 不写历史（除非显式配置镜像）。
 - 输入提交后触发 `chat.input.submit` IPC 事件（由 Main 决定是否转发到 gateway）。
@@ -203,9 +206,9 @@ flowchart LR
   "chat": {
     "panel": {
       "enabled": true,
-      "defaultVisible": true,
-      "width": 360,
-      "height": 280,
+      "defaultVisible": false,
+      "width": 320,
+      "height": 220,
       "maxMessages": 200,
       "inputEnabled": true
     },
@@ -329,6 +332,25 @@ flowchart LR
 - 更新 `README` 使用章节
 - 提交 commit（phase E）
 
+### Phase F：会话联动与跨端同步
+
+交付：
+- Desktop 启动即创建并启用新的 `desktop-*` session。
+- 聊天输入支持 `/new` 命令：创建新会话并切换上下文。
+- 网页端定时同步 `/api/sessions` 与会话详情，实现桌面消息/回复可见。
+- 网页端默认“跟随最新服务端会话”；手动点选后退出自动跟随。
+
+测试：
+- `gatewayRuntimeClient` 新增会话 ID、会话创建、settings bootstrap 单测。
+- `desktopSuite` `/new` 命令识别单测。
+- 全量回归：`npm test`。
+
+文档与留痕：
+- 更新施工方案会话同步章节与阶段状态。
+- 更新 `README` 桌面命令与同步说明。
+- 更新 `PROGRESS_TODO.md` 需求登记和阶段日志。
+- 提交 commit（phase F）
+
 ## 9. 测试矩阵（按能力维度）
 
 - 协议层
@@ -355,6 +377,7 @@ flowchart LR
   - Phase B：聊天框 UI（历史/输入/显隐）+ `chat.panel.*` RPC + `chat.input.submit` IPC
   - Phase C：runtime 事件转发（gateway runtime notification -> `desktop.event` -> renderer `runtime.final` 对齐）
   - Phase D：tool-calling 暴露（`tool.list` / `tool.invoke`）+ `model.*` 最小控制能力
+  - Phase F：启动新会话 + `/new` 切换会话 + 网页会话消息同步 + 点击角色弹框/避脸布局
 - 进行中
   - Phase E：稳定性收敛（自动化 smoke 已接入，待手工发布验收）
 - 未开始

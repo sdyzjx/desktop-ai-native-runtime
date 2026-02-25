@@ -4,10 +4,18 @@ const { WebSocketServer } = require('ws');
 
 const { getFreePort } = require('../helpers/net');
 const {
+  createDesktopSessionId,
   toGatewayWsUrl,
   mapGatewayMessageToDesktopEvent,
   GatewayRuntimeClient
 } = require('../../apps/desktop-live2d/main/gatewayRuntimeClient');
+
+test('createDesktopSessionId returns desktop-prefixed unique id', () => {
+  const a = createDesktopSessionId();
+  const b = createDesktopSessionId();
+  assert.match(a, /^desktop-\d{14}-[a-f0-9]{8}$/);
+  assert.notEqual(a, b);
+});
 
 test('toGatewayWsUrl converts http(s) gateway URLs to ws path', () => {
   assert.equal(
@@ -112,4 +120,65 @@ test('GatewayRuntimeClient rejects when gateway returns rpc error', async () => 
   } finally {
     await new Promise((resolve, reject) => wss.close((err) => (err ? reject(err) : resolve())));
   }
+});
+
+test('GatewayRuntimeClient ensureSession uses gateway settings api and set/get session id', async () => {
+  const calls = [];
+  const client = new GatewayRuntimeClient({
+    gatewayUrl: 'http://127.0.0.1:3000',
+    sessionId: 's-1',
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      return {
+        ok: true,
+        async json() {
+          return { ok: true };
+        }
+      };
+    }
+  });
+
+  assert.equal(client.getSessionId(), 's-1');
+  client.setSessionId('s-2');
+  assert.equal(client.getSessionId(), 's-2');
+
+  await client.ensureSession({ permissionLevel: 'high' });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api\/sessions\/s-2\/settings$/);
+  const body = JSON.parse(String(calls[0].options.body || '{}'));
+  assert.equal(body.settings.permission_level, 'high');
+});
+
+test('GatewayRuntimeClient createAndUseNewSession switches session id and boots settings', async () => {
+  const calls = [];
+  const client = new GatewayRuntimeClient({
+    gatewayUrl: 'http://127.0.0.1:3000',
+    sessionId: 'desktop-live2d',
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      return {
+        ok: true,
+        async json() {
+          return { ok: true };
+        }
+      };
+    }
+  });
+
+  const nextSessionId = await client.createAndUseNewSession({ permissionLevel: 'low' });
+  assert.match(nextSessionId, /^desktop-\d{14}-[a-f0-9]{8}$/);
+  assert.equal(client.getSessionId(), nextSessionId);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, new RegExp(`/api/sessions/${nextSessionId}/settings$`));
+  const body = JSON.parse(String(calls[0].options.body || '{}'));
+  assert.equal(body.settings.permission_level, 'low');
+});
+
+test('GatewayRuntimeClient setSessionId rejects empty value', () => {
+  const client = new GatewayRuntimeClient({
+    gatewayUrl: 'http://127.0.0.1:3000',
+    fetchImpl: async () => ({ ok: true, async json() { return { ok: true }; } })
+  });
+  assert.throws(() => client.setSessionId('  '), /sessionId must be non-empty/);
 });
