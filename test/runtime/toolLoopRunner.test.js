@@ -174,3 +174,36 @@ test('ToolLoopRunner injects seedMessages into reasoner prompt', async () => {
 
   dispatcher.stop();
 });
+
+test('ToolLoopRunner injects skills system prompt when resolver is provided', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor(localTools);
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let seenMessages = [];
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => ({
+      async decide({ messages }) {
+        seenMessages = messages;
+        return { type: 'final', output: 'ok-skills' };
+      }
+    }),
+    listTools: () => executor.listTools(),
+    resolveSkillsContext: async () => ({
+      prompt: '<available_skills>\\n  <skill><name>shell</name></skill>\\n</available_skills>',
+      selected: ['shell'],
+      clippedBy: null
+    }),
+    maxStep: 1,
+    toolResultTimeoutMs: 500
+  });
+
+  const result = await runner.run({ sessionId: 's4', input: 'do x' });
+  assert.equal(result.state, 'DONE');
+  assert.equal(result.output, 'ok-skills');
+  assert.match(seenMessages[1].content, /available_skills/);
+
+  dispatcher.stop();
+});

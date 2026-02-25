@@ -29,10 +29,11 @@ function normalizeToolCalls(decision) {
 }
 
 class ToolLoopRunner {
-  constructor({ bus, getReasoner, listTools, maxStep = 8, toolResultTimeoutMs = 10000 }) {
+  constructor({ bus, getReasoner, listTools, resolveSkillsContext, maxStep = 8, toolResultTimeoutMs = 10000 }) {
     this.bus = bus;
     this.getReasoner = getReasoner;
     this.listTools = listTools;
+    this.resolveSkillsContext = resolveSkillsContext;
     this.maxStep = maxStep;
     this.toolResultTimeoutMs = toolResultTimeoutMs;
   }
@@ -48,6 +49,19 @@ class ToolLoopRunner {
         && msg.content.trim().length > 0
       ))
       : [];
+
+    let skillsContext = null;
+    if (typeof this.resolveSkillsContext === 'function') {
+      try {
+        skillsContext = await this.resolveSkillsContext({ sessionId, input });
+      } catch {
+        skillsContext = null;
+      }
+    }
+
+    const skillsPrompt = skillsContext?.prompt && String(skillsContext.prompt).trim()
+      ? String(skillsContext.prompt)
+      : null;
 
     const ctx = {
       sessionId,
@@ -65,6 +79,7 @@ class ToolLoopRunner {
             'Keep answers concise.'
           ].join(' ')
         },
+        ...(skillsPrompt ? [{ role: 'system', content: skillsPrompt }] : []),
         ...priorMessages,
         { role: 'user', content: input }
       ]
@@ -86,7 +101,13 @@ class ToolLoopRunner {
     };
 
     sm.transition(RuntimeState.RUNNING);
-    emit('plan', { input, max_step: this.maxStep, context_messages: priorMessages.length });
+    emit('plan', {
+      input,
+      max_step: this.maxStep,
+      context_messages: priorMessages.length,
+      skills_selected: skillsContext?.selected?.length || 0,
+      skills_clipped_by: skillsContext?.clippedBy || null
+    });
 
     try {
       const reasoner = this.getReasoner();
