@@ -159,7 +159,7 @@ async function startMockLlmServer(port) {
   return { server, state };
 }
 
-async function startGateway({ port, providerConfigPath, sessionStoreDir, longTermMemoryDir }) {
+async function startGateway({ port, providerConfigPath, sessionStoreDir, longTermMemoryDir, extraEnv = {} }) {
   const child = spawn('node', ['apps/gateway/server.js'], {
     cwd: path.resolve(__dirname, '../..'),
     env: {
@@ -168,7 +168,8 @@ async function startGateway({ port, providerConfigPath, sessionStoreDir, longTer
       PROVIDER_CONFIG_PATH: providerConfigPath,
       SESSION_STORE_DIR: sessionStoreDir,
       LONG_TERM_MEMORY_DIR: longTermMemoryDir,
-      MEMORY_BOOTSTRAP_MAX_ENTRIES: '2'
+      MEMORY_BOOTSTRAP_MAX_ENTRIES: '2',
+      ...extraEnv
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -444,6 +445,70 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     const memorySearch = await fetch(`http://127.0.0.1:${gatewayPort}/api/memory/search?q=blue`).then((r) => r.json());
     assert.equal(memorySearch.ok, true);
     assert.ok(memorySearch.data.items.some((item) => /blue/i.test(String(item.content))));
+  } catch (err) {
+    const logs = gateway?.getLogs?.() || '';
+    err.message = `${err.message}\n--- gateway logs ---\n${logs}`;
+    throw err;
+  } finally {
+    await stopProcess(gateway?.child);
+    llm.server.close();
+  }
+});
+
+test('gateway rejects oversized input_images by configured MAX_INPUT_IMAGE_BYTES', async () => {
+  const llmPort = await getFreePort();
+  const gatewayPort = await getFreePort();
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-e2e-limit-'));
+  const providerConfigPath = path.join(tmpDir, 'providers.yaml');
+  const sessionStoreDir = path.join(tmpDir, 'session-store');
+  const longTermMemoryDir = path.join(tmpDir, 'long-term-memory');
+  fs.writeFileSync(providerConfigPath, [
+    'active_provider: mock',
+    'providers:',
+    '  mock:',
+    '    type: openai_compatible',
+    '    display_name: Mock',
+    `    base_url: http://127.0.0.1:${llmPort}`,
+    '    model: mock-model',
+    '    api_key: mock-key',
+    '    timeout_ms: 2000'
+  ].join('\n'));
+
+  const llm = await startMockLlmServer(llmPort);
+  let gateway;
+
+  try {
+    gateway = await startGateway({
+      port: gatewayPort,
+      providerConfigPath,
+      sessionStoreDir,
+      longTermMemoryDir,
+      extraEnv: { MAX_INPUT_IMAGE_BYTES: '1024' }
+    });
+
+    const rpc = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
+      jsonrpc: '2.0',
+      id: 'rpc-img-limit-1',
+      method: 'runtime.run',
+      params: {
+        input: 'describe',
+        session_id: 'rpc-img-limit-s1',
+        input_images: [
+          {
+            name: 'tiny.png',
+            mime_type: 'image/png',
+            size_bytes: 2048,
+            data_url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgU8Vf4QAAAAASUVORK5CYII='
+          }
+        ]
+      }
+    }, { expectRpcId: 'rpc-img-limit-1' });
+
+    assert.ok(rpc.result);
+    assert.ok(rpc.result.error, JSON.stringify(rpc.result));
+    assert.equal(rpc.result.error.code, -32602);
+    assert.match(rpc.result.error.message, /max bytes/i);
   } catch (err) {
     const logs = gateway?.getLogs?.() || '';
     err.message = `${err.message}\n--- gateway logs ---\n${logs}`;
