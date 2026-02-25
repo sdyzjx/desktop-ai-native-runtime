@@ -58,6 +58,37 @@ body {
   color: var(--text);
 }
 
+.persona-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: #1d1d1d;
+}
+
+.persona-title {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.persona-input {
+  border: 1px solid #3b3b3b;
+  background: #262626;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.persona-hint {
+  min-height: 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .session-title {
   color: var(--muted);
   font-size: 12px;

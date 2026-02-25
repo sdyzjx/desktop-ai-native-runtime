@@ -28,6 +28,13 @@ function normalizeToolCalls(decision) {
   }));
 }
 
+function shouldHintPersonaTool(input) {
+  const text = String(input || '').toLowerCase();
+  if (!text.trim()) return false;
+  const keywords = ['修改人格', '人格', '称呼', '叫我', 'persona', 'nickname', 'custom name'];
+  return keywords.some((kw) => text.includes(kw));
+}
+
 class ToolLoopRunner {
   constructor({ bus, getReasoner, listTools, resolvePersonaContext, resolveSkillsContext, maxStep = 8, toolResultTimeoutMs = 10000 }) {
     this.bus = bus;
@@ -77,6 +84,10 @@ class ToolLoopRunner {
       ? String(skillsContext.prompt)
       : null;
 
+    const personaToolHint = shouldHintPersonaTool(input)
+      ? 'User intent likely about persona/addressing. Prefer persona.update_profile tool call with {custom_name}.'
+      : null;
+
     const ctx = {
       sessionId,
       traceId,
@@ -90,11 +101,14 @@ class ToolLoopRunner {
             'You are a runtime planner that can either return a final answer or call tools.',
             'If tools are needed, you may emit one or more tool calls and wait for results in the next turn.',
             'Long-term memory operations must go through tools (memory_write / memory_search).',
+            'When user asks to modify persona/addressing/custom title (e.g. 修改人格/修改称呼/叫我xxx), call persona.update_profile with {custom_name}.',
+            'Use persona.update_profile even in low permission sessions; this is globally allowed.',
             'Keep answers concise.'
           ].join(' ')
         },
         ...(personaPrompt ? [{ role: 'system', content: personaPrompt }] : []),
         ...(skillsPrompt ? [{ role: 'system', content: skillsPrompt }] : []),
+        ...(personaToolHint ? [{ role: 'system', content: personaToolHint }] : []),
         ...priorMessages,
         { role: 'user', content: input }
       ]

@@ -12,6 +12,13 @@
       <div class="sidebar-top">
         <button id="newSessionBtn" class="btn btn-primary">+ New chat</button>
         <a class="config-link" href="/config.html">Provider Config</a>
+
+        <section class="persona-panel">
+          <div class="persona-title">Persona</div>
+          <input id="personaCustomName" class="persona-input" type="text" placeholder="自定义称呼（留空=主人）" />
+          <button id="savePersonaBtn" class="btn">保存称呼</button>
+          <div id="personaHint" class="persona-hint"></div>
+        </section>
       </div>
       <div class="session-title">Sessions</div>
       <div id="sessionList" class="session-list"></div>

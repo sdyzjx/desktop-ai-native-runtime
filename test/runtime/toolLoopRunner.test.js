@@ -292,3 +292,31 @@ test('ToolLoopRunner injects persona system prompt when resolver is provided', a
 
   dispatcher.stop();
 });
+
+test('ToolLoopRunner injects persona tool hint on persona-modification keywords', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor(localTools);
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let seenMessages = [];
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => ({
+      async decide({ messages }) {
+        seenMessages = messages;
+        return { type: 'final', output: 'ok-hint' };
+      }
+    }),
+    listTools: () => executor.listTools(),
+    maxStep: 1,
+    toolResultTimeoutMs: 500
+  });
+
+  const result = await runner.run({ sessionId: 's6', input: '请帮我修改人格称呼，叫我小主人' });
+  assert.equal(result.state, 'DONE');
+  assert.equal(result.output, 'ok-hint');
+  assert.equal(seenMessages.some((m) => /persona\.update_profile/.test(String(m.content || ''))), true);
+
+  dispatcher.stop();
+});
