@@ -7,7 +7,9 @@ const path = require('node:path');
 
 const {
   waitForRendererReady,
-  writeRuntimeSummary
+  writeRuntimeSummary,
+  computeWindowBounds,
+  computeRightBottomWindowBounds
 } = require('../../apps/desktop-live2d/main/desktopSuite');
 
 class FakeIpcMain extends EventEmitter {}
@@ -41,4 +43,54 @@ test('writeRuntimeSummary persists JSON payload', () => {
 
   assert.equal(content.ok, true);
   assert.equal(content.rpcUrl, 'ws://127.0.0.1:17373');
+});
+
+test('computeRightBottomWindowBounds places window at display corner', () => {
+  const bounds = computeRightBottomWindowBounds({
+    width: 460,
+    height: 620,
+    display: {
+      workArea: {
+        x: 0,
+        y: 25,
+        width: 1728,
+        height: 1080
+      }
+    },
+    marginRight: 18,
+    marginBottom: 18
+  });
+
+  assert.equal(bounds.x, 1250);
+  assert.equal(bounds.y, 467);
+});
+
+test('computeWindowBounds supports top-left and center anchors', () => {
+  const display = {
+    workArea: {
+      x: 10,
+      y: 20,
+      width: 1200,
+      height: 800
+    }
+  };
+
+  const topLeft = computeWindowBounds({
+    width: 400,
+    height: 600,
+    display,
+    anchor: 'top-left',
+    marginLeft: 25,
+    marginTop: 30
+  });
+
+  const center = computeWindowBounds({
+    width: 400,
+    height: 600,
+    display,
+    anchor: 'center'
+  });
+
+  assert.deepEqual(topLeft, { x: 35, y: 50 });
+  assert.deepEqual(center, { x: 410, y: 120 });
 });

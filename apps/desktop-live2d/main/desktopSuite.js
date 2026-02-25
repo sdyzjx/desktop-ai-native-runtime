@@ -15,7 +15,7 @@ const CHANNELS = Object.freeze({
   getRuntimeConfig: 'live2d:get-runtime-config'
 });
 
-async function startDesktopSuite({ app, BrowserWindow, ipcMain, logger = console } = {}) {
+async function startDesktopSuite({ app, BrowserWindow, ipcMain, screen, logger = console } = {}) {
   if (!app || !BrowserWindow || !ipcMain) {
     throw new Error('startDesktopSuite requires app, BrowserWindow, and ipcMain');
   }
@@ -42,12 +42,18 @@ async function startDesktopSuite({ app, BrowserWindow, ipcMain, logger = console
 
   await gatewaySupervisor.start();
 
-  const window = createMainWindow({ BrowserWindow, preloadPath: path.join(__dirname, 'preload.js') });
+  const window = createMainWindow({
+    BrowserWindow,
+    preloadPath: path.join(__dirname, 'preload.js'),
+    display: screen?.getPrimaryDisplay?.(),
+    uiConfig: config.uiConfig
+  });
 
   ipcMain.handle(CHANNELS.getRuntimeConfig, () => ({
     modelRelativePath: config.modelRelativePath,
     modelName: modelValidation.modelName,
-    gatewayUrl: config.gatewayUrl
+    gatewayUrl: config.gatewayUrl,
+    uiConfig: config.uiConfig
   }));
 
   const rendererReadyPromise = waitForRendererReady({ ipcMain, timeoutMs: 15000 });
@@ -107,12 +113,31 @@ async function startDesktopSuite({ app, BrowserWindow, ipcMain, logger = console
   };
 }
 
-function createMainWindow({ BrowserWindow, preloadPath }) {
+function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig }) {
+  const windowConfig = uiConfig?.window || {};
+  const width = Number(windowConfig.width) || 460;
+  const height = Number(windowConfig.height) || 620;
+  const placement = windowConfig.placement || {};
+  const windowBounds = computeWindowBounds({
+    width,
+    height,
+    display,
+    anchor: String(placement.anchor || 'bottom-right'),
+    marginRight: Number(placement.marginRight) || 18,
+    marginBottom: Number(placement.marginBottom) || 18,
+    marginLeft: Number(placement.marginLeft) || 18,
+    marginTop: Number(placement.marginTop) || 18,
+    x: placement.x,
+    y: placement.y
+  });
+
   const win = new BrowserWindow({
-    width: 640,
-    height: 720,
-    minWidth: 420,
-    minHeight: 520,
+    width,
+    height,
+    x: windowBounds.x,
+    y: windowBounds.y,
+    minWidth: Number(windowConfig.minWidth) || 360,
+    minHeight: Number(windowConfig.minHeight) || 480,
     frame: false,
     transparent: true,
     hasShadow: false,
@@ -127,6 +152,66 @@ function createMainWindow({ BrowserWindow, preloadPath }) {
   });
 
   return win;
+}
+
+function computeRightBottomWindowBounds({ width, height, display, marginRight = 16, marginBottom = 16 }) {
+  const fallback = { x: undefined, y: undefined };
+  const workArea = display?.workArea;
+  if (!workArea || typeof workArea !== 'object') {
+    return fallback;
+  }
+
+  const x = Math.round(workArea.x + workArea.width - width - marginRight);
+  const y = Math.round(workArea.y + workArea.height - height - marginBottom);
+  return { x, y };
+}
+
+function computeWindowBounds({ width, height, display, anchor = 'bottom-right', x, y, ...margins }) {
+  const workArea = display?.workArea;
+  if (!workArea || typeof workArea !== 'object') {
+    return { x: undefined, y: undefined };
+  }
+
+  if (anchor === 'custom') {
+    const customX = Number.isFinite(Number(x)) ? Math.round(Number(x)) : undefined;
+    const customY = Number.isFinite(Number(y)) ? Math.round(Number(y)) : undefined;
+    return { x: customX, y: customY };
+  }
+
+  const marginLeft = Number(margins.marginLeft) || 16;
+  const marginTop = Number(margins.marginTop) || 16;
+  const marginRight = Number(margins.marginRight) || 16;
+  const marginBottom = Number(margins.marginBottom) || 16;
+
+  if (anchor === 'top-left') {
+    return {
+      x: Math.round(workArea.x + marginLeft),
+      y: Math.round(workArea.y + marginTop)
+    };
+  }
+
+  if (anchor === 'top-right') {
+    return {
+      x: Math.round(workArea.x + workArea.width - width - marginRight),
+      y: Math.round(workArea.y + marginTop)
+    };
+  }
+
+  if (anchor === 'bottom-left') {
+    return {
+      x: Math.round(workArea.x + marginLeft),
+      y: Math.round(workArea.y + workArea.height - height - marginBottom)
+    };
+  }
+
+  if (anchor === 'center') {
+    return {
+      x: Math.round(workArea.x + (workArea.width - width) / 2),
+      y: Math.round(workArea.y + (workArea.height - height) / 2)
+    };
+  }
+
+  return computeRightBottomWindowBounds({ width, height, display, marginRight, marginBottom });
 }
 
 function waitForRendererReady({ ipcMain, timeoutMs }) {
@@ -168,5 +253,7 @@ module.exports = {
   startDesktopSuite,
   waitForRendererReady,
   createMainWindow,
+  computeWindowBounds,
+  computeRightBottomWindowBounds,
   writeRuntimeSummary
 };

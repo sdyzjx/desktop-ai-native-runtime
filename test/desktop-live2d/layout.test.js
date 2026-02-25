@@ -33,6 +33,31 @@ test('computeModelLayout clamps scale when model bounds are tiny', () => {
   assert.equal(layout.scale, 1.25);
 });
 
+test('computeModelLayout supports right-bottom alignment with margins', () => {
+  const layout = computeModelLayout({
+    stageWidth: 500,
+    stageHeight: 700,
+    boundsX: -1000,
+    boundsY: -2000,
+    boundsWidth: 2200,
+    boundsHeight: 4000,
+    horizontalAlign: 'right',
+    rightOffsetRatio: 1,
+    bottomOffsetRatio: 1,
+    marginX: 18,
+    marginY: 22,
+    pivotXRatio: 0.72,
+    pivotYRatio: 0.97,
+    scaleMultiplier: 0.8
+  });
+
+  assert.equal(layout.positionX, 482);
+  assert.equal(layout.positionY, 678);
+  assert.ok(layout.pivotX > 500);
+  assert.ok(layout.pivotY > 1500);
+  assert.ok(layout.scale > 0);
+});
+
 test('computeModelLayout tolerates invalid numeric inputs', () => {
   const layout = computeModelLayout({
     stageWidth: 'bad',

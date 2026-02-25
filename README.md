@@ -68,6 +68,13 @@ npm run desktop:up
 Runtime summary file:
 - `data/desktop-live2d/runtime-summary.json`
 
+UI config file:
+- `config/desktop-live2d.json`
+- Editable knobs include:
+  - window position: `window.placement.anchor` / `margin*`
+  - model size/position: `layout.*`
+  - clarity: `render.resolutionScale` / `render.maxDevicePixelRatio`
+
 Detailed plan:
 - `docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`
 

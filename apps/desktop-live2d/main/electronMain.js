@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, screen } = require('electron');
 
 const { startDesktopSuite } = require('./desktopSuite');
 
@@ -6,7 +6,7 @@ let suite = null;
 let shuttingDown = false;
 
 async function bootstrap() {
-  suite = await startDesktopSuite({ app, BrowserWindow, ipcMain, logger: console });
+  suite = await startDesktopSuite({ app, BrowserWindow, ipcMain, screen, logger: console });
   console.log('[desktop-live2d] up', {
     rpcUrl: suite.summary.rpcUrl,
     gatewayUrl: suite.summary.gatewayUrl

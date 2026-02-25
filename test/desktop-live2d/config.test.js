@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const { resolveDesktopLive2dConfig } = require('../../apps/desktop-live2d/main/config');
@@ -31,4 +33,35 @@ test('resolveDesktopLive2dConfig respects env overrides', () => {
   assert.equal(config.rpcToken, 'fixed');
   assert.equal(config.gatewayExternal, true);
   assert.equal(config.modelDir, path.join('/tmp/project', 'assets', 'live2d', 'yachiyo-kaguya'));
+});
+
+test('resolveDesktopLive2dConfig loads overrides from config/desktop-live2d.json', () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-config-'));
+  fs.mkdirSync(path.join(projectRoot, 'config'), { recursive: true });
+  fs.writeFileSync(
+    path.join(projectRoot, 'config', 'desktop-live2d.json'),
+    JSON.stringify({
+      window: {
+        width: 520,
+        placement: {
+          anchor: 'top-left',
+          marginTop: 30
+        }
+      },
+      render: {
+        resolutionScale: 1.2
+      },
+      layout: {
+        scaleMultiplier: 0.95
+      }
+    }),
+    'utf8'
+  );
+
+  const config = resolveDesktopLive2dConfig({ env: {}, projectRoot });
+  assert.equal(config.uiConfig.window.width, 520);
+  assert.equal(config.uiConfig.window.placement.anchor, 'top-left');
+  assert.equal(config.uiConfig.window.placement.marginTop, 30);
+  assert.equal(config.uiConfig.render.resolutionScale, 1.2);
+  assert.equal(config.uiConfig.layout.scaleMultiplier, 0.95);
 });

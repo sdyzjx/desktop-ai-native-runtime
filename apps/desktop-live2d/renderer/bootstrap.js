@@ -14,6 +14,7 @@
 
   const stageContainer = document.getElementById('stage');
   const bubbleElement = document.getElementById('bubble');
+  let runtimeUiConfig = null;
 
   function setBubbleVisible(visible) {
     state.bubbleVisible = visible;
@@ -84,22 +85,29 @@
       throw new Error('PIXI global is not available');
     }
 
+    const renderConfig = runtimeUiConfig?.render || {};
+    const resolutionScale = Number(renderConfig.resolutionScale) || 1;
+    const maxDevicePixelRatio = Number(renderConfig.maxDevicePixelRatio) || 2;
+    const antialias = Boolean(renderConfig.antialias);
+    const resolution = Math.max(1, Math.min(maxDevicePixelRatio, (Number(window.devicePixelRatio) || 1) * resolutionScale));
+    const rendererOptions = {
+      transparent: true,
+      resizeTo: window,
+      antialias,
+      autoDensity: true,
+      resolution,
+      powerPreference: 'high-performance'
+    };
+
     const supportsAsyncInit = typeof PIXI.Application?.prototype?.init === 'function';
     const app = supportsAsyncInit
       ? new PIXI.Application()
-      : new PIXI.Application({
-        transparent: true,
-        resizeTo: window,
-        antialias: true,
-        autoDensity: true
-      });
+      : new PIXI.Application(rendererOptions);
 
     if (typeof app.init === 'function') {
       await app.init({
-        backgroundAlpha: 0,
-        resizeTo: window,
-        antialias: true,
-        autoDensity: true
+        ...rendererOptions,
+        backgroundAlpha: 0
       });
     }
 
@@ -137,8 +145,8 @@
   }
 
   function getStageSize() {
-    const rendererWidth = pixiApp?.renderer?.width;
-    const rendererHeight = pixiApp?.renderer?.height;
+    const rendererWidth = pixiApp?.renderer?.screen?.width;
+    const rendererHeight = pixiApp?.renderer?.screen?.height;
     return {
       width: rendererWidth || window.innerWidth || 640,
       height: rendererHeight || window.innerHeight || 720
@@ -158,6 +166,7 @@
     }
 
     const stageSize = getStageSize();
+    const layoutConfig = runtimeUiConfig?.layout || {};
     const layout = window.Live2DLayout.computeModelLayout({
       stageWidth: stageSize.width,
       stageHeight: stageSize.height,
@@ -165,12 +174,7 @@
       boundsY: bounds.y,
       boundsWidth: bounds.width,
       boundsHeight: bounds.height,
-      targetWidthRatio: 0.76,
-      targetHeightRatio: 0.88,
-      bottomOffsetRatio: 0.97,
-      pivotYRatio: 0.96,
-      minScale: 0.04,
-      maxScale: 2
+      ...layoutConfig
     });
 
     if (typeof live2dModel.scale?.set === 'function') {
@@ -231,6 +235,7 @@
       }
 
       const runtimeConfig = await bridge.getRuntimeConfig();
+      runtimeUiConfig = runtimeConfig.uiConfig || null;
       await initPixi();
       await loadModel(runtimeConfig.modelRelativePath, runtimeConfig.modelName);
 

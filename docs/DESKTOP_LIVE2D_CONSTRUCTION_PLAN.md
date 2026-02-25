@@ -321,3 +321,4 @@ assets/
   - 已完成自动化测试（含新增 desktop-live2d 用例）。
   - 已完成 GUI 冒烟：启动成功并验证 `state.get`、`chat.show` RPC 回包。
   - 已完成布局修复：由固定缩放改为按模型边界自适应缩放与底部对齐，避免“仅显示大腿/模型过大”。
+  - 已提供可编辑配置文件：`config/desktop-live2d.json`（位置/清晰度/大小参数可调）。

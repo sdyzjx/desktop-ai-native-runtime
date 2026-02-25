@@ -1,0 +1,34 @@
+{
+  "window": {
+    "width": 460,
+    "height": 620,
+    "minWidth": 360,
+    "minHeight": 480,
+    "placement": {
+      "anchor": "bottom-right",
+      "marginRight": 18,
+      "marginBottom": 18,
+      "marginLeft": 18,
+      "marginTop": 18
+    }
+  },
+  "render": {
+    "resolutionScale": 1,
+    "maxDevicePixelRatio": 2,
+    "antialias": false
+  },
+  "layout": {
+    "targetWidthRatio": 0.68,
+    "targetHeightRatio": 0.8,
+    "horizontalAlign": "right",
+    "rightOffsetRatio": 0.97,
+    "bottomOffsetRatio": 0.97,
+    "marginX": 22,
+    "marginY": 12,
+    "pivotXRatio": 0.72,
+    "pivotYRatio": 0.97,
+    "scaleMultiplier": 0.9,
+    "minScale": 0.04,
+    "maxScale": 2
+  }
+}

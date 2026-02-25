@@ -14,12 +14,19 @@
         background: transparent;
         overflow: hidden;
         font-family: "SF Pro Text", "PingFang SC", sans-serif;
+        -webkit-user-select: none;
       }
 
       #stage {
         position: fixed;
         inset: 0;
         pointer-events: auto;
+        -webkit-app-region: drag;
+        cursor: grab;
+      }
+
+      #stage:active {
+        cursor: grabbing;
       }
 
       #bubble-layer {
@@ -31,6 +38,7 @@
         pointer-events: none;
         display: flex;
         justify-content: center;
+        -webkit-app-region: no-drag;
       }
 
       #bubble {
