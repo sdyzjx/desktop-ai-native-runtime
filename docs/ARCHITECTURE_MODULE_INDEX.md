@@ -13,6 +13,11 @@
 - `docs/modules/runtime/session-workspace-permission.md`
 - `docs/modules/runtime/skills-runtime.md`
 
+## Desktop Live2D
+
+- `docs/modules/desktop-live2d/README.md`
+- `docs/modules/desktop-live2d/module-reference.md`
+
 ## Feature Guides
 
 - `docs/SESSION_WORKSPACE_PERMISSION_IMPLEMENTATION.md`
