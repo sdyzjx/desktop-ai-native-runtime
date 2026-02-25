@@ -224,3 +224,5 @@ Do not add free-form items outside this format.
 - Update Log:
   - 2026-02-26 01:02 IN_PROGRESS requirement registered and development started.
   - 2026-02-26 01:06 DONE M0 baseline decisions frozen (port/token/import strategy/V1 method scope).
+  - 2026-02-26 01:18 REVIEW M1 baseline implementation completed (import/startup/rpc/ipc/bubble + tests pass), waiting GUI smoke.
+  - 2026-02-26 01:24 DONE M1 accepted via GUI+RPC smoke (`desktop:up`, `state.get`, `chat.show`).

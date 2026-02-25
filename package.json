@@ -6,14 +6,18 @@
   "scripts": {
     "dev": "node apps/gateway/server.js",
     "start": "node apps/gateway/server.js",
+    "desktop:up": "node scripts/desktop-up.js",
     "desktop:dev": "electron apps/desktop/main.js",
     "desktop:start": "electron apps/desktop/main.js",
+    "live2d:import": "node scripts/live2d-import.js",
     "test": "node --test \"test/**/*.test.js\"",
     "test:ci": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
     "ajv": "^8.17.1",
     "express": "^4.19.2",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.10",
     "uuid": "^11.0.3",
     "ws": "^8.18.0",
     "yaml": "^2.8.2"

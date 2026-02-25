@@ -147,7 +147,7 @@ assets/
   - 连接时携带 `Authorization: Bearer <token>` 或 query token。
   - 鉴权失败立即断开连接。
 
-### 7.2 方法清单
+### 7.2 方法清单（M0 冻结）
 - `state.get`
   - 入参：`{}`
   - 出参：`{ modelLoaded, modelName, fps, bubbleVisible }`
@@ -157,12 +157,14 @@ assets/
 - `chat.show`
   - 入参：`{ text: string, durationMs?: number, mood?: string }`
   - 出参：`{ ok: true, expiresAt: number }`
-- `param.batchSet`（V1 可实现，若延期则返回 not ready）
-  - 入参：`{ updates: [{ name, value }] }`
-- `motion.play`、`expression.set`（V1.5）
-  - 可先保留方法位并返回明确错误：`not implemented yet`
 
-### 7.3 错误码
+### 7.3 预留方法（M2/M3）
+- `param.batchSet`
+- `motion.play`
+- `expression.set`
+- 在 M1 阶段调用上述方法时，统一返回 `-32601 method not found`。
+
+### 7.4 错误码
 - `-32600` invalid request
 - `-32601` method not found
 - `-32602` invalid params
@@ -172,7 +174,7 @@ assets/
 - `-32004` model not loaded
 - `-32005` internal error
 
-### 7.4 限流策略（默认）
+### 7.5 限流策略（默认）
 - `state.get`: 30 req/s/connection
 - `param.set`: 60 req/s/connection
 - `chat.show`: 10 req/s/connection
@@ -294,8 +296,6 @@ assets/
   - 配置页
   - 打包路径校验与回归
 
-## 13. 开工前确认项
-
 ## 13. M0 冻结决策（已确认并生效）
 
 - RPC 端口策略：
@@ -311,3 +311,12 @@ assets/
 - V1 方法范围（严格冻结）：
   - 只保证 `state.get`、`param.set`、`chat.show` 三个方法完成并验收。
   - `param.batchSet`、`motion.play`、`expression.set` 保留到后续里程碑。
+
+## 14. 阶段执行进度
+
+- M0（DONE）：
+  - 已冻结端口/token/导入覆盖策略/V1 方法范围，并完成文档固化。
+- M1（DONE）：
+  - 已实现：`live2d:import`、`desktop:up`、RPC 服务、IPC 转发、基础渲染与透明气泡。
+  - 已完成自动化测试（含新增 desktop-live2d 用例）。
+  - 已完成 GUI 冒烟：启动成功并验证 `state.get`、`chat.show` RPC 回包。

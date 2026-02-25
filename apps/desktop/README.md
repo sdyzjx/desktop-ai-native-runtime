@@ -2,6 +2,9 @@
 
 Electron desktop shell for the existing gateway UI.
 
+> Note: Live2D desktop suite is implemented under `apps/desktop-live2d`.
+> Use `npm run desktop:up` for the new unified startup path.
+
 ## Run
 
 1. Install dependencies:

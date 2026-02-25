@@ -51,6 +51,26 @@ curl http://localhost:3000/health
 - Chat UI: `http://localhost:3000/`
 - Provider config UI: `http://localhost:3000/config.html`
 
+## Desktop Live2D (M1)
+
+1. Import model assets into project path:
+
+```bash
+npm run live2d:import
+```
+
+2. Start desktop suite (gateway + live2d window + RPC):
+
+```bash
+npm run desktop:up
+```
+
+Runtime summary file:
+- `data/desktop-live2d/runtime-summary.json`
+
+Detailed plan:
+- `docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`
+
 ## Persistence
 
 Session persistence is enabled by default (file-backed):

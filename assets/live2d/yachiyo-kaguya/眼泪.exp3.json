@@ -1,0 +1,45 @@
+{
+    "Type": "Live2D Expression",
+    "Parameters": [
+        {
+            "Id": "ParamExpression_1",
+            "Value": 1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamExpression_2",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamExpression_3",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamExpression_4",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamHide_EyesL1",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamHighLightHide_EyesL1",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamHide_EyeSocket",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamHide_EyeSocket2",
+            "Value": 0.0,
+            "Blend": "Add"
+        }
+    ]
+}
