@@ -159,7 +159,7 @@ function resizeWindowKeepingBottomRight({ window, width, height }) {
     y: Math.round(bottom - height),
     width,
     height
-  }, true);
+  }, false);
 }
 
 function normalizeWindowControlPayload(payload) {

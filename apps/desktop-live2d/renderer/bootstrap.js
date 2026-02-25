@@ -31,6 +31,9 @@
   let chatPanelState = null;
   let chatPanelEnabled = false;
   let lastReportedPanelVisible = null;
+  let chatPanelTransitionToken = 0;
+  let chatPanelHideResizeTimer = null;
+  const CHAT_PANEL_HIDE_RESIZE_DELAY_MS = 170;
 
   function createRpcError(code, message) {
     return { code, message };
@@ -73,16 +76,50 @@
 
   function applyChatPanelVisibility() {
     const visible = Boolean(chatPanelEnabled && chatPanelState?.visible);
-    chatPanelElement?.classList.toggle('visible', visible);
-    if (typeof bridge?.sendChatPanelVisibility === 'function' && visible !== lastReportedPanelVisible) {
-      bridge.sendChatPanelVisibility({ visible });
-      lastReportedPanelVisible = visible;
+    const token = ++chatPanelTransitionToken;
+
+    if (chatPanelHideResizeTimer) {
+      clearTimeout(chatPanelHideResizeTimer);
+      chatPanelHideResizeTimer = null;
+    }
+
+    if (visible) {
+      if (typeof bridge?.sendChatPanelVisibility === 'function' && lastReportedPanelVisible !== true) {
+        bridge.sendChatPanelVisibility({ visible: true });
+        lastReportedPanelVisible = true;
+      }
+      // Expand window first, then fade-in panel to avoid flashing during transparent resize.
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (token !== chatPanelTransitionToken) {
+            return;
+          }
+          chatPanelElement?.classList.add('visible');
+        });
+      });
+    } else {
+      chatPanelElement?.classList.remove('visible');
+      // Wait panel fade-out before shrinking the host window to keep transition smooth.
+      chatPanelHideResizeTimer = setTimeout(() => {
+        if (token !== chatPanelTransitionToken) {
+          return;
+        }
+        if (typeof bridge?.sendChatPanelVisibility === 'function' && lastReportedPanelVisible !== false) {
+          bridge.sendChatPanelVisibility({ visible: false });
+          lastReportedPanelVisible = false;
+        }
+        chatPanelHideResizeTimer = null;
+      }, CHAT_PANEL_HIDE_RESIZE_DELAY_MS);
     }
     syncChatStateSummary();
   }
 
   function setChatPanelVisible(visible) {
     assertChatPanelEnabled();
+    const nextVisible = Boolean(visible);
+    if (Boolean(chatPanelState?.visible) === nextVisible) {
+      return { ok: true, visible: nextVisible };
+    }
     chatPanelState = chatStateApi.setPanelVisible(chatPanelState, visible);
     applyChatPanelVisibility();
     return { ok: true, visible: chatPanelState.visible };
