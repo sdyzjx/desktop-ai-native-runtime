@@ -17,6 +17,10 @@ const { FileSessionStore } = require('../runtime/session/fileSessionStore');
 const { buildRecentContextMessages } = require('../runtime/session/contextBuilder');
 const { getDefaultLongTermMemoryStore } = require('../runtime/session/longTermMemoryStore');
 const { loadMemorySop } = require('../runtime/session/memorySopLoader');
+const {
+  isSessionPermissionLevel,
+  normalizeSessionPermissionLevel
+} = require('../runtime/session/sessionPermissions');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -93,6 +97,34 @@ app.get('/api/sessions/:sessionId/memory', async (req, res) => {
     return;
   }
   res.json({ ok: true, data: session.memory || null });
+});
+
+app.get('/api/sessions/:sessionId/settings', async (req, res) => {
+  const settings = await sessionStore.getSessionSettings(req.params.sessionId);
+  if (!settings) {
+    res.status(404).json({ ok: false, error: 'session not found' });
+    return;
+  }
+  res.json({ ok: true, data: settings });
+});
+
+app.put('/api/sessions/:sessionId/settings', async (req, res) => {
+  const settings = req.body?.settings;
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    res.status(400).json({ ok: false, error: 'body.settings must be an object' });
+    return;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(settings, 'permission_level')
+    && !isSessionPermissionLevel(settings.permission_level)
+  ) {
+    res.status(400).json({ ok: false, error: 'settings.permission_level must be low|medium|high' });
+    return;
+  }
+
+  const updated = await sessionStore.updateSessionSettings(req.params.sessionId, settings);
+  res.json({ ok: true, data: updated });
 });
 
 app.get('/api/memory', async (req, res) => {
@@ -194,6 +226,16 @@ function sendSafe(ws, payload) {
 async function enqueueRpc(ws, rpcPayload, mode) {
   const requestInput = String(rpcPayload.params?.input || '');
   const requestId = rpcPayload.id ?? null;
+  const requestedPermissionLevel = rpcPayload.params?.permission_level;
+
+  if (requestedPermissionLevel !== undefined && !isSessionPermissionLevel(requestedPermissionLevel)) {
+    if (mode === 'legacy') {
+      sendSafe(ws, { type: 'error', message: 'permission_level must be low|medium|high' });
+      return;
+    }
+    sendSafe(ws, createRpcError(requestId, RpcErrorCode.INVALID_PARAMS, 'params.permission_level must be low|medium|high'));
+    return;
+  }
 
   const context = {
     send: (payload) => sendSafe(ws, payload),
@@ -244,11 +286,19 @@ async function enqueueRpc(ws, rpcPayload, mode) {
     },
     onRunStart: async ({ session_id: sessionId }) => {
       await sessionStore.createSessionIfNotExists({ sessionId, title: 'New chat' });
+      if (requestedPermissionLevel !== undefined) {
+        await sessionStore.updateSessionSettings(sessionId, {
+          permission_level: normalizeSessionPermissionLevel(requestedPermissionLevel)
+        });
+      }
       await sessionStore.appendMessage(sessionId, {
         role: 'user',
         content: requestInput,
         request_id: requestId,
-        metadata: { mode }
+        metadata: {
+          mode,
+          permission_level: normalizeSessionPermissionLevel(requestedPermissionLevel)
+        }
       });
     },
     onRuntimeEvent: async (event) => {
@@ -257,12 +307,15 @@ async function enqueueRpc(ws, rpcPayload, mode) {
       await sessionStore.appendEvent(sessionId, event);
     },
     onRunFinal: async ({ session_id: sessionId, trace_id: traceId, output, state }) => {
+      const settings = await sessionStore.getSessionSettings(sessionId);
+      const permissionLevel = normalizeSessionPermissionLevel(settings?.permission_level);
+
       await sessionStore.appendMessage(sessionId, {
         role: 'assistant',
         content: String(output || ''),
         trace_id: traceId,
         request_id: requestId,
-        metadata: { state, mode }
+        metadata: { state, mode, permission_level: permissionLevel }
       });
       await sessionStore.appendRun(sessionId, {
         request_id: requestId,
@@ -270,7 +323,8 @@ async function enqueueRpc(ws, rpcPayload, mode) {
         input: requestInput,
         output: String(output || ''),
         state,
-        mode
+        mode,
+        permission_level: permissionLevel
       });
     },
     sendEvent: (eventPayload) => {
@@ -329,7 +383,8 @@ wss.on('connection', (ws) => {
         method: 'runtime.run',
         params: {
           session_id: msg.session_id || `web-${uuidv4()}`,
-          input: msg.input || ''
+          input: msg.input || '',
+          permission_level: msg.permission_level
         }
       };
 

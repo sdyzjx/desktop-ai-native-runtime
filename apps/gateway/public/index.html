@@ -20,9 +20,17 @@
     <main class="chat-main">
       <header class="chat-header">
         <button id="menuBtn" class="btn btn-ghost menu-btn" title="Toggle sidebar">☰</button>
-        <div>
+        <div class="chat-header-main">
           <div id="activeSessionName" class="session-name">New chat</div>
           <div id="runtimeStatus" class="runtime-status">Idle</div>
+        </div>
+        <div class="session-permission-wrap">
+          <label for="sessionPermissionSelect" class="session-permission-label">Permission</label>
+          <select id="sessionPermissionSelect" class="session-permission-select">
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
         </div>
       </header>
 

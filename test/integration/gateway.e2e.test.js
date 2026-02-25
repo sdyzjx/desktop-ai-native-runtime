@@ -238,6 +238,7 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     const legacy = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
       type: 'run',
       session_id: 'legacy-s1',
+      permission_level: 'high',
       input: 'please compute'
     });
 
@@ -266,6 +267,24 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     assert.equal(legacySession.ok, true);
     assert.ok(legacySession.data.messages.length >= 2);
     assert.equal(legacySession.data.runs.length, 1);
+    assert.equal(legacySession.data.settings.permission_level, 'high');
+    assert.equal(legacySession.data.runs[0].permission_level, 'high');
+
+    const legacySettings = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/settings`).then((r) => r.json());
+    assert.equal(legacySettings.ok, true);
+    assert.equal(legacySettings.data.permission_level, 'high');
+
+    const patchedSettings = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          permission_level: 'low'
+        }
+      })
+    }).then((r) => r.json());
+    assert.equal(patchedSettings.ok, true);
+    assert.equal(patchedSettings.data.permission_level, 'low');
 
     const legacyEventsResp = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions/legacy-s1/events`).then((r) => r.json());
     assert.equal(legacyEventsResp.ok, true);
