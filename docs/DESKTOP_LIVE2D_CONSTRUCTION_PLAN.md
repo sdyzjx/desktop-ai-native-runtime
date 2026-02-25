@@ -351,11 +351,11 @@ flowchart LR
 
 - 已完成
   - M1 基线：模型渲染、透明气泡、基础 RPC、配置文件、右下角放置、拖拽
+  - Phase A：协议冻结与文档同步
+  - Phase B：聊天框 UI（历史/输入/显隐）+ `chat.panel.*` RPC + `chat.input.submit` IPC
 - 进行中
-  - Phase A：协议冻结与接口扩展（本次重规划起点）
-- 未开始
-  - Phase B：聊天框 UI
   - Phase C：RPC 事件转发
+- 未开始
   - Phase D：Tool Calling 暴露
   - Phase E：稳定性收敛
 

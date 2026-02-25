@@ -60,10 +60,125 @@
       #bubble.visible {
         opacity: 1;
       }
+
+      #chat-panel {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        width: min(86vw, 340px);
+        height: min(58vh, 260px);
+        display: flex;
+        flex-direction: column;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 14px;
+        background: rgba(11, 15, 26, 0.68);
+        backdrop-filter: blur(8px);
+        color: #f4f8ff;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+        overflow: hidden;
+        transition: opacity 160ms ease, transform 160ms ease;
+        opacity: 0;
+        transform: translateY(-4px);
+        pointer-events: none;
+        -webkit-app-region: no-drag;
+      }
+
+      #chat-panel.visible {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+
+      #chat-panel-header {
+        flex: 0 0 auto;
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 12px;
+        letter-spacing: 0.03em;
+        color: #b7c6e9;
+      }
+
+      #chat-panel-messages {
+        flex: 1 1 auto;
+        overflow: auto;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .chat-message {
+        border-radius: 10px;
+        padding: 7px 9px;
+        font-size: 12px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .chat-message.user {
+        background: rgba(93, 150, 255, 0.22);
+      }
+
+      .chat-message.assistant {
+        background: rgba(130, 102, 255, 0.2);
+      }
+
+      .chat-message.system {
+        background: rgba(255, 192, 90, 0.2);
+      }
+
+      .chat-message.tool {
+        background: rgba(101, 222, 191, 0.2);
+      }
+
+      #chat-panel-composer {
+        flex: 0 0 auto;
+        padding: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        gap: 8px;
+      }
+
+      #chat-input {
+        flex: 1 1 auto;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #eff4ff;
+        padding: 6px 8px;
+        font-size: 12px;
+        outline: none;
+      }
+
+      #chat-send {
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.13);
+        color: #f3f8ff;
+        padding: 0 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      #chat-send:disabled,
+      #chat-input:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
     </style>
   </head>
   <body>
     <div id="stage"></div>
+    <div id="chat-panel">
+      <div id="chat-panel-header">Desktop Chat</div>
+      <div id="chat-panel-messages"></div>
+      <div id="chat-panel-composer">
+        <input id="chat-input" type="text" maxlength="4000" placeholder="Type message..." />
+        <button id="chat-send" type="button">Send</button>
+      </div>
+    </div>
     <div id="bubble-layer">
       <div id="bubble"></div>
     </div>
@@ -72,6 +187,7 @@
     <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
     <script src="../../../node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
     <script src="./layout.js"></script>
+    <script src="./chatPanelState.js"></script>
     <script src="./bootstrap.js"></script>
   </body>
 </html>

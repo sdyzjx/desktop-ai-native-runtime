@@ -77,11 +77,12 @@ UI config file:
 
 Current baseline (already done):
 - transparent desktop Live2D window
-- basic RPC methods: `state.get`, `param.set`, `chat.show`
+- chat panel: history + local input + show/hide + clear + append
+- rpc methods: `state.get`, `param.set`, `chat.show`, `chat.bubble.show`, `chat.panel.show`, `chat.panel.hide`, `chat.panel.append`, `chat.panel.clear`
 - right-bottom placement + drag-ready window + configurable layout/clarity
+- renderer-to-main submit event: `live2d:chat:input:submit`
 
 Current gaps under active development:
-- chat panel (history + input), not only transient bubble
 - RPC request + event-stream forwarding contract
 - model-control tool-calling exposure for agent integration
 

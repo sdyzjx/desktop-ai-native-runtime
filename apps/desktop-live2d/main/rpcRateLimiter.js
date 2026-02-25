@@ -4,6 +4,11 @@ class RpcRateLimiter {
       'state.get': 30,
       'param.set': 60,
       'chat.show': 10,
+      'chat.bubble.show': 10,
+      'chat.panel.show': 20,
+      'chat.panel.hide': 20,
+      'chat.panel.append': 30,
+      'chat.panel.clear': 10,
       ...(limitsPerSecond || {})
     };
     this.windows = new Map();

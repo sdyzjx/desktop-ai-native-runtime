@@ -9,7 +9,9 @@ const {
   waitForRendererReady,
   writeRuntimeSummary,
   computeWindowBounds,
-  computeRightBottomWindowBounds
+  computeRightBottomWindowBounds,
+  normalizeChatInputPayload,
+  createChatInputListener
 } = require('../../apps/desktop-live2d/main/desktopSuite');
 
 class FakeIpcMain extends EventEmitter {}
@@ -93,4 +95,41 @@ test('computeWindowBounds supports top-left and center anchors', () => {
 
   assert.deepEqual(topLeft, { x: 35, y: 50 });
   assert.deepEqual(center, { x: 410, y: 120 });
+});
+
+test('normalizeChatInputPayload sanitizes and validates payload', () => {
+  const result = normalizeChatInputPayload({
+    role: 'assistant',
+    text: ' hello ',
+    source: 'chat-panel',
+    timestamp: 1234
+  });
+  assert.equal(result.role, 'assistant');
+  assert.equal(result.text, 'hello');
+  assert.equal(result.source, 'chat-panel');
+  assert.equal(result.timestamp, 1234);
+
+  const fallback = normalizeChatInputPayload({ role: 'bad', text: 'x' });
+  assert.equal(fallback.role, 'user');
+  assert.equal(typeof fallback.timestamp, 'number');
+
+  const invalid = normalizeChatInputPayload({ text: '   ' });
+  assert.equal(invalid, null);
+});
+
+test('createChatInputListener forwards normalized payload to callback', () => {
+  const logs = [];
+  const received = [];
+  const listener = createChatInputListener({
+    logger: { info: (...args) => logs.push(args) },
+    onChatInput: (payload) => received.push(payload)
+  });
+
+  listener(null, { role: 'tool', text: ' invoke ', source: 'chat-panel' });
+  listener(null, { text: '   ' });
+
+  assert.equal(logs.length, 1);
+  assert.equal(received.length, 1);
+  assert.equal(received[0].role, 'tool');
+  assert.equal(received[0].text, 'invoke');
 });

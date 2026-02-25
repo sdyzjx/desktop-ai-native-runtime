@@ -16,6 +16,22 @@ test('validateRpcRequest accepts V1 methods with valid params', () => {
   assert.equal(result.request.method, 'chat.show');
 });
 
+test('validateRpcRequest accepts chat panel append payload', () => {
+  const result = validateRpcRequest({
+    jsonrpc: '2.0',
+    id: 'panel-1',
+    method: 'chat.panel.append',
+    params: {
+      role: 'assistant',
+      text: 'new message',
+      timestamp: 1730000000000
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.request.method, 'chat.panel.append');
+});
+
 test('validateRpcRequest rejects non-whitelisted method', () => {
   const result = validateRpcRequest({
     jsonrpc: '2.0',
@@ -34,6 +50,18 @@ test('validateRpcRequest rejects invalid param types', () => {
     id: 9,
     method: 'param.set',
     params: { name: 'ParamAngleX', value: 'not-number' }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, -32602);
+});
+
+test('validateRpcRequest rejects unknown role in chat.panel.append', () => {
+  const result = validateRpcRequest({
+    jsonrpc: '2.0',
+    id: 'bad-role',
+    method: 'chat.panel.append',
+    params: { role: 'invalid', text: 'hello' }
   });
 
   assert.equal(result.ok, false);

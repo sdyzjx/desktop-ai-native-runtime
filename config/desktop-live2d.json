@@ -30,5 +30,18 @@
     "scaleMultiplier": 0.9,
     "minScale": 0.04,
     "maxScale": 2
+  },
+  "chat": {
+    "panel": {
+      "enabled": true,
+      "defaultVisible": true,
+      "width": 340,
+      "height": 260,
+      "maxMessages": 200,
+      "inputEnabled": true
+    },
+    "bubble": {
+      "mirrorToPanel": false
+    }
   }
 }

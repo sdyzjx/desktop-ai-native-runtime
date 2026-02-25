@@ -25,6 +25,42 @@ const METHOD_SCHEMAS = Object.freeze({
       durationMs: { type: 'integer', minimum: 500, maximum: 30000 },
       mood: { type: 'string', minLength: 1, maxLength: 64 }
     }
+  },
+  'chat.bubble.show': {
+    type: 'object',
+    required: ['text'],
+    additionalProperties: false,
+    properties: {
+      text: { type: 'string', minLength: 1, maxLength: 2000 },
+      durationMs: { type: 'integer', minimum: 500, maximum: 30000 },
+      mood: { type: 'string', minLength: 1, maxLength: 64 }
+    }
+  },
+  'chat.panel.show': {
+    type: 'object',
+    additionalProperties: false
+  },
+  'chat.panel.hide': {
+    type: 'object',
+    additionalProperties: false
+  },
+  'chat.panel.clear': {
+    type: 'object',
+    additionalProperties: false
+  },
+  'chat.panel.append': {
+    type: 'object',
+    required: ['text'],
+    additionalProperties: false,
+    properties: {
+      role: {
+        type: 'string',
+        enum: ['user', 'assistant', 'system', 'tool']
+      },
+      text: { type: 'string', minLength: 1, maxLength: 4000 },
+      timestamp: { type: 'integer', minimum: 0 },
+      requestId: { type: 'string', minLength: 1, maxLength: 128 }
+    }
   }
 });
 

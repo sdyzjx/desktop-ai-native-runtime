@@ -26,3 +26,14 @@ test('RpcRateLimiter rejects calls exceeding quota and resets next window', () =
   assert.ok(second.retryAfterMs > 0);
   assert.equal(third.ok, true);
 });
+
+test('RpcRateLimiter applies default quota for chat.panel.append', () => {
+  const limiter = new RpcRateLimiter();
+  for (let i = 0; i < 30; i += 1) {
+    const result = limiter.check({ clientId: 'panel-user', method: 'chat.panel.append', nowMs: 1000 });
+    assert.equal(result.ok, true);
+  }
+
+  const blocked = limiter.check({ clientId: 'panel-user', method: 'chat.panel.append', nowMs: 1200 });
+  assert.equal(blocked.ok, false);
+});

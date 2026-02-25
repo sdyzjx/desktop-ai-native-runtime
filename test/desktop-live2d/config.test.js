@@ -13,6 +13,7 @@ test('resolveDesktopLive2dConfig applies defaults and model relative path', () =
   assert.equal(config.modelJsonName, '八千代辉夜姬.model3.json');
   assert.ok(config.modelRelativePath.includes('assets/live2d/yachiyo-kaguya/八千代辉夜姬.model3.json'));
   assert.equal(config.gatewayExternal, false);
+  assert.equal(config.uiConfig.chat.panel.enabled, true);
 });
 
 test('resolveDesktopLive2dConfig respects env overrides', () => {
@@ -53,6 +54,12 @@ test('resolveDesktopLive2dConfig loads overrides from config/desktop-live2d.json
       },
       layout: {
         scaleMultiplier: 0.95
+      },
+      chat: {
+        panel: {
+          defaultVisible: false,
+          maxMessages: 88
+        }
       }
     }),
     'utf8'
@@ -64,4 +71,6 @@ test('resolveDesktopLive2dConfig loads overrides from config/desktop-live2d.json
   assert.equal(config.uiConfig.window.placement.marginTop, 30);
   assert.equal(config.uiConfig.render.resolutionScale, 1.2);
   assert.equal(config.uiConfig.layout.scaleMultiplier, 0.95);
+  assert.equal(config.uiConfig.chat.panel.defaultVisible, false);
+  assert.equal(config.uiConfig.chat.panel.maxMessages, 88);
 });

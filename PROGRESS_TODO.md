@@ -42,26 +42,26 @@ Branch: `codex/feature/electron-desktop`
 
 ## 2.2 Validation Status
 
-- Latest full test result on feature branch: `npm test` passed (`113/113`).
+- Latest full test result on feature branch: `npm test` passed (`121/121`).
 - Integration branch is intentionally **not merged into `main`** yet.
 
 ## 3. TODO / Next Actions
 
 ## 3.1 Near-term
 
-1. `IN_PROGRESS` Execute Desktop Live2D Phase A replan baseline
+1. `DONE` Execute Desktop Live2D Phase A replan baseline
 - Owner: runtime
 - Acceptance:
   - chat panel / RPC event stream / tool-calling exposure are all reflected in design docs
   - requirement register and staged acceptance are synced
 
-2. `TODO` Implement Phase B chat panel UI
+2. `DONE` Implement Phase B chat panel UI
 - Scope:
   - renderer chat panel (`history + input + visibility`)
   - rpc methods `chat.panel.*`
   - tests for history truncation / append / ipc submit
 
-3. `TODO` Implement Phase C RPC message forwarding
+3. `IN_PROGRESS` Implement Phase C RPC message forwarding
 - Scope:
   - runtime event -> desktop event bridge
   - event notification contract (`desktop.event`)
@@ -264,3 +264,4 @@ Do not add free-form items outside this format.
 - Update Log:
   - 2026-02-26 02:16 IN_PROGRESS requirement created from user feedback.
   - 2026-02-26 02:16 DONE Phase A docs replanned and synchronized (`construction plan`, `README`, `progress register`).
+  - 2026-02-26 02:20 DONE Phase B delivered (`chat.panel.*` rpc + chat panel UI + submit IPC + tests).

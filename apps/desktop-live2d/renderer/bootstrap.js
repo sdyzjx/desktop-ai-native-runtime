@@ -4,6 +4,8 @@
     modelLoaded: false,
     modelName: null,
     bubbleVisible: false,
+    chatPanelVisible: false,
+    chatHistorySize: 0,
     lastError: null,
     layout: null
   };
@@ -14,11 +16,81 @@
 
   const stageContainer = document.getElementById('stage');
   const bubbleElement = document.getElementById('bubble');
+  const chatPanelElement = document.getElementById('chat-panel');
+  const chatPanelMessagesElement = document.getElementById('chat-panel-messages');
+  const chatInputElement = document.getElementById('chat-input');
+  const chatSendElement = document.getElementById('chat-send');
+  const chatComposerElement = document.getElementById('chat-panel-composer');
+
+  const chatStateApi = window.ChatPanelState;
   let runtimeUiConfig = null;
+  let chatPanelState = null;
+  let chatPanelEnabled = false;
+
+  function createRpcError(code, message) {
+    return { code, message };
+  }
 
   function setBubbleVisible(visible) {
     state.bubbleVisible = visible;
     bubbleElement.classList.toggle('visible', visible);
+  }
+
+  function syncChatStateSummary() {
+    state.chatPanelVisible = Boolean(chatPanelEnabled && chatPanelState?.visible);
+    state.chatHistorySize = Array.isArray(chatPanelState?.messages) ? chatPanelState.messages.length : 0;
+  }
+
+  function assertChatPanelEnabled() {
+    if (!chatPanelEnabled || !chatPanelState) {
+      throw createRpcError(-32005, 'chat panel is disabled');
+    }
+  }
+
+  function renderChatMessages() {
+    if (!chatPanelMessagesElement || !chatPanelState) {
+      return;
+    }
+
+    chatPanelMessagesElement.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+    for (const message of chatPanelState.messages) {
+      const node = document.createElement('div');
+      node.className = `chat-message ${message.role}`;
+      node.textContent = message.text;
+      fragment.appendChild(node);
+    }
+    chatPanelMessagesElement.appendChild(fragment);
+    chatPanelMessagesElement.scrollTop = chatPanelMessagesElement.scrollHeight;
+
+    syncChatStateSummary();
+  }
+
+  function applyChatPanelVisibility() {
+    const visible = Boolean(chatPanelEnabled && chatPanelState?.visible);
+    chatPanelElement?.classList.toggle('visible', visible);
+    syncChatStateSummary();
+  }
+
+  function setChatPanelVisible(visible) {
+    assertChatPanelEnabled();
+    chatPanelState = chatStateApi.setPanelVisible(chatPanelState, visible);
+    applyChatPanelVisibility();
+    return { ok: true, visible: chatPanelState.visible };
+  }
+
+  function appendChatMessage(params, fallbackRole = 'assistant') {
+    assertChatPanelEnabled();
+    chatPanelState = chatStateApi.appendMessage(chatPanelState, params, fallbackRole);
+    renderChatMessages();
+    return { ok: true, count: chatPanelState.messages.length };
+  }
+
+  function clearChatMessages() {
+    assertChatPanelEnabled();
+    chatPanelState = chatStateApi.clearMessages(chatPanelState);
+    renderChatMessages();
+    return { ok: true, count: 0 };
   }
 
   function showBubble(params) {
@@ -41,6 +113,18 @@
       setBubbleVisible(false);
       hideBubbleTimer = null;
     }, durationMs);
+
+    if (runtimeUiConfig?.chat?.bubble?.mirrorToPanel && chatPanelEnabled) {
+      appendChatMessage(
+        {
+          role: String(params?.role || 'assistant'),
+          text,
+          timestamp: Date.now(),
+          requestId: params?.requestId
+        },
+        'assistant'
+      );
+    }
 
     return { ok: true, expiresAt: Date.now() + durationMs };
   }
@@ -66,17 +150,94 @@
   }
 
   function getState() {
+    syncChatStateSummary();
     return {
       modelLoaded: state.modelLoaded,
       modelName: state.modelName,
       bubbleVisible: state.bubbleVisible,
+      chatPanelVisible: state.chatPanelVisible,
+      chatHistorySize: state.chatHistorySize,
       lastError: state.lastError,
       layout: state.layout
     };
   }
 
-  function createRpcError(code, message) {
-    return { code, message };
+  function initChatPanel(config) {
+    if (!chatStateApi) {
+      throw new Error('ChatPanelState runtime is unavailable');
+    }
+
+    const panelConfig = config?.panel || {};
+    chatPanelEnabled = Boolean(panelConfig.enabled);
+
+    chatPanelState = chatStateApi.createInitialState({
+      defaultVisible: panelConfig.defaultVisible,
+      maxMessages: panelConfig.maxMessages,
+      inputEnabled: panelConfig.inputEnabled
+    });
+
+    if (chatPanelElement) {
+      const width = Number(panelConfig.width);
+      const height = Number(panelConfig.height);
+      if (Number.isFinite(width) && width > 0) {
+        chatPanelElement.style.width = `${width}px`;
+      }
+      if (Number.isFinite(height) && height > 0) {
+        chatPanelElement.style.height = `${height}px`;
+      }
+    }
+
+    if (!chatPanelEnabled) {
+      chatPanelElement?.remove();
+      syncChatStateSummary();
+      return;
+    }
+
+    if (chatComposerElement) {
+      chatComposerElement.style.display = chatPanelState.inputEnabled ? 'flex' : 'none';
+    }
+
+    if (chatInputElement) {
+      chatInputElement.disabled = !chatPanelState.inputEnabled;
+    }
+    if (chatSendElement) {
+      chatSendElement.disabled = !chatPanelState.inputEnabled;
+    }
+
+    renderChatMessages();
+    applyChatPanelVisibility();
+
+    const submitInput = () => {
+      if (!chatPanelState?.inputEnabled) {
+        return;
+      }
+      const text = String(chatInputElement?.value || '').trim();
+      if (!text) {
+        return;
+      }
+
+      const payload = {
+        role: 'user',
+        text,
+        timestamp: Date.now(),
+        source: 'chat-panel'
+      };
+
+      appendChatMessage(payload, 'user');
+      if (chatInputElement) {
+        chatInputElement.value = '';
+      }
+      bridge.sendChatInput(payload);
+    };
+
+    chatSendElement?.addEventListener('click', submitInput);
+    chatInputElement?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') {
+        return;
+      }
+      event.preventDefault();
+      submitInput();
+    });
   }
 
   async function initPixi() {
@@ -212,8 +373,16 @@
         result = getState();
       } else if (method === 'param.set') {
         result = setModelParam(params);
-      } else if (method === 'chat.show') {
+      } else if (method === 'chat.show' || method === 'chat.bubble.show') {
         result = showBubble(params);
+      } else if (method === 'chat.panel.show') {
+        result = setChatPanelVisible(true);
+      } else if (method === 'chat.panel.hide') {
+        result = setChatPanelVisible(false);
+      } else if (method === 'chat.panel.append') {
+        result = appendChatMessage(params, 'assistant');
+      } else if (method === 'chat.panel.clear') {
+        result = clearChatMessages();
       } else {
         throw createRpcError(-32601, `method not found: ${method}`);
       }
@@ -236,6 +405,7 @@
 
       const runtimeConfig = await bridge.getRuntimeConfig();
       runtimeUiConfig = runtimeConfig.uiConfig || null;
+      initChatPanel(runtimeUiConfig?.chat || {});
       await initPixi();
       await loadModel(runtimeConfig.modelRelativePath, runtimeConfig.modelName);
 

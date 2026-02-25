@@ -12,10 +12,18 @@ const CHANNELS = Object.freeze({
   result: 'live2d:rpc:result',
   rendererReady: 'live2d:renderer:ready',
   rendererError: 'live2d:renderer:error',
-  getRuntimeConfig: 'live2d:get-runtime-config'
+  getRuntimeConfig: 'live2d:get-runtime-config',
+  chatInputSubmit: 'live2d:chat:input:submit'
 });
 
-async function startDesktopSuite({ app, BrowserWindow, ipcMain, screen, logger = console } = {}) {
+async function startDesktopSuite({
+  app,
+  BrowserWindow,
+  ipcMain,
+  screen,
+  logger = console,
+  onChatInput = null
+} = {}) {
   if (!app || !BrowserWindow || !ipcMain) {
     throw new Error('startDesktopSuite requires app, BrowserWindow, and ipcMain');
   }
@@ -55,6 +63,8 @@ async function startDesktopSuite({ app, BrowserWindow, ipcMain, screen, logger =
     gatewayUrl: config.gatewayUrl,
     uiConfig: config.uiConfig
   }));
+  const chatInputListener = createChatInputListener({ logger, onChatInput });
+  ipcMain.on(CHANNELS.chatInputSubmit, chatInputListener);
 
   const rendererReadyPromise = waitForRendererReady({ ipcMain, timeoutMs: 15000 });
 
@@ -84,7 +94,16 @@ async function startDesktopSuite({ app, BrowserWindow, ipcMain, screen, logger =
     rpcToken: config.rpcToken,
     gatewayUrl: config.gatewayUrl,
     modelJsonPath: modelValidation.modelJsonPath,
-    methods: ['state.get', 'param.set', 'chat.show']
+    methods: [
+      'state.get',
+      'param.set',
+      'chat.show',
+      'chat.bubble.show',
+      'chat.panel.show',
+      'chat.panel.hide',
+      'chat.panel.append',
+      'chat.panel.clear'
+    ]
   };
   writeRuntimeSummary(config.runtimeSummaryPath, summary);
 
@@ -94,6 +113,7 @@ async function startDesktopSuite({ app, BrowserWindow, ipcMain, screen, logger =
     stopped = true;
 
     ipcMain.removeHandler(CHANNELS.getRuntimeConfig);
+    ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
 
     await rpcServer.stop();
     bridge.dispose();
@@ -110,6 +130,39 @@ async function startDesktopSuite({ app, BrowserWindow, ipcMain, screen, logger =
     summary,
     window,
     stop
+  };
+}
+
+function normalizeChatInputPayload(payload) {
+  const text = String(payload?.text || '').trim();
+  if (!text) {
+    return null;
+  }
+
+  const role = String(payload?.role || 'user').trim();
+  const allowedRoles = new Set(['user', 'assistant', 'system', 'tool']);
+  return {
+    role: allowedRoles.has(role) ? role : 'user',
+    text,
+    source: String(payload?.source || 'chat-panel'),
+    timestamp: Number.isFinite(Number(payload?.timestamp)) ? Number(payload.timestamp) : Date.now()
+  };
+}
+
+function createChatInputListener({ logger = console, onChatInput = null } = {}) {
+  return (_event, payload) => {
+    const normalized = normalizeChatInputPayload(payload);
+    if (!normalized) {
+      return;
+    }
+    logger.info?.('[desktop-live2d] chat_input_submit', {
+      role: normalized.role,
+      textLength: normalized.text.length,
+      source: normalized.source
+    });
+    if (typeof onChatInput === 'function') {
+      onChatInput(normalized);
+    }
   };
 }
 
@@ -255,5 +308,7 @@ module.exports = {
   createMainWindow,
   computeWindowBounds,
   computeRightBottomWindowBounds,
-  writeRuntimeSummary
+  writeRuntimeSummary,
+  normalizeChatInputPayload,
+  createChatInputListener
 };

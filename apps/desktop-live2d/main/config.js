@@ -42,6 +42,19 @@ const DEFAULT_UI_CONFIG = Object.freeze({
     scaleMultiplier: 0.9,
     minScale: 0.04,
     maxScale: 2
+  },
+  chat: {
+    panel: {
+      enabled: true,
+      defaultVisible: true,
+      width: 340,
+      height: 260,
+      maxMessages: 200,
+      inputEnabled: true
+    },
+    bubble: {
+      mirrorToPanel: false
+    }
   }
 });
 
@@ -106,6 +119,16 @@ function normalizeUiConfig(raw) {
     layout: {
       ...DEFAULT_UI_CONFIG.layout,
       ...(raw?.layout || {})
+    },
+    chat: {
+      panel: {
+        ...DEFAULT_UI_CONFIG.chat.panel,
+        ...(raw?.chat?.panel || {})
+      },
+      bubble: {
+        ...DEFAULT_UI_CONFIG.chat.bubble,
+        ...(raw?.chat?.bubble || {})
+      }
     }
   };
 
@@ -129,6 +152,14 @@ function normalizeUiConfig(raw) {
     }
     merged.layout[key] = toFiniteNumber(merged.layout[key], layoutDefaults[key]);
   }
+
+  merged.chat.panel.enabled = Boolean(merged.chat.panel.enabled);
+  merged.chat.panel.defaultVisible = Boolean(merged.chat.panel.defaultVisible);
+  merged.chat.panel.width = toPositiveInt(merged.chat.panel.width, DEFAULT_UI_CONFIG.chat.panel.width);
+  merged.chat.panel.height = toPositiveInt(merged.chat.panel.height, DEFAULT_UI_CONFIG.chat.panel.height);
+  merged.chat.panel.maxMessages = toPositiveInt(merged.chat.panel.maxMessages, DEFAULT_UI_CONFIG.chat.panel.maxMessages);
+  merged.chat.panel.inputEnabled = Boolean(merged.chat.panel.inputEnabled);
+  merged.chat.bubble.mirrorToPanel = Boolean(merged.chat.bubble.mirrorToPanel);
 
   return merged;
 }
