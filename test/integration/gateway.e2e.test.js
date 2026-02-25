@@ -276,6 +276,10 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     assert.equal(patchedPersona.ok, true);
     assert.equal(patchedPersona.data.addressing.custom_name, '阿轩');
 
+    const personaProfileAfterPatch = await fetch(`http://127.0.0.1:${gatewayPort}/api/persona/profile`).then((r) => r.json());
+    assert.equal(personaProfileAfterPatch.ok, true);
+    assert.equal(personaProfileAfterPatch.data.addressing.custom_name, '阿轩');
+
     const invalidPersonaPatchResp = await fetch(`http://127.0.0.1:${gatewayPort}/api/persona/profile`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },

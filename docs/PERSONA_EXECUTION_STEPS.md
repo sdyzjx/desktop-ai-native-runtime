@@ -30,3 +30,8 @@
 - [x] 增加前端 Persona 设置面板（称呼读写）
 - [x] 增加关键词触发 tool call（`persona.update_profile`）
 - [x] 确保人格修改在 low/medium/high 都可执行
+
+## Progress Update (latest)
+- 阶段进度：Phase 1-4 全部完成。
+- 新增回归断言：`gateway.e2e` 中 PUT 后再次 GET 校验 `custom_name` 持久化一致。
+- 当前测试基线：`npm test` 通过（101+ / 0 fail，具体以本次流水线输出为准）。
