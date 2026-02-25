@@ -382,7 +382,7 @@ flowchart LR
   - Phase D：tool-calling 暴露（`tool.list` / `tool.invoke`）+ `model.*` 最小控制能力
   - Phase F：启动新会话 + `/new` 切换会话 + 网页会话消息同步 + 点击角色弹框/避脸布局
 - 进行中
-  - Phase E：稳定性收敛（自动化 smoke 已接入，待手工发布验收）
+  - Phase E：稳定性收敛（自动化 smoke 已接入，点击闪烁修复已并入，待手工发布验收）
 - 未开始
   - 无
 

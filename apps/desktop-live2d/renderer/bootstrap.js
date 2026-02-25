@@ -1,5 +1,6 @@
 (function bootstrap() {
   const bridge = window.desktopLive2dBridge;
+  const interactionApi = window.Live2DInteraction || null;
   const state = {
     modelLoaded: false,
     modelName: null,
@@ -17,6 +18,7 @@
   let suppressModelTapUntil = 0;
   let stableModelScale = null;
   let stableModelPose = null;
+  let modelBaseBounds = null;
 
   const stageContainer = document.getElementById('stage');
   const bubbleLayerElement = document.getElementById('bubble-layer');
@@ -36,7 +38,79 @@
   let lastReportedPanelVisible = null;
   let chatPanelTransitionToken = 0;
   let chatPanelHideResizeTimer = null;
+  let chatPanelShowResizeTimer = null;
+  let chatPanelShowResizeListener = null;
+  let layoutRafToken = 0;
+  const modelTapToggleGate = typeof interactionApi?.createCooldownGate === 'function'
+    ? interactionApi.createCooldownGate({ cooldownMs: 220 })
+    : {
+      tryEnter() {
+        const now = Date.now();
+        if (now < suppressModelTapUntil) {
+          return false;
+        }
+        suppressModelTapUntil = now + 220;
+        return true;
+      }
+    };
   const CHAT_PANEL_HIDE_RESIZE_DELAY_MS = 170;
+  const CHAT_PANEL_SHOW_WAIT_RESIZE_TIMEOUT_MS = 220;
+
+  function nearlyEqual(left, right, epsilon = 1e-4) {
+    if (typeof interactionApi?.nearlyEqual === 'function') {
+      return interactionApi.nearlyEqual(left, right, epsilon);
+    }
+    const leftValue = Number(left);
+    const rightValue = Number(right);
+    if (!Number.isFinite(leftValue) || !Number.isFinite(rightValue)) {
+      return false;
+    }
+    return Math.abs(leftValue - rightValue) <= Math.max(0, Number(epsilon) || 0);
+  }
+
+  function shouldUpdate2DTransform(currentX, currentY, nextX, nextY, epsilon = 1e-4) {
+    if (typeof interactionApi?.shouldUpdate2D === 'function') {
+      return interactionApi.shouldUpdate2D(currentX, currentY, nextX, nextY, epsilon);
+    }
+    return !(nearlyEqual(currentX, nextX, epsilon) && nearlyEqual(currentY, nextY, epsilon));
+  }
+
+  function cancelPendingChatPanelShow() {
+    if (chatPanelShowResizeTimer) {
+      clearTimeout(chatPanelShowResizeTimer);
+      chatPanelShowResizeTimer = null;
+    }
+    if (chatPanelShowResizeListener) {
+      window.removeEventListener('resize', chatPanelShowResizeListener);
+      chatPanelShowResizeListener = null;
+    }
+  }
+
+  function revealChatPanelAfterResize(token) {
+    cancelPendingChatPanelShow();
+
+    const reveal = () => {
+      if (token !== chatPanelTransitionToken) {
+        return;
+      }
+      window.requestAnimationFrame(() => {
+        if (token !== chatPanelTransitionToken) {
+          return;
+        }
+        chatPanelElement?.classList.add('visible');
+      });
+    };
+
+    chatPanelShowResizeListener = () => {
+      cancelPendingChatPanelShow();
+      reveal();
+    };
+    window.addEventListener('resize', chatPanelShowResizeListener, { passive: true });
+    chatPanelShowResizeTimer = setTimeout(() => {
+      cancelPendingChatPanelShow();
+      reveal();
+    }, CHAT_PANEL_SHOW_WAIT_RESIZE_TIMEOUT_MS);
+  }
 
   function createRpcError(code, message) {
     return { code, message };
@@ -121,21 +195,15 @@
       clearTimeout(chatPanelHideResizeTimer);
       chatPanelHideResizeTimer = null;
     }
+    cancelPendingChatPanelShow();
 
     if (visible) {
       if (typeof bridge?.sendChatPanelVisibility === 'function' && lastReportedPanelVisible !== true) {
         bridge.sendChatPanelVisibility({ visible: true });
         lastReportedPanelVisible = true;
       }
-      // Expand window first, then fade-in panel to avoid flashing during transparent resize.
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          if (token !== chatPanelTransitionToken) {
-            return;
-          }
-          chatPanelElement?.classList.add('visible');
-        });
-      });
+      // Wait for resize (or timeout fallback) before reveal to avoid one-frame flicker.
+      revealChatPanelAfterResize(token);
     } else {
       chatPanelElement?.classList.remove('visible');
       // Wait panel fade-out before shrinking the host window to keep transition smooth.
@@ -472,9 +540,27 @@
     live2dModel = await Live2DModel.from(modelUrl);
     stableModelScale = null;
     stableModelPose = null;
+    modelBaseBounds = null;
     bindModelInteraction();
 
     pixiApp.stage.addChild(live2dModel);
+    const initialBounds = live2dModel.getLocalBounds?.();
+    if (
+      initialBounds
+      && Number.isFinite(initialBounds.x)
+      && Number.isFinite(initialBounds.y)
+      && Number.isFinite(initialBounds.width)
+      && Number.isFinite(initialBounds.height)
+      && initialBounds.width > 0
+      && initialBounds.height > 0
+    ) {
+      modelBaseBounds = {
+        x: initialBounds.x,
+        y: initialBounds.y,
+        width: initialBounds.width,
+        height: initialBounds.height
+      };
+    }
     applyAdaptiveLayout();
     window.addEventListener('resize', scheduleAdaptiveLayout, { passive: true });
 
@@ -494,7 +580,11 @@
       live2dModel.interactive = true;
     }
     live2dModel.on('pointertap', () => {
-      if (Date.now() < suppressModelTapUntil) {
+      const now = Date.now();
+      if (now < suppressModelTapUntil) {
+        return;
+      }
+      if (typeof modelTapToggleGate?.tryEnter === 'function' && !modelTapToggleGate.tryEnter()) {
         return;
       }
       toggleChatPanelVisible();
@@ -589,12 +679,7 @@
 
   function applyAdaptiveLayout() {
     if (!live2dModel || !window.Live2DLayout?.computeModelLayout) return;
-
-    if (typeof live2dModel.scale?.set === 'function') {
-      live2dModel.scale.set(1);
-    }
-
-    const bounds = live2dModel.getLocalBounds?.();
+    const bounds = modelBaseBounds || live2dModel.getLocalBounds?.();
     if (!bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) {
       return;
     }
@@ -658,13 +743,22 @@
       };
     }
 
-    if (typeof live2dModel.scale?.set === 'function') {
+    if (
+      typeof live2dModel.scale?.set === 'function'
+      && shouldUpdate2DTransform(live2dModel.scale?.x, live2dModel.scale?.y, nextScale, nextScale, 1e-5)
+    ) {
       live2dModel.scale.set(nextScale);
     }
-    if (typeof live2dModel.pivot?.set === 'function') {
+    if (
+      typeof live2dModel.pivot?.set === 'function'
+      && shouldUpdate2DTransform(live2dModel.pivot?.x, live2dModel.pivot?.y, layout.pivotX, layout.pivotY, 1e-5)
+    ) {
       live2dModel.pivot.set(layout.pivotX, layout.pivotY);
     }
-    if (typeof live2dModel.position?.set === 'function') {
+    if (
+      typeof live2dModel.position?.set === 'function'
+      && shouldUpdate2DTransform(live2dModel.position?.x, live2dModel.position?.y, nextPositionX, nextPositionY, 1e-5)
+    ) {
       live2dModel.position.set(nextPositionX, nextPositionY);
     }
 
@@ -683,7 +777,11 @@
   }
 
   function scheduleAdaptiveLayout() {
-    window.requestAnimationFrame(() => {
+    if (layoutRafToken) {
+      return;
+    }
+    layoutRafToken = window.requestAnimationFrame(() => {
+      layoutRafToken = 0;
       applyAdaptiveLayout();
     });
   }

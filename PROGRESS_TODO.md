@@ -365,3 +365,4 @@ Do not add free-form items outside this format.
   - 2026-02-26 03:22 IN_PROGRESS implementation started from user UX requirement.
   - 2026-02-26 03:29 REVIEW implementation + tests completed (`npm test` 150/150), waiting user runtime verification.
   - 2026-02-26 03:36 REVIEW tray summon added (hide -> tray icon -> click to restore pet), tests updated (`npm test` 153/153).
+  - 2026-02-26 03:44 REVIEW click-flicker hardening delivered (tap cooldown gate + resize-aware panel reveal + no-op transform skip), tests updated (`npm test` 156/156).
