@@ -51,6 +51,37 @@ test('OpenAIReasoner returns tool decision when tool_calls exists', async () => 
   }
 });
 
+
+
+test('OpenAIReasoner parses multiple tool calls', async () => {
+  const { server, port } = await startMockServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: '',
+          tool_calls: [
+            { id: 'call-1', type: 'function', function: { name: 'add', arguments: '{"a":1,"b":2}' } },
+            { id: 'call-2', type: 'function', function: { name: 'echo', arguments: '{"text":"ok"}' } }
+          ]
+        }
+      }]
+    }));
+  });
+
+  try {
+    const reasoner = new OpenAIReasoner({ apiKey: 'k', baseUrl: `http://127.0.0.1:${port}`, model: 'mock' });
+    const decision = await reasoner.decide({ messages: [{ role: 'user', content: 'x' }], tools: [] });
+
+    assert.equal(decision.type, 'tool');
+    assert.equal(decision.tools.length, 2);
+    assert.equal(decision.tools[0].name, 'add');
+    assert.deepEqual(decision.tools[1].args, { text: 'ok' });
+  } finally {
+    server.close();
+  }
+});
 test('OpenAIReasoner returns final decision for text response', async () => {
   const { server, port } = await startMockServer((req, res) => {
     res.setHeader('content-type', 'application/json');
