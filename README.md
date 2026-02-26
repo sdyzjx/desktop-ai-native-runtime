@@ -2,91 +2,9 @@
 
 ![open-yachiyo cover](assets/readme-cover.jpg)
 
-Native-first desktop AI assistant runtime.
+Native-first desktop AI assistant runtime — built from scratch on the [ReAct loop](https://arxiv.org/abs/2210.03629) for predictable, bounded, auditable agent execution. Not a wrapper around OpenClaw or any orchestration framework: no unbounded tool chains, no cross-session context bleed, no workflow instability.
 
-<details open>
-<summary>🇺🇸 English</summary>
-
-> You are reading the English version. [切换到中文 →](#chinese)
-
-</details>
-
-<details>
-<summary>🇨🇳 中文说明</summary>
-<a name="chinese"></a>
-
-## 项目简介
-
-**open-yachiyo** 是一个原生优先的桌面 AI 助手运行时，支持 Live2D 桌面宠物、多模态输入、长期记忆和技能扩展。
-
-## 快速开始
-
-1. 安装依赖：
-
-```bash
-npm install
-```
-
-2. 配置模型提供商（`config/providers.yaml`）：
-
-```bash
-# 编辑 config/providers.yaml：
-# - active_provider（当前使用的提供商）
-# - providers.<name>.base_url
-# - providers.<name>.model
-# - providers.<name>.api_key 或 api_key_env
-```
-
-如使用 `api_key_env`，请先导出环境变量：
-
-```bash
-export OPENAI_API_KEY="<your_api_key>"
-```
-
-3. 启动服务：
-
-```bash
-npm run dev
-```
-
-4. 健康检查：
-
-```bash
-curl http://localhost:3000/health
-```
-
-5. Web 界面：
-- 对话界面：`http://localhost:3000/`
-- 提供商配置界面：`http://localhost:3000/config.html`
-
-## 桌面 Live2D
-
-```bash
-# 导入模型资源
-npm run live2d:import
-
-# 启动桌面套件（网关 + Live2D 窗口 + RPC）
-npm run desktop:up
-
-# 启动后运行快速冒烟测试
-npm run desktop:smoke
-```
-
-## 测试
-
-```bash
-npm test        # 完整测试套件
-npm run test:ci # CI 等效命令
-```
-
-## 项目结构
-
-- `apps/gateway`：WebSocket 网关 + RPC 队列入口
-- `apps/runtime`：事件总线、RPC Worker、LLM 推理、工具循环
-- `apps/desktop-live2d`：Electron + Live2D 桌面壳
-- `docs/`：架构文档、模块参考、实现记录
-
-</details>
+🇨🇳 [中文说明](./README.zh.md)
 
 ## Current State
 
@@ -376,3 +294,11 @@ Thanks to everyone who has contributed to this project!
     </td>
   </tr>
 </table>
+
+## Why Not OpenClaw?
+
+OpenClaw is a capable orchestration layer, but it wasn't designed for the constraints this project needs. In practice, running an agent through OpenClaw means accepting: unbounded tool-call chains with no hard loop limit, context window bleed across long sessions, and a workflow model optimized for flexibility over determinism. For a desktop-resident assistant that needs to stay snappy and predictable, that's the wrong tradeoff.
+
+**open-yachiyo's runtime is built from scratch on the ReAct loop** (Reason → Act → Observe, repeat). Each turn is a single, auditable cycle: the model reasons about the current state, emits exactly one action (tool call or final response), the runtime executes it, and the result is fed back as an observation. The loop has a hard step cap. Sessions are isolated. There's no ambient "agent memory" leaking between unrelated conversations — memory is explicit, tool-driven, and queryable.
+
+The result is a runtime you can actually reason about: predictable turn structure, bounded execution, and a clear audit trail from input to output.
