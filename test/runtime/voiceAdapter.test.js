@@ -301,3 +301,50 @@ test('voice adapter maps timeout to TTS_TIMEOUT without retrying', async () => {
     else delete process.env.VOICE_REPLY_CLI;
   }
 });
+
+test('voice stats reports aggregated counters', async () => {
+  const {
+    ttsAliyunVc,
+    voiceStats,
+    resetMetrics,
+    cooldownStore,
+    idempotencyStore,
+    activeJobStore
+  } = voiceAdapters.__internal;
+
+  resetMetrics();
+  cooldownStore.calls.clear();
+  idempotencyStore.clear();
+  activeJobStore.clear();
+
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-stats-'));
+  const script = path.join(tmp, 'mock-voice-reply.sh');
+  await fs.writeFile(script, '#!/usr/bin/env bash\necho "/tmp/mock-stats.ogg"\n', { mode: 0o755 });
+
+  const previousCli = process.env.VOICE_REPLY_CLI;
+  process.env.VOICE_REPLY_CLI = script;
+
+  try {
+    await ttsAliyunVc(
+      {
+        text: 'stats ok',
+        voiceId: 'voice-A',
+        model: 'qwen3-tts-vc-2026-01-22',
+        voiceTag: 'zh',
+        replyMeta: { inputType: 'audio', sentenceCount: 1 }
+      },
+      {
+        session_id: 'session-stats',
+        voiceRegistry: { 'voice-A': { targetModel: 'qwen3-tts-vc-2026-01-22' } }
+      }
+    );
+
+    const stats = JSON.parse(await voiceStats());
+    assert.equal(stats.tts_total >= 1, true);
+    assert.equal(stats.tts_success >= 1, true);
+    assert.equal(typeof stats.updated_at, 'string');
+  } finally {
+    if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
+    else delete process.env.VOICE_REPLY_CLI;
+  }
+});

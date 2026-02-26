@@ -144,7 +144,17 @@ Phase 1 提供可用的语音输出 MVP：
 - 超时直接归类为 `TTS_TIMEOUT`，不重试。
 ---
 
-## 6. 测试覆盖
+## 6. 可观测性（阶段新增）
+
+新增工具：`voice.stats`
+- 返回当前进程内的语音指标快照（JSON）
+- 指标示例：
+  - `tts_total` / `tts_success` / `tts_failed`
+  - `tts_cancelled` / `tts_deduplicated`
+  - `tts_retry_total` / `tts_timeout` / `tts_provider_down`
+  - `policy_denied`
+
+## 7. 测试覆盖
 
 新增测试：
 - `test/runtime/voicePolicy.test.js`
@@ -155,4 +165,6 @@ Phase 1 提供可用的语音输出 MVP：
 - 长文本拒绝
 - 模型-音色不匹配拒绝
 - cooldown/rate-limit 生效
-- CLI 执行与结果解析
+- 幂等去重与抢占取消
+- 重试与超时分类
+- 指标聚合输出（voice.stats）

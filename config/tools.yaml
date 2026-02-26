@@ -12,6 +12,7 @@ policy:
     - persona.update_profile
     - voice.tts_aliyun_vc
     - voice.asr_aliyun
+    - voice.stats
   deny: []
   byProvider: {}
 
@@ -164,4 +165,13 @@ tools:
           type: array
           items: { type: string }
       required: [audioRef, format]
+      additionalProperties: false
+
+  - name: voice.stats
+    type: local
+    adapter: voice.stats
+    description: Return in-memory voice pipeline metrics snapshot.
+    input_schema:
+      type: object
+      properties: {}
       additionalProperties: false

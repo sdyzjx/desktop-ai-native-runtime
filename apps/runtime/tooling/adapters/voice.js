@@ -6,6 +6,17 @@ const { InMemoryVoiceCooldownStore, InMemoryVoiceIdempotencyStore, InMemoryVoice
 const cooldownStore = new InMemoryVoiceCooldownStore();
 const idempotencyStore = new InMemoryVoiceIdempotencyStore();
 const activeJobStore = new InMemoryVoiceActiveJobStore();
+const voiceMetrics = {
+  tts_total: 0,
+  tts_success: 0,
+  tts_failed: 0,
+  tts_cancelled: 0,
+  tts_deduplicated: 0,
+  tts_retry_total: 0,
+  tts_timeout: 0,
+  tts_provider_down: 0,
+  policy_denied: 0
+};
 
 function execFileAsync(cmd, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -90,6 +101,23 @@ function publishVoiceEvent(context, topic, payload = {}) {
   }
 }
 
+function incMetric(key) {
+  voiceMetrics[key] = Number(voiceMetrics[key] || 0) + 1;
+}
+
+function snapshotMetrics() {
+  return {
+    ...voiceMetrics,
+    updated_at: new Date().toISOString()
+  };
+}
+
+function resetMetrics() {
+  for (const key of Object.keys(voiceMetrics)) {
+    voiceMetrics[key] = 0;
+  }
+}
+
 async function ttsAliyunVc(args = {}, context = {}) {
   const policy = loadVoicePolicy();
   const sessionId = context.session_id || args.sessionId || 'global';
@@ -107,12 +135,14 @@ async function ttsAliyunVc(args = {}, context = {}) {
   });
 
   if (!policyResult.allow) {
+    incMetric('policy_denied');
     throw makeToolError(policyResult.code, policyResult.reason, { policyReason: policyResult.reason });
   }
 
   const idempotencyKey = String(args.idempotencyKey || '').trim();
   const cached = idempotencyStore.get(sessionId, idempotencyKey);
   if (cached) {
+    incMetric('tts_deduplicated');
     publishVoiceEvent(context, 'voice.job.deduplicated', {
       session_id: sessionId,
       idempotency_key: idempotencyKey,
@@ -120,6 +150,8 @@ async function ttsAliyunVc(args = {}, context = {}) {
     });
     return JSON.stringify(cached);
   }
+
+  incMetric('tts_total');
 
   const jobId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   activeJobStore.setActive(sessionId, jobId);
@@ -166,6 +198,7 @@ async function ttsAliyunVc(args = {}, context = {}) {
         break;
       } catch (err) {
         const normalizedErr = normalizeExecError(err);
+        incMetric('tts_retry_total');
         publishVoiceEvent(context, 'voice.job.retry', {
           session_id: sessionId,
           job_id: jobId,
@@ -189,6 +222,7 @@ async function ttsAliyunVc(args = {}, context = {}) {
 
     const activeJobId = activeJobStore.getActive(sessionId);
     if (activeJobId !== jobId) {
+      incMetric('tts_cancelled');
       publishVoiceEvent(context, 'voice.job.cancelled', {
         session_id: sessionId,
         job_id: jobId,
@@ -211,6 +245,7 @@ async function ttsAliyunVc(args = {}, context = {}) {
       turnId: args.turnId ? String(args.turnId) : null
     };
 
+    incMetric('tts_success');
     publishVoiceEvent(context, 'voice.job.completed', {
       session_id: sessionId,
       audio_ref: payload.audioRef,
@@ -222,25 +257,38 @@ async function ttsAliyunVc(args = {}, context = {}) {
 
     return JSON.stringify(payload);
   } catch (error) {
+    const code = error.code || 'TTS_PROVIDER_DOWN';
+    if (code === 'TTS_TIMEOUT') incMetric('tts_timeout');
+    if (code === 'TTS_PROVIDER_DOWN') incMetric('tts_provider_down');
+    if (code !== 'TTS_CANCELLED') incMetric('tts_failed');
+
     publishVoiceEvent(context, 'voice.job.failed', {
       session_id: sessionId,
-      code: error.code || 'TTS_PROVIDER_DOWN',
+      code,
       error: error.message || String(error)
     });
     throw error;
   }
 }
 
+async function voiceStats() {
+  return JSON.stringify(snapshotMetrics());
+}
+
 module.exports = {
   'voice.tts_aliyun_vc': ttsAliyunVc,
+  'voice.stats': voiceStats,
   __internal: {
     ttsAliyunVc,
+    voiceStats,
     resolveVoiceReplyCli,
     resolveVoiceTag,
     checkModelVoiceCompatibility,
     enforceRateLimit,
     cooldownStore,
     idempotencyStore,
-    activeJobStore
+    activeJobStore,
+    snapshotMetrics,
+    resetMetrics
   }
 };
