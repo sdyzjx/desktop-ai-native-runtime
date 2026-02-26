@@ -18,10 +18,12 @@ const {
   normalizeWindowControlPayload,
   normalizeChatPanelVisibilityPayload,
   normalizeModelBoundsPayload,
+  normalizeBubbleMetricsPayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
   createModelBoundsListener,
+  createBubbleMetricsListener,
   createChatInputListener,
   handleDesktopRpcRequest,
   isNewSessionCommand,
@@ -286,6 +288,12 @@ test('normalizeModelBoundsPayload validates numeric bounds payload', () => {
   assert.equal(normalizeModelBoundsPayload({ x: 1, y: 2, width: 0, height: 10, stageWidth: 10, stageHeight: 10 }), null);
 });
 
+test('normalizeBubbleMetricsPayload validates numeric metrics payload', () => {
+  assert.deepEqual(normalizeBubbleMetricsPayload({ width: 319.4, height: 156.8 }), { width: 319, height: 157 });
+  assert.equal(normalizeBubbleMetricsPayload({ width: 0, height: 10 }), null);
+  assert.equal(normalizeBubbleMetricsPayload({ width: 10, height: NaN }), null);
+});
+
 test('computeFittedAvatarWindowBounds shrinks to model bounds and keeps screen safety margin', () => {
   const next = computeFittedAvatarWindowBounds({
     windowBounds: { x: 1300, y: 560, width: 320, height: 500 },
@@ -416,6 +424,28 @@ test('createModelBoundsListener forwards normalized bounds for avatar sender onl
 
   assert.equal(received.length, 1);
   assert.equal(received[0].width, 200);
+});
+
+test('createBubbleMetricsListener forwards normalized bubble metrics for bubble sender only', () => {
+  const webContents = { id: 12 };
+  const window = {
+    webContents,
+    isDestroyed() {
+      return false;
+    }
+  };
+  const received = [];
+  const listener = createBubbleMetricsListener({
+    window,
+    onBubbleMetrics: (payload) => received.push(payload)
+  });
+
+  listener({ sender: webContents }, { width: 320.2, height: 167.7 });
+  listener({ sender: { id: 99 } }, { width: 320.2, height: 167.7 });
+  listener({ sender: webContents }, { width: 0, height: 120 });
+
+  assert.equal(received.length, 1);
+  assert.deepEqual(received[0], { width: 320, height: 168 });
 });
 
 test('createChatInputListener forwards normalized payload to callback', () => {

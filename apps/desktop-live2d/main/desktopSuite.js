@@ -19,6 +19,7 @@ const CHANNELS = Object.freeze({
   chatPanelToggle: 'live2d:chat:panel-toggle',
   chatStateSync: 'live2d:chat:state-sync',
   bubbleStateSync: 'live2d:bubble:state-sync',
+  bubbleMetricsUpdate: 'live2d:bubble:metrics-update',
   modelBoundsUpdate: 'live2d:model:bounds-update',
   windowDrag: 'live2d:window:drag',
   windowControl: 'live2d:window:control',
@@ -285,6 +286,33 @@ function createModelBoundsListener({ window, onModelBounds = null } = {}) {
   };
 }
 
+function normalizeBubbleMetricsPayload(payload) {
+  const width = Number(payload?.width);
+  const height = Number(payload?.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return {
+    width: Math.round(width),
+    height: Math.round(height)
+  };
+}
+
+function createBubbleMetricsListener({ window, onBubbleMetrics = null } = {}) {
+  return (event, payload) => {
+    if (!window || window.isDestroyed() || event?.sender !== window.webContents) {
+      return;
+    }
+    const normalized = normalizeBubbleMetricsPayload(payload);
+    if (!normalized) {
+      return;
+    }
+    if (typeof onBubbleMetrics === 'function') {
+      onBubbleMetrics(normalized);
+    }
+  };
+}
+
 function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
   let lastVisible = null;
   return (event, payload) => {
@@ -383,7 +411,9 @@ async function startDesktopSuite({
   };
   const bubbleState = {
     visible: false,
-    text: ''
+    text: '',
+    width: 320,
+    height: 160
   };
   let bubbleHideTimer = null;
   const fitWindowConfig = {
@@ -487,10 +517,15 @@ async function startDesktopSuite({
     if (!bubbleState.visible || bubbleWindow.isDestroyed()) {
       return;
     }
+    const workArea = display?.workArea;
+    const maxBubbleWidth = Math.max(120, (Number(workArea?.width) || 520) - 32);
+    const maxBubbleHeight = Math.max(44, (Number(workArea?.height) || 1000) - 32);
+    const bubbleWidth = clamp(Number(bubbleState.width) || 320, 120, maxBubbleWidth);
+    const bubbleHeight = clamp(Number(bubbleState.height) || 160, 44, maxBubbleHeight);
     const bubbleBounds = computeBubbleWindowBounds({
       avatarBounds: avatarWindow.getBounds(),
-      bubbleWidth: 320,
-      bubbleHeight: 120,
+      bubbleWidth,
+      bubbleHeight,
       display
     });
     setWindowBoundsIfChanged(bubbleWindow, bubbleBounds);
@@ -563,6 +598,14 @@ async function startDesktopSuite({
       : 5000;
     bubbleState.visible = true;
     bubbleState.text = text;
+    const roughLines = Math.max(
+      1,
+      text.split('\n').length + Math.floor(text.length / 20)
+    );
+    const workArea = display?.workArea;
+    const maxBubbleHeight = Math.max(44, (Number(workArea?.height) || 1000) - 32);
+    bubbleState.width = 320;
+    bubbleState.height = clamp(44 + roughLines * 24, 60, maxBubbleHeight);
     updateBubbleWindowBounds();
     syncBubbleStateToRenderer();
     bubbleWindow.showInactive();
@@ -655,6 +698,20 @@ async function startDesktopSuite({
     }
   });
   ipcMain.on(CHANNELS.modelBoundsUpdate, modelBoundsListener);
+  const bubbleMetricsListener = createBubbleMetricsListener({
+    window: bubbleWindow,
+    onBubbleMetrics: (metrics) => {
+      const workArea = display?.workArea;
+      const maxBubbleWidth = Math.max(120, (Number(workArea?.width) || 520) - 32);
+      const maxBubbleHeight = Math.max(44, (Number(workArea?.height) || 1000) - 32);
+      bubbleState.width = clamp(metrics.width + 20, 120, maxBubbleWidth);
+      bubbleState.height = clamp(metrics.height + 24, 44, maxBubbleHeight);
+      if (bubbleState.visible) {
+        updateBubbleWindowBounds();
+      }
+    }
+  });
+  ipcMain.on(CHANNELS.bubbleMetricsUpdate, bubbleMetricsListener);
 
   const windowControlListener = createWindowControlListener({
     windows: [avatarWindow, chatWindow],
@@ -838,6 +895,7 @@ async function startDesktopSuite({
     ipcMain.off(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
     ipcMain.off(CHANNELS.chatPanelToggle, chatPanelToggleListener);
     ipcMain.off(CHANNELS.modelBoundsUpdate, modelBoundsListener);
+    ipcMain.off(CHANNELS.bubbleMetricsUpdate, bubbleMetricsListener);
     ipcMain.off(CHANNELS.windowControl, windowControlListener);
     ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
 
@@ -1061,7 +1119,7 @@ function createBubbleWindow({ BrowserWindow, preloadPath, avatarBounds, display 
   const bounds = computeBubbleWindowBounds({
     avatarBounds,
     bubbleWidth: 320,
-    bubbleHeight: 120,
+    bubbleHeight: 160,
     display
   });
 
@@ -1317,11 +1375,13 @@ module.exports = {
   normalizeChatPanelVisibilityPayload,
   normalizeChatPanelTogglePayload,
   normalizeModelBoundsPayload,
+  normalizeBubbleMetricsPayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
   createChatPanelToggleListener,
   createModelBoundsListener,
+  createBubbleMetricsListener,
   createChatInputListener,
   handleDesktopRpcRequest,
   isNewSessionCommand,

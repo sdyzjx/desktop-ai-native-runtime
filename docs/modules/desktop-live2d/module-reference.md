@@ -63,6 +63,7 @@
 - `live2d:chat:panel-toggle`
 - `live2d:chat:state-sync`
 - `live2d:bubble:state-sync`
+- `live2d:bubble:metrics-update`
 - `live2d:model:bounds-update`
 - `live2d:window:drag`
 - `live2d:window:control`
