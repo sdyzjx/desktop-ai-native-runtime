@@ -55,18 +55,11 @@
     return Boolean(fallbackComposing);
   }
 
-  function shouldShowPanelOnModelTap(options = {}) {
-    const panelEnabled = Boolean(options.chatPanelEnabled);
-    const panelVisible = Boolean(options.chatPanelVisible);
-    return panelEnabled && !panelVisible;
-  }
-
   const api = {
     createCooldownGate,
     nearlyEqual,
     shouldUpdate2D,
-    isImeComposingEvent,
-    shouldShowPanelOnModelTap
+    isImeComposingEvent
   };
 
   if (typeof module !== 'undefined' && module.exports) {

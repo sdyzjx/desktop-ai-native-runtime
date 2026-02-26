@@ -482,7 +482,7 @@ RPC method -> 实现方法映射：
 - 模型加载：`loadModel(modelRelativePath, modelName)`
 - 自适应布局：`applyAdaptiveLayout()` + `scheduleAdaptiveLayout()`
 - 点击切聊天框：`bindModelInteraction()`
-  - 当前策略为“show-only”：仅在聊天框隐藏时由人物点击打开；收起通过 Header `Hide` 控制，减少点击闪烁
+  - 人物点击支持聊天框显隐切换（toggle）
   - 拖拽窗口：`bindWindowDragGesture(canvas)` -> IPC `windowDrag`
   - 聊天框显隐：`applyChatPanelVisibility()`
   - 显示：先通知 main 扩窗，再在 resize 后 reveal，减少闪烁
