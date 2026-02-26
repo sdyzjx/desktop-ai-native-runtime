@@ -148,6 +148,7 @@ Phase 1 提供可用的语音输出 MVP：
 
 新增工具：`voice.stats`
 - 返回当前进程内的语音指标快照（JSON）
+- Gateway `/health` 也会返回同一份 `voice` 指标快照，便于外部巡检
 - 指标示例：
   - `tts_total` / `tts_success` / `tts_failed`
   - `tts_cancelled` / `tts_deduplicated`
