@@ -12,12 +12,26 @@ function execFileAsync(cmd, args, options = {}) {
     execFile(cmd, args, options, (err, stdout, stderr) => {
       if (err) {
         const message = stderr || stdout || err.message || String(err);
-        reject(new Error(message.trim()));
+        const wrapped = new Error(String(message || '').trim());
+        wrapped.raw = err;
+        reject(wrapped);
         return;
       }
       resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
     });
   });
+}
+
+function normalizeExecError(err) {
+  const raw = err?.raw || err;
+  if (raw && (raw.killed || raw.signal === 'SIGTERM' || raw.code === 'ETIMEDOUT')) {
+    return makeToolError('TTS_TIMEOUT', err.message || 'tts timeout');
+  }
+  return makeToolError('TTS_PROVIDER_DOWN', err?.message || String(err));
+}
+
+function shouldRetryOnce(err) {
+  return err && err.code === 'TTS_PROVIDER_DOWN';
 }
 
 function resolveVoiceReplyCli() {
@@ -141,7 +155,32 @@ async function ttsAliyunVc(args = {}, context = {}) {
     ];
 
     const timeoutMs = Math.max(1, Number(args.timeoutSec || 45)) * 1000;
-    const { stdout } = await execFileAsync(cliPath, cmdArgs, { timeout: timeoutMs });
+
+    let stdout = '';
+    let attempt = 0;
+    while (attempt < 2) {
+      attempt += 1;
+      try {
+        const execResult = await execFileAsync(cliPath, cmdArgs, { timeout: timeoutMs });
+        stdout = execResult.stdout;
+        break;
+      } catch (err) {
+        const normalizedErr = normalizeExecError(err);
+        publishVoiceEvent(context, 'voice.job.retry', {
+          session_id: sessionId,
+          job_id: jobId,
+          attempt,
+          code: normalizedErr.code,
+          will_retry: attempt < 2 && shouldRetryOnce(normalizedErr)
+        });
+
+        if (attempt < 2 && shouldRetryOnce(normalizedErr)) {
+          continue;
+        }
+        throw normalizedErr;
+      }
+    }
+
     const audioPath = String(stdout || '').trim().split('\n').filter(Boolean).pop();
 
     if (!audioPath) {

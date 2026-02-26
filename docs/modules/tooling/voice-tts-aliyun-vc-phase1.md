@@ -135,8 +135,13 @@ Phase 1 提供可用的语音输出 MVP：
 - `TTS_TEXT_TOO_LONG`
 - `TTS_MODEL_VOICE_MISMATCH`
 - `TTS_RATE_LIMITED`
+- `TTS_TIMEOUT`
 - `TTS_PROVIDER_DOWN`
+- `TTS_CANCELLED`
 
+补充语义：
+- Provider 失败会自动重试 1 次（仅 `TTS_PROVIDER_DOWN` 可重试）。
+- 超时直接归类为 `TTS_TIMEOUT`，不重试。
 ---
 
 ## 6. 测试覆盖

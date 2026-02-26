@@ -224,3 +224,80 @@ test('voice adapter cancels stale job when superseded by newer request', async (
     else delete process.env.VOICE_REPLY_CLI;
   }
 });
+
+test('voice adapter retries once on provider error then succeeds', async () => {
+  const { ttsAliyunVc, cooldownStore, idempotencyStore, activeJobStore } = voiceAdapters.__internal;
+  cooldownStore.calls.clear();
+  idempotencyStore.clear();
+  activeJobStore.clear();
+
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-retry-'));
+  const marker = path.join(tmp, 'attempt.txt');
+  const script = path.join(tmp, 'mock-voice-reply.sh');
+  await fs.writeFile(
+    script,
+    `#!/usr/bin/env bash\nif [ ! -f "${marker}" ]; then echo 1 > "${marker}"; echo "first fail" 1>&2; exit 1; fi\necho "/tmp/mock-retry-ok.ogg"\n`,
+    { mode: 0o755 }
+  );
+
+  const previousCli = process.env.VOICE_REPLY_CLI;
+  process.env.VOICE_REPLY_CLI = script;
+
+  try {
+    const result = JSON.parse(await ttsAliyunVc(
+      {
+        text: 'retry test',
+        voiceId: 'voice-A',
+        model: 'qwen3-tts-vc-2026-01-22',
+        voiceTag: 'zh',
+        replyMeta: { inputType: 'audio', sentenceCount: 1 }
+      },
+      {
+        session_id: 'session-retry',
+        voiceRegistry: { 'voice-A': { targetModel: 'qwen3-tts-vc-2026-01-22' } }
+      }
+    ));
+
+    assert.equal(result.audioRef, 'file:///tmp/mock-retry-ok.ogg');
+  } finally {
+    if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
+    else delete process.env.VOICE_REPLY_CLI;
+  }
+});
+
+test('voice adapter maps timeout to TTS_TIMEOUT without retrying', async () => {
+  const { ttsAliyunVc, cooldownStore, idempotencyStore, activeJobStore } = voiceAdapters.__internal;
+  cooldownStore.calls.clear();
+  idempotencyStore.clear();
+  activeJobStore.clear();
+
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-timeout-'));
+  const script = path.join(tmp, 'mock-voice-reply.sh');
+  await fs.writeFile(script, '#!/usr/bin/env bash\nsleep 2\necho "/tmp/never.ogg"\n', { mode: 0o755 });
+
+  const previousCli = process.env.VOICE_REPLY_CLI;
+  process.env.VOICE_REPLY_CLI = script;
+
+  try {
+    await assert.rejects(
+      () => ttsAliyunVc(
+        {
+          text: 'timeout test',
+          voiceId: 'voice-A',
+          model: 'qwen3-tts-vc-2026-01-22',
+          voiceTag: 'zh',
+          timeoutSec: 1,
+          replyMeta: { inputType: 'audio', sentenceCount: 1 }
+        },
+        {
+          session_id: 'session-timeout',
+          voiceRegistry: { 'voice-A': { targetModel: 'qwen3-tts-vc-2026-01-22' } }
+        }
+      ),
+      (err) => err && err.code === 'TTS_TIMEOUT'
+    );
+  } finally {
+    if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
+    else delete process.env.VOICE_REPLY_CLI;
+  }
+});
