@@ -1,13 +1,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { getRuntimePaths } = require('../../runtime/skills/runtimePaths');
 
 const {
   PROJECT_ROOT,
   MODEL_ASSET_RELATIVE_DIR,
   MODEL_JSON_NAME,
-  RUNTIME_SUMMARY_RELATIVE_PATH,
-  BACKUP_ROOT_RELATIVE_PATH,
   DEFAULT_RPC_PORT,
   DEFAULT_RENDERER_TIMEOUT_MS
 } = require('./constants');
@@ -70,21 +69,30 @@ function toPositiveInt(value, fallback) {
 }
 
 function resolveDesktopLive2dConfig({ env = process.env, projectRoot = PROJECT_ROOT } = {}) {
+  const runtimePaths = getRuntimePaths({ env });
   const gatewayPort = toPositiveInt(env.PORT, 3000);
   const gatewayUrl = env.DESKTOP_GATEWAY_URL || `http://127.0.0.1:${gatewayPort}`;
   const rpcPort = toPositiveInt(env.DESKTOP_LIVE2D_RPC_PORT, DEFAULT_RPC_PORT);
   const rpcToken = env.DESKTOP_LIVE2D_RPC_TOKEN || randomUUID();
   const rendererTimeoutMs = toPositiveInt(env.DESKTOP_LIVE2D_RENDERER_TIMEOUT_MS, DEFAULT_RENDERER_TIMEOUT_MS);
-  const uiConfigPath = path.resolve(projectRoot, env.DESKTOP_LIVE2D_CONFIG_PATH || path.join('config', 'desktop-live2d.json'));
-  const uiConfig = loadDesktopLive2dUiConfig(uiConfigPath);
+  const uiConfigPath = path.resolve(
+    env.DESKTOP_LIVE2D_CONFIG_PATH || path.join(runtimePaths.configDir, 'desktop-live2d.json')
+  );
+  const uiConfig = loadDesktopLive2dUiConfig(uiConfigPath, {
+    templatePath: path.resolve(projectRoot, 'config', 'desktop-live2d.json')
+  });
 
   return {
     projectRoot,
     modelDir: path.join(projectRoot, MODEL_ASSET_RELATIVE_DIR),
     modelJsonName: MODEL_JSON_NAME,
     modelRelativePath: toPortablePath(path.join('..', '..', '..', MODEL_ASSET_RELATIVE_DIR, MODEL_JSON_NAME)),
-    runtimeSummaryPath: path.join(projectRoot, RUNTIME_SUMMARY_RELATIVE_PATH),
-    importBackupRoot: path.join(projectRoot, BACKUP_ROOT_RELATIVE_PATH),
+    runtimeSummaryPath: path.resolve(
+      env.DESKTOP_LIVE2D_RUNTIME_SUMMARY_PATH || path.join(runtimePaths.dataDir, 'desktop-live2d', 'runtime-summary.json')
+    ),
+    importBackupRoot: path.resolve(
+      env.DESKTOP_LIVE2D_BACKUP_ROOT || path.join(runtimePaths.dataDir, 'backups', 'live2d')
+    ),
     rpcHost: '127.0.0.1',
     rpcPort,
     rpcToken,
@@ -98,7 +106,14 @@ function resolveDesktopLive2dConfig({ env = process.env, projectRoot = PROJECT_R
   };
 }
 
-function loadDesktopLive2dUiConfig(configPath) {
+function loadDesktopLive2dUiConfig(configPath, { templatePath } = {}) {
+  if (!fs.existsSync(configPath)) {
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    if (templatePath && fs.existsSync(templatePath)) {
+      fs.copyFileSync(templatePath, configPath);
+    }
+  }
+
   if (!fs.existsSync(configPath)) {
     return JSON.parse(JSON.stringify(DEFAULT_UI_CONFIG));
   }

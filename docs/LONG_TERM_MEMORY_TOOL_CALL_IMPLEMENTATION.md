@@ -19,7 +19,7 @@ Core objective:
 - Retrieval context was assembled automatically from persisted session history.
 
 ### After
-- Long-term memory is a dedicated global store (`data/long-term-memory/memory.json` by default).
+- Long-term memory is a dedicated global store (`~/yachiyo/data/long-term-memory/memory.json` by default).
 - Model writes/searches long-term memory only via tools:
   - `memory_write`
   - `memory_search`
@@ -384,7 +384,7 @@ Result:
 
 Memory/Bootstrap/SOP related:
 - `LONG_TERM_MEMORY_DIR`:
-  - default `data/long-term-memory`
+  - default `~/yachiyo/data/long-term-memory`
   - location of `memory.json`
 - `MEMORY_BOOTSTRAP_MAX_ENTRIES`:
   - default `10`
@@ -498,4 +498,3 @@ curl "http://localhost:3000/api/memory/search?q=蓝色"
 - `test/runtime/memoryTools.test.js`
 - `test/runtime/memorySopLoader.test.js`
 - `test/integration/gateway.e2e.test.js`
-

@@ -31,7 +31,7 @@
 7. Avatar renderer 持续上报模型包围盒（`model:bounds-update`），main 进程按阈值自动裁剪 Avatar 窗口尺寸
 8. 创建 `IpcRpcBridge`
 9. 启动 `Live2dRpcServer`
-10. 写入 `data/desktop-live2d/runtime-summary.json`
+10. 写入 `~/yachiyo/data/desktop-live2d/runtime-summary.json`
 
 ### 2.2 控制链（RPC）
 
@@ -137,7 +137,7 @@
 - UI：`uiConfigPath` `uiConfig`
 
 实现方法要点：
-- 优先读取 `DESKTOP_LIVE2D_CONFIG_PATH`，默认 `config/desktop-live2d.json`
+- 优先读取 `DESKTOP_LIVE2D_CONFIG_PATH`，默认 `~/yachiyo/config/desktop-live2d.json`
 - 对 window/render/layout/chat 全字段做数值归一化和兜底
 - `lockScaleOnResize` / `lockPositionOnResize` 默认为 true
 
@@ -564,7 +564,7 @@ RPC method -> 实现方法映射：
 
 ### 7.1 关键配置文件
 
-`config/desktop-live2d.json` 关键项：
+`~/yachiyo/config/desktop-live2d.json` 关键项：
 - `window.*`：窗口尺寸、紧凑模式、锚点
 - `render.*`：清晰度参数
 - `layout.*`：模型位置、比例、pivot、锁姿态

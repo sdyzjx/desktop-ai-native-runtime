@@ -7,7 +7,8 @@ const path = require('node:path');
 const { resolveDesktopLive2dConfig } = require('../../apps/desktop-live2d/main/config');
 
 test('resolveDesktopLive2dConfig applies defaults and model relative path', () => {
-  const config = resolveDesktopLive2dConfig({ env: {} });
+  const yachiyoHome = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-home-'));
+  const config = resolveDesktopLive2dConfig({ env: { YACHIYO_HOME: yachiyoHome } });
 
   assert.equal(config.rpcPort, 17373);
   assert.equal(config.modelJsonName, '八千代辉夜姬.model3.json');
@@ -18,13 +19,15 @@ test('resolveDesktopLive2dConfig applies defaults and model relative path', () =
   assert.equal(config.uiConfig.layout.lockScaleOnResize, true);
   assert.equal(config.uiConfig.layout.lockPositionOnResize, true);
   assert.equal(config.uiConfig.window.compactWhenChatHidden, false);
-  assert.equal(config.uiConfig.window.compactWidth, 260);
-  assert.equal(config.uiConfig.window.compactHeight, 500);
+  assert.equal(config.uiConfig.window.compactWidth, 320);
+  assert.equal(config.uiConfig.window.compactHeight, 600);
 });
 
 test('resolveDesktopLive2dConfig respects env overrides', () => {
+  const yachiyoHome = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-home-'));
   const config = resolveDesktopLive2dConfig({
     env: {
+      YACHIYO_HOME: yachiyoHome,
       PORT: '3100',
       DESKTOP_GATEWAY_URL: 'http://127.0.0.1:3200',
       DESKTOP_LIVE2D_RPC_PORT: '18080',
@@ -42,11 +45,12 @@ test('resolveDesktopLive2dConfig respects env overrides', () => {
   assert.equal(config.modelDir, path.join('/tmp/project', 'assets', 'live2d', 'yachiyo-kaguya'));
 });
 
-test('resolveDesktopLive2dConfig loads overrides from config/desktop-live2d.json', () => {
+test('resolveDesktopLive2dConfig loads overrides from YACHIYO_HOME/config/desktop-live2d.json', () => {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-config-'));
-  fs.mkdirSync(path.join(projectRoot, 'config'), { recursive: true });
+  const yachiyoHome = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-home-'));
+  fs.mkdirSync(path.join(yachiyoHome, 'config'), { recursive: true });
   fs.writeFileSync(
-    path.join(projectRoot, 'config', 'desktop-live2d.json'),
+    path.join(yachiyoHome, 'config', 'desktop-live2d.json'),
     JSON.stringify({
       window: {
         width: 520,
@@ -74,7 +78,10 @@ test('resolveDesktopLive2dConfig loads overrides from config/desktop-live2d.json
     'utf8'
   );
 
-  const config = resolveDesktopLive2dConfig({ env: {}, projectRoot });
+  const config = resolveDesktopLive2dConfig({
+    env: { YACHIYO_HOME: yachiyoHome },
+    projectRoot
+  });
   assert.equal(config.uiConfig.window.width, 520);
   assert.equal(config.uiConfig.window.compactWidth, 280);
   assert.equal(config.uiConfig.window.placement.anchor, 'top-left');

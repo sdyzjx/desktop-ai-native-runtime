@@ -7,7 +7,7 @@
 - 透明窗口 + Live2D 渲染
 - 本地 WS JSON-RPC：`state.get` / `param.set` / `chat.show`
 - Main <-> Renderer IPC 转发
-- 基础配置文件：`config/desktop-live2d.json`
+- 基础配置文件：`~/yachiyo/config/desktop-live2d.json`
 
 但与你要求相比，仍有三个核心缺口：
 1. 缺少“聊天框面板”（当前只有气泡，缺少对话历史与输入区）。
@@ -200,7 +200,7 @@ flowchart LR
 - 输入提交后触发 `chat.input.submit` IPC 事件（由 Main 决定是否转发到 gateway）。
 - 历史队列可配上限（默认 200 条，超限丢弃最旧消息）。
 
-### 6.3 配置扩展（`config/desktop-live2d.json`）
+### 6.3 配置扩展（`~/yachiyo/config/desktop-live2d.json`）
 
 新增建议字段：
 

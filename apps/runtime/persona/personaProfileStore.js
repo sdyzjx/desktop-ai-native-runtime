@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
+const { getRuntimePaths } = require('../skills/runtimePaths');
 
-const DEFAULT_PROFILE_PATH = path.resolve(process.cwd(), 'persona', 'profile.yaml');
+const DEFAULT_PROFILE_PATH = path.join(getRuntimePaths().personaDir, 'profile.yaml');
 
 const DEFAULT_PROFILE = {
   version: 1,

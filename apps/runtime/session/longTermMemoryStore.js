@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { v4: uuidv4 } = require('uuid');
 const { tokenize } = require('./longTermMemory');
+const { getRuntimePaths } = require('../skills/runtimePaths');
 
 const STORE_FILE = 'memory.json';
 
@@ -33,7 +34,7 @@ function defaultStore() {
 
 class LongTermMemoryStore {
   constructor({ rootDir, maxContentChars = 800 } = {}) {
-    this.rootDir = rootDir || process.env.LONG_TERM_MEMORY_DIR || path.resolve(process.cwd(), 'data/long-term-memory');
+    this.rootDir = rootDir || process.env.LONG_TERM_MEMORY_DIR || path.join(getRuntimePaths().dataDir, 'long-term-memory');
     this.filePath = path.join(this.rootDir, STORE_FILE);
     this.maxContentChars = Math.max(64, Number(maxContentChars) || 800);
     this._readyPromise = this.ensureReady();

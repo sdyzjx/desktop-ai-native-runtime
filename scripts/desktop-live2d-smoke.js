@@ -2,8 +2,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const WebSocket = require('ws');
+const { getRuntimePaths } = require('../apps/runtime/skills/runtimePaths');
 
-const DEFAULT_SUMMARY_PATH = path.resolve(__dirname, '..', 'data', 'desktop-live2d', 'runtime-summary.json');
+const DEFAULT_SUMMARY_PATH = path.join(getRuntimePaths().dataDir, 'desktop-live2d', 'runtime-summary.json');
 
 function loadRuntimeSummary(summaryPath = DEFAULT_SUMMARY_PATH) {
   if (!fs.existsSync(summaryPath)) {

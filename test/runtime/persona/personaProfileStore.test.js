@@ -35,6 +35,6 @@ test('normalizeProfile handles invalid root', () => {
   assert.equal(normalized.profile, 'yachiyo');
 });
 
-test('default profile path points to repo persona/profile.yaml', () => {
+test('default profile path points to persona/profile.yaml under runtime home', () => {
   assert.match(DEFAULT_PROFILE_PATH, /persona[\\/]profile\.yaml$/);
 });

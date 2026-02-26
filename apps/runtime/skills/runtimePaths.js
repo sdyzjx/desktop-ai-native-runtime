@@ -17,8 +17,8 @@ function ensureDir(dirPath) {
   return dirPath;
 }
 
-function resolveYachiyoHome({ envKey = DEFAULT_HOME_ENV_KEY, defaultPath = DEFAULT_HOME_FALLBACK } = {}) {
-  const fromEnv = process.env[envKey];
+function resolveYachiyoHome({ env = process.env, envKey = DEFAULT_HOME_ENV_KEY, defaultPath = DEFAULT_HOME_FALLBACK } = {}) {
+  const fromEnv = env[envKey];
   const resolved = path.resolve(expandHome((fromEnv && fromEnv.trim()) || defaultPath));
   return resolved;
 }
@@ -27,12 +27,16 @@ function getRuntimePaths(options = {}) {
   const home = resolveYachiyoHome(options);
   const skillsDir = path.join(home, 'skills');
   const dataDir = path.join(home, 'data');
+  const configDir = path.join(home, 'config');
+  const personaDir = path.join(home, 'persona');
   const logsDir = path.join(home, 'logs');
   const tmpDir = path.join(home, 'tmp');
 
   ensureDir(home);
   ensureDir(skillsDir);
   ensureDir(dataDir);
+  ensureDir(configDir);
+  ensureDir(personaDir);
   ensureDir(logsDir);
   ensureDir(tmpDir);
 
@@ -40,6 +44,8 @@ function getRuntimePaths(options = {}) {
     home,
     skillsDir,
     dataDir,
+    configDir,
+    personaDir,
     logsDir,
     tmpDir
   };

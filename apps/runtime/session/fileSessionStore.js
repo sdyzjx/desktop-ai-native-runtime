@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { v4: uuidv4 } = require('uuid');
 const { buildSessionLongTermMemory } = require('./longTermMemory');
+const { getRuntimePaths } = require('../skills/runtimePaths');
 const {
   buildDefaultSessionSettings,
   normalizeSessionSettings,
@@ -58,7 +59,7 @@ function buildSummary(session) {
 
 class FileSessionStore {
   constructor({ rootDir } = {}) {
-    this.rootDir = rootDir || process.env.SESSION_STORE_DIR || path.resolve(process.cwd(), 'data/session-store');
+    this.rootDir = rootDir || process.env.SESSION_STORE_DIR || path.join(getRuntimePaths().dataDir, 'session-store');
     this.sessionsDir = path.join(this.rootDir, 'sessions');
     this.indexPath = path.join(this.rootDir, INDEX_FILE);
 

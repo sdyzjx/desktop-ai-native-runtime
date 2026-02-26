@@ -1,8 +1,37 @@
 const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
+const { getRuntimePaths } = require('./runtimePaths');
 
-const DEFAULT_SKILLS_CONFIG = path.resolve(process.cwd(), 'config/skills.yaml');
+const DEFAULT_SKILLS_CONFIG = path.join(getRuntimePaths().configDir, 'skills.yaml');
+const DEFAULT_SKILLS_CONFIG_CONTENT = {
+  version: 1,
+  home: {
+    envKey: 'YACHIYO_HOME',
+    defaultPath: '~/yachiyo'
+  },
+  load: {
+    workspace: true,
+    global: true,
+    extraDirs: [],
+    watch: true,
+    watchDebounceMs: 250
+  },
+  limits: {
+    maxCandidatesPerRoot: 300,
+    maxSkillsLoadedPerSource: 200,
+    maxSkillsInPrompt: 80,
+    maxSkillsPromptChars: 24000,
+    maxSkillFileBytes: 262144
+  },
+  trigger: {
+    mode: 'hybrid',
+    maxSelectedPerTurn: 2,
+    scoreThreshold: 45,
+    cooldownMs: 15000
+  },
+  entries: {}
+};
 
 function isObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
@@ -76,9 +105,17 @@ function normalizeSkillsConfig(config) {
 class SkillConfigStore {
   constructor({ configPath } = {}) {
     this.configPath = configPath || process.env.SKILLS_CONFIG_PATH || DEFAULT_SKILLS_CONFIG;
+    this.ensureExists();
+  }
+
+  ensureExists() {
+    if (fs.existsSync(this.configPath)) return;
+    fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
+    fs.writeFileSync(this.configPath, YAML.stringify(DEFAULT_SKILLS_CONFIG_CONTENT), 'utf8');
   }
 
   loadRawYaml() {
+    this.ensureExists();
     return fs.readFileSync(this.configPath, 'utf8');
   }
 
