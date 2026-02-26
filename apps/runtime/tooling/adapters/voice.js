@@ -1,9 +1,10 @@
 const { execFile } = require('node:child_process');
 const path = require('node:path');
 const { loadVoicePolicy, evaluateVoicePolicy } = require('../voice/policy');
-const { InMemoryVoiceCooldownStore } = require('../voice/cooldownStore');
+const { InMemoryVoiceCooldownStore, InMemoryVoiceIdempotencyStore } = require('../voice/cooldownStore');
 
 const cooldownStore = new InMemoryVoiceCooldownStore();
+const idempotencyStore = new InMemoryVoiceIdempotencyStore();
 
 function execFileAsync(cmd, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -94,11 +95,23 @@ async function ttsAliyunVc(args = {}, context = {}) {
     throw makeToolError(policyResult.code, policyResult.reason, { policyReason: policyResult.reason });
   }
 
+  const idempotencyKey = String(args.idempotencyKey || '').trim();
+  const cached = idempotencyStore.get(sessionId, idempotencyKey);
+  if (cached) {
+    publishVoiceEvent(context, 'voice.job.deduplicated', {
+      session_id: sessionId,
+      idempotency_key: idempotencyKey,
+      audio_ref: cached.audioRef
+    });
+    return JSON.stringify(cached);
+  }
+
   publishVoiceEvent(context, 'voice.job.started', {
     session_id: sessionId,
     model: String(args.model || 'qwen3-tts-vc-2026-01-22'),
     voice_id: String(args.voiceId || ''),
-    voice_tag: voiceTag
+    voice_tag: voiceTag,
+    idempotency_key: idempotencyKey || null
   });
 
   try {
@@ -132,20 +145,27 @@ async function ttsAliyunVc(args = {}, context = {}) {
 
     cooldownStore.addCall(sessionId, nowMs);
 
-    publishVoiceEvent(context, 'voice.job.completed', {
-      session_id: sessionId,
-      audio_ref: `file://${audioPath}`,
-      format: 'ogg'
-    });
-
-    return JSON.stringify({
+    const payload = {
       audioRef: `file://${audioPath}`,
       format: 'ogg',
       voiceTag,
       model: String(args.model || 'qwen3-tts-vc-2026-01-22'),
       voiceId: String(args.voiceId || ''),
-      policyReason: policyResult.reason
+      policyReason: policyResult.reason,
+      idempotencyKey: idempotencyKey || null,
+      turnId: args.turnId ? String(args.turnId) : null
+    };
+
+    publishVoiceEvent(context, 'voice.job.completed', {
+      session_id: sessionId,
+      audio_ref: payload.audioRef,
+      format: payload.format,
+      idempotency_key: idempotencyKey || null
     });
+
+    idempotencyStore.set(sessionId, idempotencyKey, payload);
+
+    return JSON.stringify(payload);
   } catch (error) {
     publishVoiceEvent(context, 'voice.job.failed', {
       session_id: sessionId,
@@ -164,6 +184,7 @@ module.exports = {
     resolveVoiceTag,
     checkModelVoiceCompatibility,
     enforceRateLimit,
-    cooldownStore
+    cooldownStore,
+    idempotencyStore
   }
 };

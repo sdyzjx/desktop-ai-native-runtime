@@ -29,6 +29,31 @@ class InMemoryVoiceCooldownStore {
   }
 }
 
+class InMemoryVoiceIdempotencyStore {
+  constructor() {
+    this.store = new Map();
+  }
+
+  _key(sessionId, idempotencyKey) {
+    return `${String(sessionId || 'global')}::${String(idempotencyKey || '')}`;
+  }
+
+  get(sessionId, idempotencyKey) {
+    if (!idempotencyKey) return null;
+    return this.store.get(this._key(sessionId, idempotencyKey)) || null;
+  }
+
+  set(sessionId, idempotencyKey, value) {
+    if (!idempotencyKey) return;
+    this.store.set(this._key(sessionId, idempotencyKey), value);
+  }
+
+  clear() {
+    this.store.clear();
+  }
+}
+
 module.exports = {
-  InMemoryVoiceCooldownStore
+  InMemoryVoiceCooldownStore,
+  InMemoryVoiceIdempotencyStore
 };
