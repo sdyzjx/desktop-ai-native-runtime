@@ -134,7 +134,7 @@ test('computeChatWindowBounds anchors near avatar and clamps into work area', ()
   assert.ok(bounds.y >= 16);
 });
 
-test('computeBubbleWindowBounds anchors near avatar top area', () => {
+test('computeBubbleWindowBounds anchors above avatar center', () => {
   const bounds = computeBubbleWindowBounds({
     avatarBounds: { x: 1000, y: 420, width: 300, height: 500 },
     bubbleWidth: 320,
@@ -151,8 +151,8 @@ test('computeBubbleWindowBounds anchors near avatar top area', () => {
 
   assert.equal(bounds.width, 320);
   assert.equal(bounds.height, 120);
-  assert.ok(bounds.x <= 1728 - 320 - 16);
-  assert.ok(bounds.y >= 16);
+  assert.equal(bounds.x, 990);
+  assert.equal(bounds.y, 290);
 });
 
 test('resolveWindowMetrics returns compact profile and chat default visibility', () => {

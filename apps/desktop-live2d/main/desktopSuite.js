@@ -1250,13 +1250,12 @@ function computeBubbleWindowBounds({
   const workRight = workArea.x + workArea.width - margin;
   const workBottom = workArea.y + workArea.height - margin;
 
-  let x = avatarBounds.x - bubbleWidth - gap;
-  if (x < workLeft) {
-    x = avatarBounds.x + avatarBounds.width + gap;
-  }
+  const avatarCenterX = avatarBounds.x + avatarBounds.width / 2;
+  const preferredX = avatarCenterX - bubbleWidth / 2;
+  let x = preferredX;
   x = clamp(x, workLeft, workRight - bubbleWidth);
 
-  const preferredY = avatarBounds.y + Math.round(avatarBounds.height * 0.15);
+  const preferredY = avatarBounds.y - bubbleHeight - gap;
   const y = clamp(preferredY, workTop, workBottom - bubbleHeight);
 
   return {
