@@ -18,8 +18,8 @@ test('resolveDesktopLive2dConfig applies defaults and model relative path', () =
   assert.equal(config.uiConfig.layout.lockScaleOnResize, true);
   assert.equal(config.uiConfig.layout.lockPositionOnResize, true);
   assert.equal(config.uiConfig.window.compactWhenChatHidden, false);
-  assert.equal(config.uiConfig.window.compactWidth, 300);
-  assert.equal(config.uiConfig.window.compactHeight, 560);
+  assert.equal(config.uiConfig.window.compactWidth, 260);
+  assert.equal(config.uiConfig.window.compactHeight, 500);
 });
 
 test('resolveDesktopLive2dConfig respects env overrides', () => {
