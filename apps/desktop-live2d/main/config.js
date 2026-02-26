@@ -14,13 +14,13 @@ const {
 
 const DEFAULT_UI_CONFIG = Object.freeze({
   window: {
-    width: 460,
-    height: 620,
-    minWidth: 360,
-    minHeight: 480,
+    width: 320,
+    height: 500,
+    minWidth: 180,
+    minHeight: 260,
     compactWhenChatHidden: false,
-    compactWidth: 300,
-    compactHeight: 560,
+    compactWidth: 260,
+    compactHeight: 500,
     placement: {
       anchor: 'bottom-right',
       marginRight: 18,

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yachiyo Bubble</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: transparent;
+        pointer-events: none;
+        font-family: "SF Pro Text", "PingFang SC", sans-serif;
+      }
+
+      #bubble {
+        opacity: 0;
+        transition: opacity 160ms ease;
+        position: absolute;
+        left: 0;
+        top: 0;
+        color: #ffffff;
+        background: rgba(16, 22, 36, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        backdrop-filter: blur(6px);
+        border-radius: 16px;
+        padding: 10px 14px;
+        line-height: 1.45;
+        font-size: 14px;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+        white-space: pre-wrap;
+        word-break: break-word;
+        width: max-content;
+        max-width: 320px;
+      }
+
+      #bubble.visible {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bubble"></div>
+    <script src="./bubble.js"></script>
+  </body>
+</html>

@@ -42,6 +42,7 @@
   let chatPanelShowResizeTimer = null;
   let chatPanelShowResizeListener = null;
   let layoutRafToken = 0;
+  let lastReportedModelBounds = null;
   const modelTapToggleGate = typeof interactionApi?.createCooldownGate === 'function'
     ? interactionApi.createCooldownGate({ cooldownMs: 220 })
     : {
@@ -611,6 +612,10 @@
       if (typeof modelTapToggleGate?.tryEnter === 'function' && !modelTapToggleGate.tryEnter()) {
         return;
       }
+      if (!chatPanelEnabled) {
+        bridge?.sendChatPanelToggle?.({ source: 'avatar-window' });
+        return;
+      }
       toggleChatPanelVisible();
     });
   }
@@ -797,6 +802,37 @@
 
     if (state.bubbleVisible) {
       positionBubbleNearModelHead();
+    }
+
+    const worldBounds = live2dModel.getBounds?.();
+    if (
+      worldBounds
+      && Number.isFinite(worldBounds.x)
+      && Number.isFinite(worldBounds.y)
+      && Number.isFinite(worldBounds.width)
+      && Number.isFinite(worldBounds.height)
+      && worldBounds.width > 4
+      && worldBounds.height > 4
+      && typeof bridge?.sendModelBounds === 'function'
+    ) {
+      const payload = {
+        x: Math.round(worldBounds.x),
+        y: Math.round(worldBounds.y),
+        width: Math.round(worldBounds.width),
+        height: Math.round(worldBounds.height),
+        stageWidth: Math.round(stageSize.width),
+        stageHeight: Math.round(stageSize.height)
+      };
+      const prev = lastReportedModelBounds;
+      const changed = !prev
+        || Math.abs(prev.x - payload.x) >= 2
+        || Math.abs(prev.y - payload.y) >= 2
+        || Math.abs(prev.width - payload.width) >= 2
+        || Math.abs(prev.height - payload.height) >= 2;
+      if (changed) {
+        lastReportedModelBounds = payload;
+        bridge.sendModelBounds(payload);
+      }
     }
   }
 
