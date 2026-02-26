@@ -163,6 +163,8 @@ test('RuntimeRpcWorker transcribes input_audio via hook and forwards transcribed
 
   let seenInput = null;
   let seenRuntimeContext = null;
+  let startHookInput = null;
+  let startHookAudio = null;
   const runner = {
     async run({ input, runtimeContext }) {
       seenInput = input;
@@ -190,7 +192,11 @@ test('RuntimeRpcWorker transcribes input_audio via hook and forwards transcribed
   }, {
     send: (payload) => sends.push(payload),
     transcribeAudio: async () => ({ text: '这是转写文本', confidence: 0.92 }),
-    buildRunContext: async () => ({ permission_level: 'medium', workspace_root: '/tmp/ws-audio' })
+    buildRunContext: async () => ({ permission_level: 'medium', workspace_root: '/tmp/ws-audio' }),
+    onRunStart: async ({ input, runtime_context: runtimeContext }) => {
+      startHookInput = input;
+      startHookAudio = runtimeContext?.input_audio || null;
+    }
   });
 
   assert.equal(accepted.accepted, true);
@@ -198,6 +204,9 @@ test('RuntimeRpcWorker transcribes input_audio via hook and forwards transcribed
 
   assert.equal(seenInput, '这是转写文本');
   assert.equal(seenRuntimeContext.input_audio.transcribed_text, '这是转写文本');
+  assert.equal(startHookInput, '这是转写文本');
+  assert.equal(startHookAudio.transcribed_text, '这是转写文本');
+  assert.equal(startHookAudio.confidence, 0.92);
   assert.equal(sends.some((item) => item.id === 'audio-1' && item.result?.output === 'ok:这是转写文本'), true);
 
   worker.stop();

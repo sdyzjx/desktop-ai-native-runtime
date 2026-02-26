@@ -624,7 +624,7 @@ async function enqueueRpc(ws, rpcPayload, mode) {
 
       return [...seedMessages, ...recentMessages];
     },
-    onRunStart: async ({ session_id: sessionId, runtime_context: runtimeContext }) => {
+    onRunStart: async ({ session_id: sessionId, input, runtime_context: runtimeContext }) => {
       await sessionStore.createSessionIfNotExists({ sessionId, title: 'New chat' });
       let persistedInputImages = [];
       try {
@@ -640,7 +640,7 @@ async function enqueueRpc(ws, rpcPayload, mode) {
       }
       await sessionStore.appendMessage(sessionId, {
         role: 'user',
-        content: requestInput,
+        content: String(input || requestInput || ''),
         request_id: requestId,
         metadata: {
           mode,
@@ -652,7 +652,16 @@ async function enqueueRpc(ws, rpcPayload, mode) {
             mime_type: image.mime_type,
             size_bytes: image.size_bytes,
             url: image.url || ''
-          }))
+          })),
+          input_audio: runtimeContext?.input_audio
+            ? {
+              audio_ref: runtimeContext.input_audio.audio_ref || '',
+              format: runtimeContext.input_audio.format || '',
+              lang: runtimeContext.input_audio.lang || 'auto',
+              transcribed_text: runtimeContext.input_audio.transcribed_text || '',
+              confidence: runtimeContext.input_audio.confidence ?? null
+            }
+            : null
         }
       });
     },
