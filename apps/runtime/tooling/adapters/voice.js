@@ -1,10 +1,11 @@
 const { execFile } = require('node:child_process');
 const path = require('node:path');
 const { loadVoicePolicy, evaluateVoicePolicy } = require('../voice/policy');
-const { InMemoryVoiceCooldownStore, InMemoryVoiceIdempotencyStore } = require('../voice/cooldownStore');
+const { InMemoryVoiceCooldownStore, InMemoryVoiceIdempotencyStore, InMemoryVoiceActiveJobStore } = require('../voice/cooldownStore');
 
 const cooldownStore = new InMemoryVoiceCooldownStore();
 const idempotencyStore = new InMemoryVoiceIdempotencyStore();
+const activeJobStore = new InMemoryVoiceActiveJobStore();
 
 function execFileAsync(cmd, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -106,12 +107,16 @@ async function ttsAliyunVc(args = {}, context = {}) {
     return JSON.stringify(cached);
   }
 
+  const jobId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  activeJobStore.setActive(sessionId, jobId);
+
   publishVoiceEvent(context, 'voice.job.started', {
     session_id: sessionId,
     model: String(args.model || 'qwen3-tts-vc-2026-01-22'),
     voice_id: String(args.voiceId || ''),
     voice_tag: voiceTag,
-    idempotency_key: idempotencyKey || null
+    idempotency_key: idempotencyKey || null,
+    job_id: jobId
   });
 
   try {
@@ -141,6 +146,17 @@ async function ttsAliyunVc(args = {}, context = {}) {
 
     if (!audioPath) {
       throw makeToolError('TTS_PROVIDER_DOWN', 'tts output is empty');
+    }
+
+    const activeJobId = activeJobStore.getActive(sessionId);
+    if (activeJobId !== jobId) {
+      publishVoiceEvent(context, 'voice.job.cancelled', {
+        session_id: sessionId,
+        job_id: jobId,
+        active_job_id: activeJobId,
+        reason: 'superseded_by_newer_request'
+      });
+      throw makeToolError('TTS_CANCELLED', 'tts result superseded by newer request');
     }
 
     cooldownStore.addCall(sessionId, nowMs);
@@ -185,6 +201,7 @@ module.exports = {
     checkModelVoiceCompatibility,
     enforceRateLimit,
     cooldownStore,
-    idempotencyStore
+    idempotencyStore,
+    activeJobStore
   }
 };
