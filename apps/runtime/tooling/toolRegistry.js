@@ -3,6 +3,7 @@ const fsAdapters = require('./adapters/fs');
 const shellAdapters = require('./adapters/shell');
 const memoryAdapters = require('./adapters/memory');
 const voiceAdapters = require('./adapters/voice');
+const asrAdapters = require('./adapters/asr');
 const { ToolingError, ErrorCode } = require('./errors');
 
 const ADAPTERS = {
@@ -10,7 +11,8 @@ const ADAPTERS = {
   ...fsAdapters,
   ...shellAdapters,
   ...memoryAdapters,
-  ...voiceAdapters
+  ...voiceAdapters,
+  ...asrAdapters
 };
 
 class ToolRegistry {
