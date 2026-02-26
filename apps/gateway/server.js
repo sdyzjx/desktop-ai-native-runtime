@@ -29,6 +29,7 @@ const { SkillRuntimeManager } = require('../runtime/skills/skillRuntimeManager')
 const { getRuntimePaths } = require('../runtime/skills/runtimePaths');
 const { PersonaContextBuilder } = require('../runtime/persona/personaContextBuilder');
 const { PersonaProfileStore } = require('../runtime/persona/personaProfileStore');
+const { __internal: voiceInternal } = require('../runtime/tooling/adapters/voice');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -166,6 +167,10 @@ app.get('/api/session-images/:sessionId/:fileName', async (req, res) => {
 app.get('/health', async (_, res) => {
   const sessionStats = await sessionStore.getStats();
   const memoryStats = await longTermMemoryStore.getStats();
+  const voiceStats = typeof voiceInternal?.snapshotMetrics === 'function'
+    ? voiceInternal.snapshotMetrics()
+    : null;
+
   res.json({
     ok: true,
     uptime_seconds: Math.floor(process.uptime()),
@@ -174,6 +179,7 @@ app.get('/health', async (_, res) => {
     tools: toolConfigManager.getSummary(),
     session_store: sessionStats,
     memory_store: memoryStats,
+    voice: voiceStats,
     workspace_store: {
       root_dir: workspaceManager.rootDir
     }
