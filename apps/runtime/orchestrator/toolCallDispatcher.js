@@ -41,7 +41,17 @@ class ToolCallDispatcher {
           permission_level: permissionLevel || null,
           workspace_root: workspaceRoot || null
         },
-        workspaceRoot: workspaceRoot || process.cwd()
+        workspaceRoot: workspaceRoot || process.cwd(),
+        publishEvent: (topic, eventPayload = {}) => {
+          this.bus.publish(topic, {
+            trace_id: traceId,
+            session_id: sessionId,
+            step_index: stepIndex,
+            call_id: callId,
+            tool_name: tool.name,
+            ...eventPayload
+          });
+        }
       });
       if (!result.ok) {
         this.bus.publish('tool.call.result', {

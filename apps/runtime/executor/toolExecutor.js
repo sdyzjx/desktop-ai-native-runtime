@@ -64,7 +64,8 @@ class ToolExecutor {
           step_index: meta.step_index ?? null,
           call_id: meta.call_id || null,
           permission_level: meta.permission_level || null,
-          workspace_root: meta.workspace_root || null
+          workspace_root: meta.workspace_root || null,
+          publishEvent: ctx.publishEvent || null
         });
       }
     ]);
@@ -82,6 +83,7 @@ class ToolExecutor {
       },
       meta: buildMeta(context),
       workspaceRoot: context.workspaceRoot || process.cwd(),
+      publishEvent: context.publishEvent || null,
       registry: this.registry,
       policy: this.policy,
       result: null,
