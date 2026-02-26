@@ -5,15 +5,16 @@ const {
   PROJECT_ROOT,
   DEFAULT_IMPORT_SOURCE_DIR,
   MODEL_ASSET_RELATIVE_DIR,
-  MODEL_JSON_NAME,
-  BACKUP_ROOT_RELATIVE_PATH
+  MODEL_JSON_NAME
 } = require('../apps/desktop-live2d/main/constants');
 const { importModelAssets } = require('../apps/desktop-live2d/main/modelAssets');
+const { getRuntimePaths } = require('../apps/runtime/skills/runtimePaths');
 
 function main() {
+  const runtimePaths = getRuntimePaths();
   const sourceDir = process.env.LIVE2D_IMPORT_SOURCE_DIR || DEFAULT_IMPORT_SOURCE_DIR;
   const targetDir = path.join(PROJECT_ROOT, MODEL_ASSET_RELATIVE_DIR);
-  const backupRoot = path.join(PROJECT_ROOT, BACKUP_ROOT_RELATIVE_PATH);
+  const backupRoot = process.env.DESKTOP_LIVE2D_BACKUP_ROOT || path.join(runtimePaths.dataDir, 'backups', 'live2d');
   const allowOverwrite = !process.argv.includes('--no-overwrite');
 
   const summary = importModelAssets({

@@ -26,6 +26,7 @@ const {
 } = require('../runtime/session/sessionPermissions');
 const { canReadLongTermMemory } = require('../runtime/security/sessionPermissionPolicy');
 const { SkillRuntimeManager } = require('../runtime/skills/skillRuntimeManager');
+const { getRuntimePaths } = require('../runtime/skills/runtimePaths');
 const { PersonaContextBuilder } = require('../runtime/persona/personaContextBuilder');
 const { PersonaProfileStore } = require('../runtime/persona/personaProfileStore');
 
@@ -64,7 +65,7 @@ const maxInputImageDataUrlChars = Math.max(
   Number(process.env.MAX_INPUT_IMAGE_DATA_URL_CHARS) || Math.ceil(maxInputImageBytes * 1.5)
 );
 const sessionImageStoreDir = path.resolve(
-  process.env.SESSION_IMAGE_STORE_DIR || path.resolve(process.cwd(), 'data/session-images')
+  process.env.SESSION_IMAGE_STORE_DIR || path.join(getRuntimePaths().dataDir, 'session-images')
 );
 
 function extensionFromMimeType(mimeType) {

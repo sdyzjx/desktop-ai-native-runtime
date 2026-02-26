@@ -27,10 +27,10 @@ Native-first desktop AI assistant runtime.
 npm install
 ```
 
-2. 配置模型提供商（`config/providers.yaml`）：
+2. 配置模型提供商（`~/yachiyo/config/providers.yaml`）：
 
 ```bash
-# 编辑 config/providers.yaml：
+# 编辑 ~/yachiyo/config/providers.yaml：
 # - active_provider（当前使用的提供商）
 # - providers.<name>.base_url
 # - providers.<name>.model
@@ -103,10 +103,10 @@ This repository now runs in real LLM mode with a decoupled architecture:
 npm install
 ```
 
-2. Configure model provider YAML (`config/providers.yaml`):
+2. Configure model provider YAML (`~/yachiyo/config/providers.yaml`):
 
 ```bash
-# edit config/providers.yaml:
+# edit ~/yachiyo/config/providers.yaml:
 # - active_provider
 # - providers.<name>.base_url
 # - providers.<name>.model
@@ -156,10 +156,10 @@ npm run desktop:smoke
 ```
 
 Runtime summary file:
-- `data/desktop-live2d/runtime-summary.json`
+- `~/yachiyo/data/desktop-live2d/runtime-summary.json`
 
 UI config file:
-- `config/desktop-live2d.json`
+- `~/yachiyo/config/desktop-live2d.json`
 - Editable knobs include:
   - window position: `window.placement.anchor` / `margin*`
   - compact mode (chat hidden): `window.compactWhenChatHidden` / `window.compactWidth` / `window.compactHeight`
@@ -207,11 +207,11 @@ Runtime/API support:
 ## Persistence
 
 Session persistence is enabled by default (file-backed):
-- default path: `data/session-store`
+- default path: `~/yachiyo/data/session-store`
 - override path: `SESSION_STORE_DIR=/your/path`
 
 Session image persistence:
-- default path: `data/session-images`
+- default path: `~/yachiyo/data/session-images`
 - override path: `SESSION_IMAGE_STORE_DIR=/your/path`
 
 Session APIs:
@@ -237,7 +237,7 @@ Each `runtime.run` now assembles multi-turn prompt context from persisted sessio
 Long-term memory is now decoupled from runtime finalization and managed by model tool-calls:
 - Write flow: model calls `memory_write` tool
 - Search flow: model calls `memory_search` tool by keyword query
-- Storage: global file-backed memory store (`data/long-term-memory` by default)
+- Storage: global file-backed memory store (`~/yachiyo/data/long-term-memory` by default)
 
 Session-start context behavior:
 - On new session start, gateway injects:
@@ -245,7 +245,7 @@ Session-start context behavior:
   2. bootstrap long-term memory entries (top N, configurable)
 
 Memory tunables:
-- `LONG_TERM_MEMORY_DIR` (default: `data/long-term-memory`)
+- `LONG_TERM_MEMORY_DIR` (default: `~/yachiyo/data/long-term-memory`)
 - `MEMORY_BOOTSTRAP_MAX_ENTRIES` (default: `10`)
 - `MEMORY_BOOTSTRAP_MAX_CHARS` (default: `2400`)
 - `MEMORY_SOP_PATH` (default: `docs/memory_sop.md`)

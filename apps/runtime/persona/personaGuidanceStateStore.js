@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const { getRuntimePaths } = require('../skills/runtimePaths');
 
-const DEFAULT_STATE_PATH = path.resolve(process.cwd(), 'persona', 'state.json');
+const DEFAULT_STATE_PATH = path.join(getRuntimePaths().personaDir, 'state.json');
 
 function readJsonSafe(filePath) {
   try {

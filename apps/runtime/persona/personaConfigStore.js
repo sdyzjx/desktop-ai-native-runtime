@@ -1,8 +1,42 @@
 const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
+const { getRuntimePaths } = require('../skills/runtimePaths');
 
-const DEFAULT_PATH = path.resolve(process.cwd(), 'config/persona.yaml');
+const DEFAULT_PATH = path.join(getRuntimePaths().configDir, 'persona.yaml');
+const DEFAULT_CONFIG = {
+  version: 1,
+  defaults: {
+    profile: 'yachiyo',
+    mode: 'hybrid',
+    injectEnabled: true,
+    maxContextChars: 1500,
+    sharedAcrossSessions: true
+  },
+  source: {
+    preferredRoot: '.',
+    allowWorkspaceOverride: false
+  },
+  modes: {
+    rational: {
+      style: 'concise, structured, technical'
+    },
+    idol: {
+      style: 'warm, expressive, encouraging'
+    },
+    hybrid: {
+      style: 'balanced rational(60) poetic(40)'
+    },
+    strict: {
+      style: 'minimal emotion, high precision'
+    }
+  },
+  writeback: {
+    enabled: true,
+    explicitOnly: false,
+    minSignals: 3
+  }
+};
 
 function normalizeConfig(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('persona.yaml root must be object');
@@ -36,9 +70,17 @@ function normalizeConfig(raw) {
 class PersonaConfigStore {
   constructor({ configPath } = {}) {
     this.configPath = configPath || process.env.PERSONA_CONFIG_PATH || DEFAULT_PATH;
+    this.ensureExists();
+  }
+
+  ensureExists() {
+    if (fs.existsSync(this.configPath)) return;
+    fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
+    fs.writeFileSync(this.configPath, YAML.stringify(DEFAULT_CONFIG), 'utf8');
   }
 
   load() {
+    this.ensureExists();
     const raw = fs.readFileSync(this.configPath, 'utf8');
     return normalizeConfig(YAML.parse(raw));
   }

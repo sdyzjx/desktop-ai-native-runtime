@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
+const { getRuntimePaths } = require('../skills/runtimePaths');
 
 const DEFAULT_CONFIG = {
   active_provider: 'openai',
@@ -69,7 +70,7 @@ class ProviderConfigStore {
   constructor({ configPath } = {}) {
     this.configPath = configPath
       || process.env.PROVIDER_CONFIG_PATH
-      || path.resolve(process.cwd(), 'config/providers.yaml');
+      || path.join(getRuntimePaths().configDir, 'providers.yaml');
     this.ensureExists();
   }
 

@@ -18,7 +18,7 @@
 - RPC worker is the sole queue consumer and method router.
 
 ## Provider Config (YAML)
-- Config file: `config/providers.yaml`
+- Config file: `~/yachiyo/config/providers.yaml`
 - Gateway reads provider config through `ProviderConfigStore` + `LlmProviderManager`
 - Debug front-end edits YAML via `/api/config/providers/raw`
 - Runner resolves reasoner per request, so provider updates apply immediately without process restart

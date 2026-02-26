@@ -2,8 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
 const { ToolingError, ErrorCode } = require('./errors');
+const { getRuntimePaths } = require('../skills/runtimePaths');
 
-const DEFAULT_CONFIG_PATH = path.resolve(process.cwd(), 'config/tools.yaml');
+const DEFAULT_CONFIG_PATH = path.join(getRuntimePaths().configDir, 'tools.yaml');
+const REPO_TEMPLATE_PATH = path.resolve(__dirname, '..', '..', '..', 'config', 'tools.yaml');
 
 function isObject(v) {
   return v && typeof v === 'object' && !Array.isArray(v);
@@ -36,9 +38,27 @@ function validateToolsConfig(cfg) {
 class ToolConfigStore {
   constructor({ configPath } = {}) {
     this.configPath = configPath || process.env.TOOL_CONFIG_PATH || DEFAULT_CONFIG_PATH;
+    this.ensureExists();
+  }
+
+  ensureExists() {
+    if (fs.existsSync(this.configPath)) return;
+
+    fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
+
+    if (fs.existsSync(REPO_TEMPLATE_PATH)) {
+      fs.copyFileSync(REPO_TEMPLATE_PATH, this.configPath);
+      return;
+    }
+
+    throw new ToolingError(
+      ErrorCode.CONFIG_ERROR,
+      `tools config template not found: ${REPO_TEMPLATE_PATH}`
+    );
   }
 
   loadRawYaml() {
+    this.ensureExists();
     return fs.readFileSync(this.configPath, 'utf8');
   }
 

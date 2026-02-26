@@ -1,5 +1,6 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { getRuntimePaths } = require('../skills/runtimePaths');
 
 function toWorkspaceName(sessionId) {
   return encodeURIComponent(String(sessionId || 'session'));
@@ -9,7 +10,7 @@ class SessionWorkspaceManager {
   constructor({ rootDir } = {}) {
     this.rootDir = rootDir
       || process.env.SESSION_WORKSPACES_DIR
-      || path.resolve(process.cwd(), 'data/session-workspaces');
+      || path.join(getRuntimePaths().dataDir, 'session-workspaces');
     this._readyPromise = this.ensureReady();
   }
 

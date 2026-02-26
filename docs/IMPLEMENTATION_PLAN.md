@@ -2,7 +2,7 @@
 
 ## Completed in this iteration
 - Added real LLM reasoner using OpenAI-compatible `chat/completions`
-- Added YAML-based provider registry (`config/providers.yaml`)
+- Added YAML-based provider registry (`~/yachiyo/config/providers.yaml`)
 - Added provider manager APIs and debug-page YAML editor for online updates
 - Added file-backed session persistence (messages, runtime events, run records)
 - Added session query APIs for backend retrieval

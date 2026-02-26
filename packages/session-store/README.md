@@ -14,11 +14,11 @@ Current implementation persists:
 ## Storage Layout
 
 Default root directory:
-- `data/session-store`
+- `~/yachiyo/data/session-store`
 
 Files:
-- `data/session-store/index.json` (session summaries)
-- `data/session-store/sessions/<session_id>.json` (full session data)
+- `~/yachiyo/data/session-store/index.json` (session summaries)
+- `~/yachiyo/data/session-store/sessions/<session_id>.json` (full session data)
 
 ## Runtime Integration
 
@@ -37,7 +37,7 @@ Hooks are triggered by `RuntimeRpcWorker`:
 - `MEMORY_BOOTSTRAP_MAX_CHARS`: max injected memory chars on new session (default 2400)
 - `MEMORY_SOP_PATH`: markdown file path for memory SOP (default `docs/memory_sop.md`)
 - `MEMORY_SOP_MAX_CHARS`: max SOP chars injected on new session (default 8000)
-- `LONG_TERM_MEMORY_DIR`: global long-term memory store dir (default `data/long-term-memory`)
+- `LONG_TERM_MEMORY_DIR`: global long-term memory store dir (default `~/yachiyo/data/long-term-memory`)
 
 ## API Exposure (Gateway)
 

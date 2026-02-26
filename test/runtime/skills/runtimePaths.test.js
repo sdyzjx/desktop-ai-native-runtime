@@ -36,6 +36,8 @@ test('getRuntimePaths creates expected directories', () => {
   assert.equal(paths.home, customHome);
   assert.equal(fs.existsSync(paths.skillsDir), true);
   assert.equal(fs.existsSync(paths.dataDir), true);
+  assert.equal(fs.existsSync(paths.configDir), true);
+  assert.equal(fs.existsSync(paths.personaDir), true);
   assert.equal(fs.existsSync(paths.logsDir), true);
   assert.equal(fs.existsSync(paths.tmpDir), true);
 });

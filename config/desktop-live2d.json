@@ -1,12 +1,12 @@
 {
   "window": {
-    "width": 320,
-    "height": 500,
-    "minWidth": 180,
-    "minHeight": 260,
+    "width": 380,
+    "height": 600,
+    "minWidth": 240,
+    "minHeight": 360,
     "compactWhenChatHidden": false,
-    "compactWidth": 260,
-    "compactHeight": 500,
+    "compactWidth": 320,
+    "compactHeight": 600,
     "placement": {
       "anchor": "bottom-right",
       "marginRight": 18,

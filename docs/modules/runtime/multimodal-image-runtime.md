@@ -62,7 +62,7 @@
 
 Gateway 在 `onRunStart` 落盘用户图片：
 
-- 目录：`data/session-images/<sessionId>/`
+- 目录：`~/yachiyo/data/session-images/<sessionId>/`
 - 文件名：`<client_id>.<ext>`
 - 公网访问路径：`/api/session-images/:sessionId/:fileName`
 
@@ -110,11 +110,11 @@ Session message metadata 保存：
 - `MAX_INPUT_IMAGES`（默认 `4`）
 - `MAX_INPUT_IMAGE_BYTES`（默认 `8MB`）
 - `MAX_INPUT_IMAGE_DATA_URL_CHARS`（默认 `ceil(MAX_INPUT_IMAGE_BYTES * 1.5)`）
-- `SESSION_IMAGE_STORE_DIR`（默认 `data/session-images`）
+- `SESSION_IMAGE_STORE_DIR`（默认 `~/yachiyo/data/session-images`）
 
 ### 5.2 LLM 请求重试
 
-可在 `config/providers.yaml` provider 节点配置：
+可在 `~/yachiyo/config/providers.yaml` provider 节点配置：
 
 - `max_retries`（默认 `2`）
 - `retry_delay_ms`（默认 `300`）
