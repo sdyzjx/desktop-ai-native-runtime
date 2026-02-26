@@ -4,6 +4,90 @@
 
 Native-first desktop AI assistant runtime.
 
+<details open>
+<summary>🇺🇸 English</summary>
+
+> You are reading the English version. [切换到中文 →](#chinese)
+
+</details>
+
+<details>
+<summary>🇨🇳 中文说明</summary>
+<a name="chinese"></a>
+
+## 项目简介
+
+**open-yachiyo** 是一个原生优先的桌面 AI 助手运行时，支持 Live2D 桌面宠物、多模态输入、长期记忆和技能扩展。
+
+## 快速开始
+
+1. 安装依赖：
+
+```bash
+npm install
+```
+
+2. 配置模型提供商（`config/providers.yaml`）：
+
+```bash
+# 编辑 config/providers.yaml：
+# - active_provider（当前使用的提供商）
+# - providers.<name>.base_url
+# - providers.<name>.model
+# - providers.<name>.api_key 或 api_key_env
+```
+
+如使用 `api_key_env`，请先导出环境变量：
+
+```bash
+export OPENAI_API_KEY="<your_api_key>"
+```
+
+3. 启动服务：
+
+```bash
+npm run dev
+```
+
+4. 健康检查：
+
+```bash
+curl http://localhost:3000/health
+```
+
+5. Web 界面：
+- 对话界面：`http://localhost:3000/`
+- 提供商配置界面：`http://localhost:3000/config.html`
+
+## 桌面 Live2D
+
+```bash
+# 导入模型资源
+npm run live2d:import
+
+# 启动桌面套件（网关 + Live2D 窗口 + RPC）
+npm run desktop:up
+
+# 启动后运行快速冒烟测试
+npm run desktop:smoke
+```
+
+## 测试
+
+```bash
+npm test        # 完整测试套件
+npm run test:ci # CI 等效命令
+```
+
+## 项目结构
+
+- `apps/gateway`：WebSocket 网关 + RPC 队列入口
+- `apps/runtime`：事件总线、RPC Worker、LLM 推理、工具循环
+- `apps/desktop-live2d`：Electron + Live2D 桌面壳
+- `docs/`：架构文档、模块参考、实现记录
+
+</details>
+
 ## Current State
 
 This repository now runs in real LLM mode with a decoupled architecture:
@@ -269,3 +353,26 @@ Module-level runtime docs:
 Practical usage cases:
 - `docs/TEST_SKILL_SMOKE_GUIDE.md`
 - `docs/RUNTIME_FEATURE_USAGE_CASES.md`
+
+## Contributors
+
+Thanks to everyone who has contributed to this project!
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/sdyzjx">
+        <img src="https://github.com/sdyzjx.png" width="80" alt="sdyzjx" style="border-radius:50%"/><br/>
+        <sub><b>sdyzjx</b></sub>
+      </a><br/>
+      <sub>Creator & Maintainer</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/wkf16">
+        <img src="https://github.com/wkf16.png" width="80" alt="wkf16" style="border-radius:50%"/><br/>
+        <sub><b>wkf16</b></sub>
+      </a><br/>
+      <sub>Contributor</sub>
+    </td>
+  </tr>
+</table>
