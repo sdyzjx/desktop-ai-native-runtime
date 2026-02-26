@@ -59,7 +59,13 @@ Phase 1 提供可用的语音输出 MVP：
 
 会发出 `voice.job.deduplicated` 事件。
 
-## 3.5 模型-音色一致性判定
+## 3.5 新请求抢占旧请求（阶段新增）
+
+同一 session 内，如果较新的 TTS 请求先成为 active job，较早请求即使后返回，也会被标记为 `TTS_CANCELLED` 并丢弃结果，避免旧语音覆盖新语音。
+
+会发出 `voice.job.cancelled` 事件（`reason=superseded_by_newer_request`）。
+
+## 3.6 模型-音色一致性判定
 
 若 runtime 提供 `voiceRegistry`，会验证：
 - `voiceId.targetModel === model`

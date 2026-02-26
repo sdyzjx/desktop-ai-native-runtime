@@ -53,7 +53,26 @@ class InMemoryVoiceIdempotencyStore {
   }
 }
 
+class InMemoryVoiceActiveJobStore {
+  constructor() {
+    this.activeBySession = new Map();
+  }
+
+  setActive(sessionId, jobId) {
+    this.activeBySession.set(String(sessionId || 'global'), String(jobId));
+  }
+
+  getActive(sessionId) {
+    return this.activeBySession.get(String(sessionId || 'global')) || null;
+  }
+
+  clear() {
+    this.activeBySession.clear();
+  }
+}
+
 module.exports = {
   InMemoryVoiceCooldownStore,
-  InMemoryVoiceIdempotencyStore
+  InMemoryVoiceIdempotencyStore,
+  InMemoryVoiceActiveJobStore
 };

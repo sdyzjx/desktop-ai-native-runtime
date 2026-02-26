@@ -176,3 +176,51 @@ test('voice adapter deduplicates same idempotencyKey and avoids duplicate cli ca
     else delete process.env.VOICE_REPLY_CLI;
   }
 });
+
+test('voice adapter cancels stale job when superseded by newer request', async () => {
+  const { ttsAliyunVc, cooldownStore, idempotencyStore, activeJobStore } = voiceAdapters.__internal;
+  cooldownStore.calls.clear();
+  idempotencyStore.clear();
+  activeJobStore.clear();
+
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-cancel-'));
+  const script = path.join(tmp, 'mock-voice-reply.sh');
+  await fs.writeFile(
+    script,
+    '#!/usr/bin/env bash\nif [ "$7" = "slow" ]; then sleep 1; fi\necho "/tmp/mock-cancel-$7.ogg"\n',
+    { mode: 0o755 }
+  );
+
+  const previousCli = process.env.VOICE_REPLY_CLI;
+  process.env.VOICE_REPLY_CLI = script;
+
+  try {
+    const base = {
+      voiceId: 'voice-A',
+      model: 'qwen3-tts-vc-2026-01-22',
+      voiceTag: 'zh',
+      replyMeta: { inputType: 'audio', sentenceCount: 1 }
+    };
+    const ctx = {
+      session_id: 'session-cancel',
+      voiceRegistry: { 'voice-A': { targetModel: 'qwen3-tts-vc-2026-01-22' } }
+    };
+
+    const slowPromise = ttsAliyunVc({ ...base, text: 'slow' }, ctx);
+    slowPromise.catch(() => {});
+    await new Promise((r) => setTimeout(r, 100));
+    const fastResult = JSON.parse(await ttsAliyunVc({ ...base, text: 'fast' }, ctx));
+
+    assert.equal(fastResult.audioRef, 'file:///tmp/mock-cancel-fast.ogg');
+
+    await assert.rejects(
+      async () => {
+        await slowPromise;
+      },
+      (err) => err && err.code === 'TTS_CANCELLED'
+    );
+  } finally {
+    if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
+    else delete process.env.VOICE_REPLY_CLI;
+  }
+});
