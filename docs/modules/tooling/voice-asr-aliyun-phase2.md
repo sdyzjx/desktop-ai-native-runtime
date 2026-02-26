@@ -76,6 +76,8 @@ Phase 2 接入语音输入主链路：
 
 当 `input` 为空且提供了 `input_audio` 时，worker 会先调用 ASR，再把转写文本作为用户输入送入标准 session 回路。
 
+网关在 `onRunStart` 落库时会把该转写文本写入 user message `content`，并把 `input_audio`（含 `transcribed_text/confidence`）写入 message metadata，便于审计与回放。
+
 示例输出：
 
 ```json
