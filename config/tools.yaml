@@ -134,6 +134,8 @@ tools:
         model: { type: string }
         voiceTag: { type: string, enum: [zh, jp, en] }
         timeoutSec: { type: integer, minimum: 1, maximum: 120 }
+        turnId: { type: string }
+        idempotencyKey: { type: string }
         replyMeta:
           type: object
           properties:

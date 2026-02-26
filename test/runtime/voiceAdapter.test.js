@@ -89,8 +89,9 @@ test('voice adapter executes configured CLI and returns audioRef', async () => {
 });
 
 test('voice adapter emits policy and job events via publishEvent', async () => {
-  const { ttsAliyunVc, cooldownStore } = voiceAdapters.__internal;
+  const { ttsAliyunVc, cooldownStore, idempotencyStore } = voiceAdapters.__internal;
   cooldownStore.calls.clear();
+  idempotencyStore.clear();
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-cli-events-'));
   const script = path.join(tmp, 'mock-voice-reply.sh');
@@ -123,6 +124,53 @@ test('voice adapter emits policy and job events via publishEvent', async () => {
     assert.equal(topics.includes('voice.policy.checked'), true);
     assert.equal(topics.includes('voice.job.started'), true);
     assert.equal(topics.includes('voice.job.completed'), true);
+  } finally {
+    if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
+    else delete process.env.VOICE_REPLY_CLI;
+  }
+});
+
+test('voice adapter deduplicates same idempotencyKey and avoids duplicate cli calls', async () => {
+  const { ttsAliyunVc, cooldownStore, idempotencyStore } = voiceAdapters.__internal;
+  cooldownStore.calls.clear();
+  idempotencyStore.clear();
+
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-idempotency-'));
+  const counter = path.join(tmp, 'counter.txt');
+  const script = path.join(tmp, 'mock-voice-reply.sh');
+  await fs.writeFile(
+    script,
+    `#!/usr/bin/env bash\ncount=0\nif [ -f "${counter}" ]; then count=$(cat "${counter}"); fi\ncount=$((count+1))\necho $count > "${counter}"\necho "/tmp/mock-idem-$count.ogg"\n`,
+    { mode: 0o755 }
+  );
+
+  const previousCli = process.env.VOICE_REPLY_CLI;
+  process.env.VOICE_REPLY_CLI = script;
+
+  try {
+    const args = {
+      text: '去重测试',
+      voiceId: 'voice-A',
+      model: 'qwen3-tts-vc-2026-01-22',
+      voiceTag: 'zh',
+      turnId: 'turn-1',
+      idempotencyKey: 'sess1-turn1-voice',
+      replyMeta: { inputType: 'audio', sentenceCount: 1 }
+    };
+
+    const context = {
+      session_id: 'session-idem',
+      voiceRegistry: { 'voice-A': { targetModel: 'qwen3-tts-vc-2026-01-22' } }
+    };
+
+    const first = JSON.parse(await ttsAliyunVc(args, context));
+    const second = JSON.parse(await ttsAliyunVc(args, context));
+
+    assert.equal(first.audioRef, 'file:///tmp/mock-idem-1.ogg');
+    assert.equal(second.audioRef, 'file:///tmp/mock-idem-1.ogg');
+
+    const countRaw = await fs.readFile(counter, 'utf8');
+    assert.equal(Number(countRaw.trim()), 1);
   } finally {
     if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
     else delete process.env.VOICE_REPLY_CLI;

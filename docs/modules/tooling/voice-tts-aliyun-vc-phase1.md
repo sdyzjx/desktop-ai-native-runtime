@@ -49,7 +49,17 @@ Phase 1 提供可用的语音输出 MVP：
 - `cooldown_sec_per_session`
 - `max_tts_calls_per_minute`
 
-## 3.4 模型-音色一致性判定
+## 3.4 幂等去重（阶段新增）
+
+支持可选参数：
+- `idempotencyKey`
+- `turnId`
+
+当同一 `session_id + idempotencyKey` 重复请求时，直接返回第一次生成结果，避免重复 TTS/重复播报。
+
+会发出 `voice.job.deduplicated` 事件。
+
+## 3.5 模型-音色一致性判定
 
 若 runtime 提供 `voiceRegistry`，会验证：
 - `voiceId.targetModel === model`
