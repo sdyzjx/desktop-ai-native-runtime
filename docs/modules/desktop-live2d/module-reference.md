@@ -28,9 +28,10 @@
 4. 创建三窗口：`createMainWindow()`（Avatar）/ `createChatWindow()`（聊天）/ `createBubbleWindow()`（气泡）
 5. 绑定 IPC（drag/control/chat/rpc）
 6. 加载 Avatar renderer 页面并等待 `rendererReady`
-7. 创建 `IpcRpcBridge`
-8. 启动 `Live2dRpcServer`
-9. 写入 `data/desktop-live2d/runtime-summary.json`
+7. Avatar renderer 持续上报模型包围盒（`model:bounds-update`），main 进程按阈值自动裁剪 Avatar 窗口尺寸
+8. 创建 `IpcRpcBridge`
+9. 启动 `Live2dRpcServer`
+10. 写入 `data/desktop-live2d/runtime-summary.json`
 
 ### 2.2 控制链（RPC）
 
@@ -62,6 +63,7 @@
 - `live2d:chat:panel-toggle`
 - `live2d:chat:state-sync`
 - `live2d:bubble:state-sync`
+- `live2d:model:bounds-update`
 - `live2d:window:drag`
 - `live2d:window:control`
 - `live2d:chat:panel-visibility`

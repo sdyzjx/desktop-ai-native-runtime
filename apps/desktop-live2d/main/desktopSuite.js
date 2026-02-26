@@ -19,6 +19,7 @@ const CHANNELS = Object.freeze({
   chatPanelToggle: 'live2d:chat:panel-toggle',
   chatStateSync: 'live2d:chat:state-sync',
   bubbleStateSync: 'live2d:bubble:state-sync',
+  modelBoundsUpdate: 'live2d:model:bounds-update',
   windowDrag: 'live2d:window:drag',
   windowControl: 'live2d:window:control',
   chatPanelVisibility: 'live2d:chat:panel-visibility'
@@ -238,6 +239,52 @@ function createChatPanelToggleListener({ window, onToggle = null } = {}) {
   };
 }
 
+function normalizeModelBoundsPayload(payload) {
+  const x = Number(payload?.x);
+  const y = Number(payload?.y);
+  const width = Number(payload?.width);
+  const height = Number(payload?.height);
+  const stageWidth = Number(payload?.stageWidth);
+  const stageHeight = Number(payload?.stageHeight);
+  if (
+    !Number.isFinite(x)
+    || !Number.isFinite(y)
+    || !Number.isFinite(width)
+    || !Number.isFinite(height)
+    || !Number.isFinite(stageWidth)
+    || !Number.isFinite(stageHeight)
+    || width <= 0
+    || height <= 0
+    || stageWidth <= 0
+    || stageHeight <= 0
+  ) {
+    return null;
+  }
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.round(width),
+    height: Math.round(height),
+    stageWidth: Math.round(stageWidth),
+    stageHeight: Math.round(stageHeight)
+  };
+}
+
+function createModelBoundsListener({ window, onModelBounds = null } = {}) {
+  return (event, payload) => {
+    if (!window || window.isDestroyed() || event?.sender !== window.webContents) {
+      return;
+    }
+    const normalized = normalizeModelBoundsPayload(payload);
+    if (!normalized) {
+      return;
+    }
+    if (typeof onModelBounds === 'function') {
+      onModelBounds(normalized);
+    }
+  };
+}
+
 function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
   let lastVisible = null;
   return (event, payload) => {
@@ -339,6 +386,16 @@ async function startDesktopSuite({
     text: ''
   };
   let bubbleHideTimer = null;
+  const fitWindowConfig = {
+    enabled: true,
+    minWidth: 180,
+    minHeight: 260,
+    maxWidth: 900,
+    maxHeight: 1400,
+    paddingX: 18,
+    paddingTop: 18,
+    paddingBottom: 14
+  };
 
   function buildChatStateSnapshot() {
     return {
@@ -381,6 +438,36 @@ async function startDesktopSuite({
       return;
     }
     windowRef.setBounds(nextBounds, false);
+  }
+
+  function applyAvatarFitBounds(modelBounds) {
+    if (!fitWindowConfig.enabled || avatarWindow.isDestroyed()) {
+      return;
+    }
+    const nextBounds = computeFittedAvatarWindowBounds({
+      windowBounds: avatarWindow.getBounds(),
+      modelBounds,
+      display,
+      minWidth: fitWindowConfig.minWidth,
+      minHeight: fitWindowConfig.minHeight,
+      maxWidth: fitWindowConfig.maxWidth,
+      maxHeight: fitWindowConfig.maxHeight,
+      paddingX: fitWindowConfig.paddingX,
+      paddingTop: fitWindowConfig.paddingTop,
+      paddingBottom: fitWindowConfig.paddingBottom
+    });
+    if (!nextBounds) {
+      return;
+    }
+    const current = avatarWindow.getBounds();
+    const unchanged = Math.abs(current.x - nextBounds.x) < 2
+      && Math.abs(current.y - nextBounds.y) < 2
+      && Math.abs(current.width - nextBounds.width) < 3
+      && Math.abs(current.height - nextBounds.height) < 3;
+    if (unchanged) {
+      return;
+    }
+    avatarWindow.setBounds(nextBounds, false);
   }
 
   function updateChatWindowBounds() {
@@ -561,6 +648,13 @@ async function startDesktopSuite({
     }
   });
   ipcMain.on(CHANNELS.chatPanelToggle, chatPanelToggleListener);
+  const modelBoundsListener = createModelBoundsListener({
+    window: avatarWindow,
+    onModelBounds: (modelBounds) => {
+      applyAvatarFitBounds(modelBounds);
+    }
+  });
+  ipcMain.on(CHANNELS.modelBoundsUpdate, modelBoundsListener);
 
   const windowControlListener = createWindowControlListener({
     windows: [avatarWindow, chatWindow],
@@ -743,6 +837,7 @@ async function startDesktopSuite({
     ipcMain.off(CHANNELS.windowDrag, windowDragListener);
     ipcMain.off(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
     ipcMain.off(CHANNELS.chatPanelToggle, chatPanelToggleListener);
+    ipcMain.off(CHANNELS.modelBoundsUpdate, modelBoundsListener);
     ipcMain.off(CHANNELS.windowControl, windowControlListener);
     ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
 
@@ -1059,6 +1154,49 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function computeFittedAvatarWindowBounds({
+  windowBounds,
+  modelBounds,
+  display,
+  minWidth = 180,
+  minHeight = 260,
+  maxWidth = 900,
+  maxHeight = 1400,
+  paddingX = 18,
+  paddingTop = 18,
+  paddingBottom = 14,
+  margin = 8
+}) {
+  if (!windowBounds || !modelBounds) {
+    return null;
+  }
+
+  const workArea = display?.workArea;
+  const desiredWidth = Math.round(modelBounds.width + paddingX * 2);
+  const desiredHeight = Math.round(modelBounds.height + paddingTop + paddingBottom);
+  const width = clamp(desiredWidth, minWidth, maxWidth);
+  const height = clamp(desiredHeight, minHeight, maxHeight);
+
+  let x = Math.round(windowBounds.x + modelBounds.x - paddingX - (width - desiredWidth) / 2);
+  let y = Math.round(windowBounds.y + modelBounds.y - paddingTop - (height - desiredHeight) / 2);
+
+  if (workArea && typeof workArea === 'object') {
+    const maxAllowedWidth = Math.max(minWidth, workArea.width - margin * 2);
+    const maxAllowedHeight = Math.max(minHeight, workArea.height - margin * 2);
+    const safeWidth = Math.min(width, maxAllowedWidth);
+    const safeHeight = Math.min(height, maxAllowedHeight);
+    const minX = workArea.x + margin;
+    const minY = workArea.y + margin;
+    const maxX = workArea.x + workArea.width - safeWidth - margin;
+    const maxY = workArea.y + workArea.height - safeHeight - margin;
+    x = clamp(x, minX, maxX);
+    y = clamp(y, minY, maxY);
+    return { x: Math.round(x), y: Math.round(y), width: Math.round(safeWidth), height: Math.round(safeHeight) };
+  }
+
+  return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
+}
+
 function computeChatWindowBounds({
   avatarBounds,
   chatWidth,
@@ -1179,15 +1317,18 @@ module.exports = {
   normalizeWindowControlPayload,
   normalizeChatPanelVisibilityPayload,
   normalizeChatPanelTogglePayload,
+  normalizeModelBoundsPayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
   createChatPanelToggleListener,
+  createModelBoundsListener,
   createChatInputListener,
   handleDesktopRpcRequest,
   isNewSessionCommand,
   createChatWindow,
   createBubbleWindow,
   computeChatWindowBounds,
-  computeBubbleWindowBounds
+  computeBubbleWindowBounds,
+  computeFittedAvatarWindowBounds
 };

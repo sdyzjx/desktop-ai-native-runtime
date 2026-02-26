@@ -17,14 +17,17 @@ const {
   normalizeWindowDragPayload,
   normalizeWindowControlPayload,
   normalizeChatPanelVisibilityPayload,
+  normalizeModelBoundsPayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
+  createModelBoundsListener,
   createChatInputListener,
   handleDesktopRpcRequest,
   isNewSessionCommand,
   computeChatWindowBounds,
-  computeBubbleWindowBounds
+  computeBubbleWindowBounds,
+  computeFittedAvatarWindowBounds
 } = require('../../apps/desktop-live2d/main/desktopSuite');
 
 class FakeIpcMain extends EventEmitter {}
@@ -264,6 +267,45 @@ test('normalizeWindowControlPayload and normalizeChatPanelVisibilityPayload vali
   assert.equal(normalizeChatPanelVisibilityPayload({ visible: 'true' }), null);
 });
 
+test('normalizeModelBoundsPayload validates numeric bounds payload', () => {
+  assert.deepEqual(normalizeModelBoundsPayload({
+    x: 12.2,
+    y: 18.8,
+    width: 205.1,
+    height: 390.7,
+    stageWidth: 320,
+    stageHeight: 500
+  }), {
+    x: 12,
+    y: 19,
+    width: 205,
+    height: 391,
+    stageWidth: 320,
+    stageHeight: 500
+  });
+  assert.equal(normalizeModelBoundsPayload({ x: 1, y: 2, width: 0, height: 10, stageWidth: 10, stageHeight: 10 }), null);
+});
+
+test('computeFittedAvatarWindowBounds shrinks to model bounds and keeps screen safety margin', () => {
+  const next = computeFittedAvatarWindowBounds({
+    windowBounds: { x: 1300, y: 560, width: 320, height: 500 },
+    modelBounds: { x: 70, y: 20, width: 180, height: 430 },
+    display: {
+      workArea: {
+        x: 0,
+        y: 25,
+        width: 1728,
+        height: 1080
+      }
+    }
+  });
+
+  assert.ok(next.width <= 320);
+  assert.ok(next.height <= 500);
+  assert.ok(next.x >= 8);
+  assert.ok(next.y >= 33);
+});
+
 test('createWindowDragListener repositions window across start/move/end', () => {
   const fakeWindow = {
     x: 300,
@@ -352,6 +394,28 @@ test('createChatPanelVisibilityListener resizes when visibility changes', () => 
   assert.equal(setBoundsCalls.length, 2);
   assert.deepEqual(setBoundsCalls[0], { x: 1160, y: 360, width: 300, height: 560 });
   assert.deepEqual(setBoundsCalls[1], { x: 1000, y: 300, width: 460, height: 620 });
+});
+
+test('createModelBoundsListener forwards normalized bounds for avatar sender only', () => {
+  const webContents = { id: 10 };
+  const window = {
+    webContents,
+    isDestroyed() {
+      return false;
+    }
+  };
+  const received = [];
+  const listener = createModelBoundsListener({
+    window,
+    onModelBounds: (payload) => received.push(payload)
+  });
+
+  listener({ sender: webContents }, { x: 10, y: 20, width: 200, height: 420, stageWidth: 320, stageHeight: 500 });
+  listener({ sender: { id: 99 } }, { x: 10, y: 20, width: 200, height: 420, stageWidth: 320, stageHeight: 500 });
+  listener({ sender: webContents }, { x: 10, y: 20, width: 0, height: 420, stageWidth: 320, stageHeight: 500 });
+
+  assert.equal(received.length, 1);
+  assert.equal(received[0].width, 200);
 });
 
 test('createChatInputListener forwards normalized payload to callback', () => {
