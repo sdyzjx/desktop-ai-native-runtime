@@ -41,10 +41,32 @@
     return !(nearlyEqual(currentX, nextX, epsilon) && nearlyEqual(currentY, nextY, epsilon));
   }
 
+  function isImeComposingEvent(event, fallbackComposing = false) {
+    if (!event || typeof event !== 'object') {
+      return Boolean(fallbackComposing);
+    }
+    if (event.isComposing === true) {
+      return true;
+    }
+    const keyCode = Number(event.keyCode);
+    if (Number.isInteger(keyCode) && keyCode === 229) {
+      return true;
+    }
+    return Boolean(fallbackComposing);
+  }
+
+  function shouldShowPanelOnModelTap(options = {}) {
+    const panelEnabled = Boolean(options.chatPanelEnabled);
+    const panelVisible = Boolean(options.chatPanelVisible);
+    return panelEnabled && !panelVisible;
+  }
+
   const api = {
     createCooldownGate,
     nearlyEqual,
-    shouldUpdate2D
+    shouldUpdate2D,
+    isImeComposingEvent,
+    shouldShowPanelOnModelTap
   };
 
   if (typeof module !== 'undefined' && module.exports) {

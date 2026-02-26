@@ -482,14 +482,17 @@ RPC method -> 实现方法映射：
 - 模型加载：`loadModel(modelRelativePath, modelName)`
 - 自适应布局：`applyAdaptiveLayout()` + `scheduleAdaptiveLayout()`
 - 点击切聊天框：`bindModelInteraction()`
-- 拖拽窗口：`bindWindowDragGesture(canvas)` -> IPC `windowDrag`
-- 聊天框显隐：`applyChatPanelVisibility()`
+  - 当前策略为“show-only”：仅在聊天框隐藏时由人物点击打开；收起通过 Header `Hide` 控制，减少点击闪烁
+  - 拖拽窗口：`bindWindowDragGesture(canvas)` -> IPC `windowDrag`
+  - 聊天框显隐：`applyChatPanelVisibility()`
   - 显示：先通知 main 扩窗，再在 resize 后 reveal，减少闪烁
   - 隐藏：先 fade-out，再通知 main 缩窗
 - 防闪烁策略：
   - `createCooldownGate` 防重复 toggle
+  - focus/visibility 恢复后短时间抑制 model tap，避免“激活点击”误触发
   - transform 数值不变时不重设
   - 布局使用 RAF 合并（避免重复重排）
+  - 输入框 Enter 提交增加 IME 组合态保护（`isComposing` / `keyCode=229`），避免中文输入法候选确认时误发送
 
 ## 6. 启动与运维脚本模块
 
