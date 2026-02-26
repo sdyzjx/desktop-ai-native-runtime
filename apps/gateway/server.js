@@ -164,12 +164,15 @@ app.get('/api/session-images/:sessionId/:fileName', async (req, res) => {
 
 app.get('/health', async (_, res) => {
   const sessionStats = await sessionStore.getStats();
+  const memoryStats = await longTermMemoryStore.getStats();
   res.json({
     ok: true,
+    uptime_seconds: Math.floor(process.uptime()),
     queue_size: queue.size(),
     llm: llmManager.getConfigSummary(),
     tools: toolConfigManager.getSummary(),
     session_store: sessionStats,
+    memory_store: memoryStats,
     workspace_store: {
       root_dir: workspaceManager.rootDir
     }

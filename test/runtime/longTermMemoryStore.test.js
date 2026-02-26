@@ -48,3 +48,21 @@ test('LongTermMemoryStore deduplicates by content', async () => {
   assert.ok(listed.items[0].keywords.includes('language'));
   assert.ok(listed.items[0].keywords.includes('zh'));
 });
+
+test('LongTermMemoryStore getStats returns entry count and total chars', async () => {
+  const store = createStore();
+
+  const stats0 = await store.getStats();
+  assert.equal(stats0.entry_count, 0);
+  assert.equal(stats0.total_content_chars, 0);
+  assert.ok(typeof stats0.root_dir === 'string');
+  assert.ok(stats0.updated_at !== undefined);
+
+  await store.addEntry({ content: 'hello world', keywords: ['hello'] });
+  await store.addEntry({ content: 'foo bar baz', keywords: ['foo'] });
+
+  const stats2 = await store.getStats();
+  assert.equal(stats2.entry_count, 2);
+  assert.equal(stats2.total_content_chars, 'hello world'.length + 'foo bar baz'.length);
+  assert.ok(stats2.updated_at);
+});
