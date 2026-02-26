@@ -34,6 +34,7 @@
   const chatStateApi = window.ChatPanelState;
   let runtimeUiConfig = null;
   let chatPanelState = null;
+  let chatInputComposing = false;
   let chatPanelEnabled = false;
   let lastReportedPanelVisible = null;
   let chatPanelTransitionToken = 0;
@@ -55,6 +56,8 @@
     };
   const CHAT_PANEL_HIDE_RESIZE_DELAY_MS = 170;
   const CHAT_PANEL_SHOW_WAIT_RESIZE_TIMEOUT_MS = 220;
+  const MODEL_TAP_SUPPRESS_AFTER_DRAG_MS = 220;
+  const MODEL_TAP_SUPPRESS_AFTER_FOCUS_MS = 240;
 
   function nearlyEqual(left, right, epsilon = 1e-4) {
     if (typeof interactionApi?.nearlyEqual === 'function') {
@@ -114,6 +117,12 @@
 
   function createRpcError(code, message) {
     return { code, message };
+  }
+
+  function suppressModelTap(durationMs = MODEL_TAP_SUPPRESS_AFTER_DRAG_MS) {
+    const duration = Number(durationMs);
+    const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : MODEL_TAP_SUPPRESS_AFTER_DRAG_MS;
+    suppressModelTapUntil = Math.max(suppressModelTapUntil, Date.now() + safeDuration);
   }
 
   function setBubbleVisible(visible) {
@@ -472,8 +481,23 @@
     };
 
     chatSendElement?.addEventListener('click', submitInput);
+    chatInputElement?.addEventListener('compositionstart', () => {
+      chatInputComposing = true;
+    });
+    chatInputElement?.addEventListener('compositionend', () => {
+      chatInputComposing = false;
+    });
+    chatInputElement?.addEventListener('blur', () => {
+      chatInputComposing = false;
+    });
     chatInputElement?.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') {
+        return;
+      }
+      const composing = typeof interactionApi?.isImeComposingEvent === 'function'
+        ? interactionApi.isImeComposingEvent(event, chatInputComposing)
+        : Boolean(event?.isComposing || Number(event?.keyCode) === 229 || chatInputComposing);
+      if (composing) {
         return;
       }
       event.preventDefault();
@@ -587,7 +611,16 @@
       if (typeof modelTapToggleGate?.tryEnter === 'function' && !modelTapToggleGate.tryEnter()) {
         return;
       }
-      toggleChatPanelVisible();
+      const shouldShowPanel = typeof interactionApi?.shouldShowPanelOnModelTap === 'function'
+        ? interactionApi.shouldShowPanelOnModelTap({
+          chatPanelEnabled,
+          chatPanelVisible: Boolean(chatPanelState?.visible)
+        })
+        : Boolean(chatPanelEnabled && !chatPanelState?.visible);
+      if (!shouldShowPanel) {
+        return;
+      }
+      setChatPanelVisible(true);
     });
   }
 
@@ -652,7 +685,7 @@
         screenY: event.screenY
       });
       if (dragPointerState.dragging) {
-        suppressModelTapUntil = Date.now() + 220;
+        suppressModelTap(MODEL_TAP_SUPPRESS_AFTER_DRAG_MS);
       }
       if (typeof targetElement.releasePointerCapture === 'function') {
         try {
@@ -830,6 +863,15 @@
       if (!bridge) {
         throw new Error('desktopLive2dBridge is unavailable');
       }
+
+      window.addEventListener('focus', () => {
+        suppressModelTap(MODEL_TAP_SUPPRESS_AFTER_FOCUS_MS);
+      }, { passive: true });
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          suppressModelTap(MODEL_TAP_SUPPRESS_AFTER_FOCUS_MS);
+        }
+      });
 
       const runtimeConfig = await bridge.getRuntimeConfig();
       runtimeUiConfig = runtimeConfig.uiConfig || null;

@@ -17,7 +17,7 @@ test('resolveDesktopLive2dConfig applies defaults and model relative path', () =
   assert.equal(config.uiConfig.chat.panel.defaultVisible, false);
   assert.equal(config.uiConfig.layout.lockScaleOnResize, true);
   assert.equal(config.uiConfig.layout.lockPositionOnResize, true);
-  assert.equal(config.uiConfig.window.compactWhenChatHidden, true);
+  assert.equal(config.uiConfig.window.compactWhenChatHidden, false);
   assert.equal(config.uiConfig.window.compactWidth, 300);
   assert.equal(config.uiConfig.window.compactHeight, 560);
 });
