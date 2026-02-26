@@ -21,6 +21,27 @@ function normalizeInputImages(value) {
   return images;
 }
 
+function normalizeInputAudio(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+  const audioRef = typeof value.audio_ref === 'string' ? value.audio_ref.trim() : '';
+  const format = typeof value.format === 'string' ? value.format.trim().toLowerCase() : '';
+  const lang = typeof value.lang === 'string' ? value.lang.trim().toLowerCase() : 'auto';
+  const hints = Array.isArray(value.hints) ? value.hints.filter((item) => typeof item === 'string').map((s) => s.trim()).filter(Boolean) : [];
+
+  if (!audioRef || !format) return null;
+  if (!['wav', 'mp3', 'ogg', 'webm', 'm4a'].includes(format)) return null;
+  if (!['zh', 'en', 'auto'].includes(lang)) return null;
+
+  return {
+    audio_ref: audioRef,
+    format,
+    lang,
+    hints
+  };
+}
+
 class RuntimeRpcWorker {
   constructor({ queue, runner, bus }) {
     this.queue = queue;
@@ -58,8 +79,10 @@ class RuntimeRpcWorker {
     }
 
     const params = request.params || {};
-    const input = typeof params.input === 'string' ? params.input : '';
+    let input = typeof params.input === 'string' ? params.input : '';
     const inputImages = normalizeInputImages(params.input_images);
+    const inputAudio = normalizeInputAudio(params.input_audio);
+
     if (inputImages === null) {
       if (request.id !== undefined) {
         context.send?.(createRpcError(request.id, RpcErrorCode.INVALID_PARAMS, 'params.input_images must be an array of image objects'));
@@ -67,9 +90,9 @@ class RuntimeRpcWorker {
       return;
     }
 
-    if (!input.trim() && inputImages.length === 0) {
+    if (params.input_audio !== undefined && inputAudio === null) {
       if (request.id !== undefined) {
-        context.send?.(createRpcError(request.id, RpcErrorCode.INVALID_PARAMS, 'params.input must be non-empty string when params.input_images is empty'));
+        context.send?.(createRpcError(request.id, RpcErrorCode.INVALID_PARAMS, 'params.input_audio must include audio_ref, format(wav|mp3|ogg|webm|m4a), optional lang/hints'));
       }
       return;
     }
@@ -85,7 +108,8 @@ class RuntimeRpcWorker {
         request,
         session_id: sessionId,
         input,
-        input_images: inputImages
+        input_images: inputImages,
+        input_audio: inputAudio
       });
       if (prepared && typeof prepared === 'object' && !Array.isArray(prepared)) {
         runtimeContext = prepared;
@@ -94,12 +118,45 @@ class RuntimeRpcWorker {
       // Context hooks should not break runtime execution.
     }
 
+    if (!input.trim() && inputAudio && typeof context.transcribeAudio === 'function') {
+      try {
+        const transcribed = await context.transcribeAudio({
+          request,
+          session_id: sessionId,
+          input_audio: inputAudio,
+          runtime_context: runtimeContext
+        });
+
+        if (transcribed && typeof transcribed.text === 'string') {
+          input = transcribed.text;
+          runtimeContext = {
+            ...runtimeContext,
+            input_audio: {
+              ...inputAudio,
+              transcribed_text: input,
+              confidence: Number(transcribed.confidence) || null
+            }
+          };
+        }
+      } catch {
+        // ASR failure should not crash worker; validation below handles empty input.
+      }
+    }
+
+    if (!input.trim() && inputImages.length === 0) {
+      if (request.id !== undefined) {
+        context.send?.(createRpcError(request.id, RpcErrorCode.INVALID_PARAMS, 'params.input must be non-empty string when params.input_images and params.input_audio are empty/invalid'));
+      }
+      return;
+    }
+
     try {
       const prepared = await context.buildPromptMessages?.({
         request,
         session_id: sessionId,
         input,
         input_images: inputImages,
+        input_audio: inputAudio,
         runtime_context: runtimeContext
       });
       if (Array.isArray(prepared)) {
@@ -115,6 +172,7 @@ class RuntimeRpcWorker {
         session_id: sessionId,
         input,
         input_images: inputImages,
+        input_audio: inputAudio,
         runtime_context: runtimeContext
       });
     } catch {
@@ -151,6 +209,7 @@ class RuntimeRpcWorker {
         session_id: sessionId,
         input,
         input_images: inputImages,
+        input_audio: inputAudio,
         runtime_context: runtimeContext,
         ...payload
       });

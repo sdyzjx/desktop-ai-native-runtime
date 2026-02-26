@@ -7,6 +7,7 @@ Phase 2 接入语音输入主链路：
 - 将音频引用转写为文本（支持结构化结果）。
 - 输出统一字段：`text/confidence/segments/providerMeta`。
 - 发出可观测事件（started/completed/failed）。
+- 在 `runtime.run` 支持 `params.input_audio`，并在无 `input` 时自动先转写再进入标准对话回路。
 
 ---
 
@@ -40,6 +41,8 @@ Phase 2 接入语音输入主链路：
 
 ## 5. 用法示例
 
+### 5.1 直接工具调用
+
 ```json
 {
   "name": "voice.asr_aliyun",
@@ -51,6 +54,27 @@ Phase 2 接入语音输入主链路：
   }
 }
 ```
+
+### 5.2 runtime.run 自动转写（推荐主链路）
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "audio-1",
+  "method": "runtime.run",
+  "params": {
+    "session_id": "s-audio",
+    "input_audio": {
+      "audio_ref": "file:///tmp/input.mp3",
+      "format": "mp3",
+      "lang": "zh",
+      "hints": ["OpenClaw"]
+    }
+  }
+}
+```
+
+当 `input` 为空且提供了 `input_audio` 时，worker 会先调用 ASR，再把转写文本作为用户输入送入标准 session 回路。
 
 示例输出：
 
