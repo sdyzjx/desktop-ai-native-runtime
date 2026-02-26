@@ -2,13 +2,15 @@ const builtin = require('./adapters/builtin');
 const fsAdapters = require('./adapters/fs');
 const shellAdapters = require('./adapters/shell');
 const memoryAdapters = require('./adapters/memory');
+const voiceAdapters = require('./adapters/voice');
 const { ToolingError, ErrorCode } = require('./errors');
 
 const ADAPTERS = {
   ...builtin,
   ...fsAdapters,
   ...shellAdapters,
-  ...memoryAdapters
+  ...memoryAdapters,
+  ...voiceAdapters
 };
 
 class ToolRegistry {
