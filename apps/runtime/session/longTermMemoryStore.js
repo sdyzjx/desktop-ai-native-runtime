@@ -190,6 +190,18 @@ class LongTermMemoryStore {
     }
     return items;
   }
+
+  async getStats() {
+    const store = await this.readStore();
+    const entries = Array.isArray(store.entries) ? store.entries : [];
+    const totalChars = entries.reduce((sum, e) => sum + String(e.content || '').length, 0);
+    return {
+      root_dir: this.rootDir,
+      entry_count: entries.length,
+      total_content_chars: totalChars,
+      updated_at: store.updated_at || null
+    };
+  }
 }
 
 let defaultStoreInstance = null;
