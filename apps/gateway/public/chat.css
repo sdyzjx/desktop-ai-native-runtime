@@ -622,3 +622,16 @@ body.chat-page {
     scroll-behavior: auto !important;
   }
 }
+
+/* Voice synthesis audio player */
+.message-audio {
+  margin-top: 8px;
+}
+
+.message-audio audio {
+  width: 100%;
+  max-width: 320px;
+  height: 36px;
+  border-radius: 18px;
+  outline: none;
+}

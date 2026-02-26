@@ -162,6 +162,32 @@ app.get('/api/session-images/:sessionId/:fileName', async (req, res) => {
   }
 });
 
+// Serve local voice synthesis audio files (ogg only, tmp directory only)
+app.get('/api/audio', async (req, res) => {
+  const rawPath = String(req.query.path || '');
+  if (!rawPath) {
+    res.status(400).json({ ok: false, error: 'path query param required' });
+    return;
+  }
+
+  const absolutePath = path.resolve(rawPath);
+  const tmpDir = require('os').tmpdir();
+
+  // Security: only serve ogg files from the system temp directory
+  if (!absolutePath.startsWith(tmpDir + path.sep) || !absolutePath.endsWith('.ogg')) {
+    res.status(403).json({ ok: false, error: 'access denied: only ogg files in tmp dir are allowed' });
+    return;
+  }
+
+  try {
+    await fs.access(absolutePath);
+    res.setHeader('Content-Type', 'audio/ogg');
+    res.sendFile(absolutePath);
+  } catch {
+    res.status(404).json({ ok: false, error: 'audio file not found' });
+  }
+});
+
 app.get('/health', async (_, res) => {
   const sessionStats = await sessionStore.getStats();
   res.json({

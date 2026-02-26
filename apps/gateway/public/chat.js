@@ -297,6 +297,25 @@ function escapeHtml(text) {
     .replaceAll("'", '&#39;');
 }
 
+/**
+ * Detect voice synthesis result in message content.
+ * Returns the audio_path string if the content is a JSON voice manifest, otherwise null.
+ */
+function extractAudioPath(content) {
+  if (!content || typeof content !== 'string') return null;
+  const trimmed = content.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed.ok === true && typeof parsed.audio_path === 'string' && parsed.audio_path.endsWith('.ogg')) {
+      return parsed.audio_path;
+    }
+  } catch {
+    // not JSON
+  }
+  return null;
+}
+
 function formatBytes(size) {
   const n = Number(size) || 0;
   if (n < 1024) return `${n}B`;
@@ -472,6 +491,22 @@ function renderMessages() {
     body.className = 'message-body';
     body.innerHTML = escapeHtml(msg.content);
     bubble.appendChild(body);
+
+    // Render inline audio player if message content contains a voice synthesis result
+    const audioPath = extractAudioPath(msg.content);
+    if (audioPath) {
+      const audioWrap = document.createElement('div');
+      audioWrap.className = 'message-audio';
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.preload = 'metadata';
+      const src = document.createElement('source');
+      src.src = `/api/audio?path=${encodeURIComponent(audioPath)}`;
+      src.type = 'audio/ogg';
+      audio.appendChild(src);
+      audioWrap.appendChild(audio);
+      bubble.appendChild(audioWrap);
+    }
 
     if (Array.isArray(msg.images) && msg.images.length > 0) {
       const attachmentList = document.createElement('div');

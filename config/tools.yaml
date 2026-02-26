@@ -10,6 +10,7 @@ policy:
     - workspace.write_file
     - shell.exec
     - persona.update_profile
+    - voice.synthesize
   deny: []
   byProvider: {}
 
@@ -118,4 +119,30 @@ tools:
       properties:
         custom_name: { type: string }
       required: [custom_name]
+      additionalProperties: false
+
+  - name: voice.synthesize
+    type: local
+    adapter: voice.synthesize
+    description: >
+      Synthesize text to speech using Qwen3-TTS and return a local ogg audio file path.
+      Requires DASHSCOPE_API_KEY, python3, and ffmpeg.
+      Use when the user asks for a voice reply or audio output.
+    input_schema:
+      type: object
+      properties:
+        text:
+          type: string
+          description: Text to synthesize (required)
+        voice_tag:
+          type: string
+          enum: [jp, zh, en]
+          description: "Language tag: jp=Japanese, zh=Chinese, en=English (default: zh)"
+        model:
+          type: string
+          description: TTS model override (optional)
+        voice:
+          type: string
+          description: Voice ID override (optional)
+      required: [text]
       additionalProperties: false
