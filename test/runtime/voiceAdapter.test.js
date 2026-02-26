@@ -87,3 +87,44 @@ test('voice adapter executes configured CLI and returns audioRef', async () => {
     else delete process.env.VOICE_REPLY_CLI;
   }
 });
+
+test('voice adapter emits policy and job events via publishEvent', async () => {
+  const { ttsAliyunVc, cooldownStore } = voiceAdapters.__internal;
+  cooldownStore.calls.clear();
+
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-cli-events-'));
+  const script = path.join(tmp, 'mock-voice-reply.sh');
+  await fs.writeFile(script, '#!/usr/bin/env bash\necho "/tmp/mock-event-audio.ogg"\n', { mode: 0o755 });
+
+  const previousCli = process.env.VOICE_REPLY_CLI;
+  process.env.VOICE_REPLY_CLI = script;
+
+  const events = [];
+
+  try {
+    await ttsAliyunVc(
+      {
+        text: '继续推进下一步',
+        voiceId: 'voice-A',
+        model: 'qwen3-tts-vc-2026-01-22',
+        voiceTag: 'zh',
+        replyMeta: { inputType: 'audio', sentenceCount: 1 }
+      },
+      {
+        session_id: 'session-events',
+        voiceRegistry: {
+          'voice-A': { targetModel: 'qwen3-tts-vc-2026-01-22' }
+        },
+        publishEvent: (topic, payload) => events.push({ topic, payload })
+      }
+    );
+
+    const topics = events.map((e) => e.topic);
+    assert.equal(topics.includes('voice.policy.checked'), true);
+    assert.equal(topics.includes('voice.job.started'), true);
+    assert.equal(topics.includes('voice.job.completed'), true);
+  } finally {
+    if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
+    else delete process.env.VOICE_REPLY_CLI;
+  }
+});

@@ -56,7 +56,17 @@ Phase 1 提供可用的语音输出 MVP：
 
 不一致则返回 `TTS_MODEL_VOICE_MISMATCH`。
 
-## 3.5 执行与结果
+## 3.5 事件观测
+
+本阶段会通过运行时 event bus 发出：
+- `voice.policy.checked`
+- `voice.job.started`
+- `voice.job.completed`
+- `voice.job.failed`
+
+用于后续仪表盘和审计追踪。
+
+## 3.6 执行与结果
 
 通过 `VOICE_REPLY_CLI`（默认 `skills/yachiyo-qwen-voice-reply/bin/voice-reply`）调用合成脚本，读取 stdout 最后一行为音频路径，返回：
 

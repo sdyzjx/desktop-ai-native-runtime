@@ -68,55 +68,92 @@ function checkModelVoiceCompatibility({ model, voiceId, registry = {} }) {
   }
 }
 
+function publishVoiceEvent(context, topic, payload = {}) {
+  if (typeof context.publishEvent === 'function') {
+    context.publishEvent(topic, payload);
+  }
+}
+
 async function ttsAliyunVc(args = {}, context = {}) {
   const policy = loadVoicePolicy();
+  const sessionId = context.session_id || args.sessionId || 'global';
+  const nowMs = Date.now();
+  const voiceTag = resolveVoiceTag(args);
+  const text = String(args.text || '').trim();
+
   const policyResult = evaluateVoicePolicy(args, context, policy);
+  publishVoiceEvent(context, 'voice.policy.checked', {
+    allow: policyResult.allow,
+    code: policyResult.code,
+    reason: policyResult.reason,
+    text_length: text.length,
+    voice_tag: voiceTag
+  });
+
   if (!policyResult.allow) {
     throw makeToolError(policyResult.code, policyResult.reason, { policyReason: policyResult.reason });
   }
 
-  const sessionId = context.session_id || args.sessionId || 'global';
-  const nowMs = Date.now();
-  enforceRateLimit({ sessionId, nowMs, policy });
-
-  checkModelVoiceCompatibility({
-    model: args.model,
-    voiceId: args.voiceId,
-    registry: context.voiceRegistry || {}
-  });
-
-  const cliPath = resolveVoiceReplyCli();
-  const voiceTag = resolveVoiceTag(args);
-  const text = String(args.text || '').trim();
-
-  const cmdArgs = [
-    '--voice-tag',
-    voiceTag,
-    '--model',
-    String(args.model || 'qwen3-tts-vc-2026-01-22'),
-    '--voice',
-    String(args.voiceId || ''),
-    text
-  ];
-
-  const timeoutMs = Math.max(1, Number(args.timeoutSec || 45)) * 1000;
-  const { stdout } = await execFileAsync(cliPath, cmdArgs, { timeout: timeoutMs });
-  const audioPath = String(stdout || '').trim().split('\n').filter(Boolean).pop();
-
-  if (!audioPath) {
-    throw makeToolError('TTS_PROVIDER_DOWN', 'tts output is empty');
-  }
-
-  cooldownStore.addCall(sessionId, nowMs);
-
-  return JSON.stringify({
-    audioRef: `file://${audioPath}`,
-    format: 'ogg',
-    voiceTag,
+  publishVoiceEvent(context, 'voice.job.started', {
+    session_id: sessionId,
     model: String(args.model || 'qwen3-tts-vc-2026-01-22'),
-    voiceId: String(args.voiceId || ''),
-    policyReason: policyResult.reason
+    voice_id: String(args.voiceId || ''),
+    voice_tag: voiceTag
   });
+
+  try {
+    enforceRateLimit({ sessionId, nowMs, policy });
+
+    checkModelVoiceCompatibility({
+      model: args.model,
+      voiceId: args.voiceId,
+      registry: context.voiceRegistry || {}
+    });
+
+    const cliPath = resolveVoiceReplyCli();
+
+    const cmdArgs = [
+      '--voice-tag',
+      voiceTag,
+      '--model',
+      String(args.model || 'qwen3-tts-vc-2026-01-22'),
+      '--voice',
+      String(args.voiceId || ''),
+      text
+    ];
+
+    const timeoutMs = Math.max(1, Number(args.timeoutSec || 45)) * 1000;
+    const { stdout } = await execFileAsync(cliPath, cmdArgs, { timeout: timeoutMs });
+    const audioPath = String(stdout || '').trim().split('\n').filter(Boolean).pop();
+
+    if (!audioPath) {
+      throw makeToolError('TTS_PROVIDER_DOWN', 'tts output is empty');
+    }
+
+    cooldownStore.addCall(sessionId, nowMs);
+
+    publishVoiceEvent(context, 'voice.job.completed', {
+      session_id: sessionId,
+      audio_ref: `file://${audioPath}`,
+      format: 'ogg'
+    });
+
+    return JSON.stringify({
+      audioRef: `file://${audioPath}`,
+      format: 'ogg',
+      voiceTag,
+      model: String(args.model || 'qwen3-tts-vc-2026-01-22'),
+      voiceId: String(args.voiceId || ''),
+      policyReason: policyResult.reason
+    });
+  } catch (error) {
+    publishVoiceEvent(context, 'voice.job.failed', {
+      session_id: sessionId,
+      code: error.code || 'TTS_PROVIDER_DOWN',
+      error: error.message || String(error)
+    });
+    throw error;
+  }
 }
 
 module.exports = {
