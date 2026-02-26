@@ -5,8 +5,7 @@ const {
   createCooldownGate,
   nearlyEqual,
   shouldUpdate2D,
-  isImeComposingEvent,
-  shouldShowPanelOnModelTap
+  isImeComposingEvent
 } = require('../../apps/desktop-live2d/renderer/interaction');
 
 test('createCooldownGate blocks repeated toggles until cooldown expires', () => {
@@ -52,10 +51,4 @@ test('isImeComposingEvent detects composition states from event and fallback', (
   assert.equal(isImeComposingEvent({ keyCode: 229 }, false), true);
   assert.equal(isImeComposingEvent({ isComposing: false, keyCode: 13 }, true), true);
   assert.equal(isImeComposingEvent({ isComposing: false, keyCode: 13 }, false), false);
-});
-
-test('shouldShowPanelOnModelTap only allows show when panel is hidden and enabled', () => {
-  assert.equal(shouldShowPanelOnModelTap({ chatPanelEnabled: true, chatPanelVisible: false }), true);
-  assert.equal(shouldShowPanelOnModelTap({ chatPanelEnabled: true, chatPanelVisible: true }), false);
-  assert.equal(shouldShowPanelOnModelTap({ chatPanelEnabled: false, chatPanelVisible: false }), false);
 });

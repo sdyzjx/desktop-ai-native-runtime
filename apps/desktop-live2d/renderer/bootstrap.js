@@ -611,16 +611,7 @@
       if (typeof modelTapToggleGate?.tryEnter === 'function' && !modelTapToggleGate.tryEnter()) {
         return;
       }
-      const shouldShowPanel = typeof interactionApi?.shouldShowPanelOnModelTap === 'function'
-        ? interactionApi.shouldShowPanelOnModelTap({
-          chatPanelEnabled,
-          chatPanelVisible: Boolean(chatPanelState?.visible)
-        })
-        : Boolean(chatPanelEnabled && !chatPanelState?.visible);
-      if (!shouldShowPanel) {
-        return;
-      }
-      setChatPanelVisible(true);
+      toggleChatPanelVisible();
     });
   }
 
