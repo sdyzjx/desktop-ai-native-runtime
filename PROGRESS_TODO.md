@@ -86,6 +86,18 @@ Branch: `codex/feature/electron-desktop`
   - desktop startup new session + `/new` command session switch
   - web-side session/message sync for desktop conversation visibility
 
+7. `TODO` Build async voice module as tool-calling capability (`asr + tts`, model-decided speech output)
+- Requirement: `REQ-20260226-009`
+
+8. `TODO` Expose Live2D motion/control interfaces as model-callable tools
+- Requirement: `REQ-20260226-010`
+
+9. `TODO` Implement external channel adapters for Telegram and NapCat (QQ)
+- Requirement: `REQ-20260226-011`
+
+10. `TODO` Add privileged fixed-session control dialog in Web UI (highest permission)
+- Requirement: `REQ-20260226-012`
+
 ## 3.2 Merge Gate (before `main`)
 
 1. `TODO` complete manual acceptance on integration branch
@@ -395,3 +407,128 @@ Do not add free-form items outside this format.
   - TDB
 - Update Log:
   - 2026-02-26 04:12 DONE 模块级文档完成并同步索引。
+
+### [REQ-20260226-009] 异步语音工具链（ASR+TTS）并入 Tool Call 决策
+- Created At: 2026-02-26 17:32
+- Source: user
+- Priority: P0
+- Status: TODO
+- Owner: runtime
+- Branch: TDB
+- Description:
+  - 构建异步语音能力模块，将 `ASR(qwen3.5)` 与 `TTS` 封装为可调用工具，并由模型自主决策何时说话及说什么内容。
+- Acceptance Criteria:
+  1. 提供稳定的 `voice.asr` 与 `voice.tts` 工具接口（含 schema、超时、错误语义）。
+  2. Runtime loop 能在同一会话中处理“文本+语音”混合输入并保持上下文一致。
+  3. 模型可通过 tool call 主动触发语音输出，且具备最小化防误触策略（如节流/冷却）。
+- Impacted Modules:
+  - `apps/runtime/executor/*`
+  - `apps/runtime/tooling/*`
+  - `apps/runtime/loop/*`
+  - `apps/gateway/*`
+  - `test/runtime/*`
+- Risks/Dependencies:
+  - 依赖 ASR/TTS 提供方 API 稳定性与延迟。
+  - 语音链路异步回调可能引入时序竞态。
+- Plan:
+  1. 定义语音工具契约与执行器适配层（ASR/TTS）。
+  2. 在 loop 中补齐异步事件处理、冷却与回执机制。
+  3. 完成端到端测试与降级策略（网络失败/超时）。
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-26 17:32 TODO requirement created from user request.
+
+### [REQ-20260226-010] Live2D 模型动作控制能力 Tool 化
+- Created At: 2026-02-26 17:32
+- Source: user
+- Priority: P0
+- Status: TODO
+- Owner: runtime
+- Branch: TDB
+- Description:
+  - 将 Live2D 的动作/表情/参数控制能力暴露为标准工具接口，允许模型按上下文进行动作编排与调用。
+- Acceptance Criteria:
+  1. 工具层暴露可控接口（动作、表情、参数）并提供白名单与参数校验。
+  2. `tool.list` / `tool.invoke` 中可发现并调用对应 Live2D 能力。
+  3. 调用失败路径可观测（明确错误码、日志、可回放）。
+- Impacted Modules:
+  - `apps/desktop-live2d/main/*`
+  - `apps/runtime/tooling/*`
+  - `apps/runtime/executor/*`
+  - `test/desktop-live2d/*`
+  - `test/runtime/*`
+- Risks/Dependencies:
+  - 动作并发触发可能导致表现冲突或状态抖动。
+  - 需要与现有速率限制/白名单策略协同。
+- Plan:
+  1. 抽象 Live2D 控制能力并定义工具 schema。
+  2. 接入 tool registry + invoke pipeline。
+  3. 增加并发/限流/异常路径测试。
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-26 17:32 TODO requirement created from user request.
+
+### [REQ-20260226-011] Telegram 与 NapCat(QQ) 适配器接入
+- Created At: 2026-02-26 17:32
+- Source: user
+- Priority: P0
+- Status: TODO
+- Owner: runtime
+- Branch: TDB
+- Description:
+  - 实现 adapter 层，打通 Telegram 与 NapCat(QQ) 的消息收发、会话映射、权限与工具调用链路。
+- Acceptance Criteria:
+  1. Telegram 适配器支持基础收发与会话绑定。
+  2. NapCat 适配器支持基础收发与会话绑定。
+  3. 适配器层统一事件模型，接入 runtime queue/rpc 且可配置开关。
+- Impacted Modules:
+  - `apps/gateway/*`
+  - `apps/runtime/rpc/*`
+  - `apps/runtime/queue/*`
+  - `apps/runtime/session/*`
+  - `config/*`
+  - `test/integration/*`
+- Risks/Dependencies:
+  - 外部平台鉴权与 webhook/websocket 可靠性依赖第三方环境。
+  - 多平台消息格式差异可能带来适配复杂度。
+- Plan:
+  1. 设计统一 adapter contract 与平台事件映射。
+  2. 分别实现 Telegram 与 NapCat adapter。
+  3. 补齐集成测试、重连与错误恢复策略。
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-26 17:32 TODO requirement created from user request.
+
+### [REQ-20260226-012] WebUI 增加固定高权限控制会话对话框
+- Created At: 2026-02-26 17:32
+- Source: user
+- Priority: P0
+- Status: TODO
+- Owner: runtime
+- Branch: TDB
+- Description:
+  - 在 WebUI 中新增一个独立控制对话框，绑定固定 session，该 session 始终为最高权限，可修改全局配置。
+- Acceptance Criteria:
+  1. WebUI 提供独立入口与独立会话显示（不与普通会话混淆）。
+  2. 固定控制会话拥有最高权限并可执行配置修改接口。
+  3. 对高权限操作提供明确提示和审计记录。
+- Impacted Modules:
+  - `apps/gateway/public/*`
+  - `apps/gateway/server.js`
+  - `apps/runtime/session/*`
+  - `apps/runtime/security/*`
+  - `test/integration/*`
+- Risks/Dependencies:
+  - 高权限入口若无额外保护存在误操作风险。
+  - 需要避免控制会话与普通权限模型互相污染。
+- Plan:
+  1. 定义固定控制 session 生命周期与权限覆盖规则。
+  2. 实现 WebUI 控制对话框与后端绑定。
+  3. 增加审计、确认机制与回归测试。
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-26 17:32 TODO requirement created from user request.
