@@ -14,10 +14,10 @@ const {
 
 const DEFAULT_UI_CONFIG = Object.freeze({
   window: {
-    width: 400,
-    height: 560,
-    minWidth: 320,
-    minHeight: 420,
+    width: 320,
+    height: 500,
+    minWidth: 260,
+    minHeight: 360,
     compactWhenChatHidden: false,
     compactWidth: 260,
     compactHeight: 500,

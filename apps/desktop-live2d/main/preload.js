@@ -7,6 +7,9 @@ const CHANNELS = {
   rendererError: 'live2d:renderer:error',
   getRuntimeConfig: 'live2d:get-runtime-config',
   chatInputSubmit: 'live2d:chat:input:submit',
+  chatPanelToggle: 'live2d:chat:panel-toggle',
+  chatStateSync: 'live2d:chat:state-sync',
+  bubbleStateSync: 'live2d:bubble:state-sync',
   windowDrag: 'live2d:window:drag',
   windowControl: 'live2d:window:control',
   chatPanelVisibility: 'live2d:chat:panel-visibility'
@@ -29,6 +32,19 @@ contextBridge.exposeInMainWorld('desktopLive2dBridge', {
   },
   sendChatInput(payload = {}) {
     ipcRenderer.send(CHANNELS.chatInputSubmit, payload);
+  },
+  sendChatPanelToggle(payload = {}) {
+    ipcRenderer.send(CHANNELS.chatPanelToggle, payload);
+  },
+  onChatStateSync(handler) {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on(CHANNELS.chatStateSync, listener);
+    return () => ipcRenderer.off(CHANNELS.chatStateSync, listener);
+  },
+  onBubbleStateSync(handler) {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on(CHANNELS.bubbleStateSync, listener);
+    return () => ipcRenderer.off(CHANNELS.bubbleStateSync, listener);
   },
   sendWindowDrag(payload = {}) {
     ipcRenderer.send(CHANNELS.windowDrag, payload);

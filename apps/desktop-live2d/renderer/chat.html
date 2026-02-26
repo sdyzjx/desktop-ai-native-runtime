@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yachiyo Chat Panel</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        font-family: "SF Pro Text", "PingFang SC", sans-serif;
+        background: transparent;
+        color: #f4f8ff;
+      }
+
+      #chat-panel {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 14px;
+        background: rgba(10, 14, 24, 0.9);
+        backdrop-filter: blur(10px);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+        overflow: hidden;
+      }
+
+      #chat-panel-header {
+        flex: 0 0 auto;
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 12px;
+        letter-spacing: 0.03em;
+        color: #b7c6e9;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        -webkit-app-region: drag;
+      }
+
+      #chat-panel-header-title {
+        font-size: 12px;
+        letter-spacing: 0.03em;
+      }
+
+      #chat-panel-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        -webkit-app-region: no-drag;
+      }
+
+      .chat-panel-action {
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 8px;
+        padding: 2px 7px;
+        background: rgba(255, 255, 255, 0.1);
+        color: #e8f0ff;
+        font-size: 11px;
+        cursor: pointer;
+      }
+
+      .chat-panel-action:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+
+      #chat-panel-messages {
+        flex: 1 1 auto;
+        overflow: auto;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .chat-message {
+        border-radius: 10px;
+        padding: 7px 9px;
+        font-size: 12px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: rgba(255, 255, 255, 0.16);
+      }
+
+      .chat-message.user {
+        background: rgba(93, 150, 255, 0.32);
+      }
+
+      .chat-message.assistant {
+        background: rgba(130, 102, 255, 0.3);
+      }
+
+      .chat-message.system {
+        background: rgba(255, 192, 90, 0.3);
+      }
+
+      .chat-message.tool {
+        background: rgba(101, 222, 191, 0.3);
+      }
+
+      #chat-panel-composer {
+        flex: 0 0 auto;
+        padding: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        gap: 8px;
+      }
+
+      #chat-input {
+        flex: 1 1 auto;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.16);
+        color: #eff4ff;
+        padding: 6px 8px;
+        font-size: 12px;
+        outline: none;
+      }
+
+      #chat-send {
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.22);
+        color: #f3f8ff;
+        padding: 0 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      #chat-send:disabled,
+      #chat-input:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="chat-panel">
+      <div id="chat-panel-header">
+        <span id="chat-panel-header-title">Desktop Chat</span>
+        <div id="chat-panel-header-actions">
+          <button class="chat-panel-action" id="pet-hide" type="button">Hide</button>
+          <button class="chat-panel-action" id="pet-close" type="button">Close</button>
+        </div>
+      </div>
+      <div id="chat-panel-messages"></div>
+      <div id="chat-panel-composer">
+        <input id="chat-input" type="text" maxlength="4000" placeholder="Type message..." />
+        <button id="chat-send" type="button">Send</button>
+      </div>
+    </div>
+    <script src="./chat.js"></script>
+  </body>
+</html>

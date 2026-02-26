@@ -16,6 +16,9 @@ const CHANNELS = Object.freeze({
   rendererError: 'live2d:renderer:error',
   getRuntimeConfig: 'live2d:get-runtime-config',
   chatInputSubmit: 'live2d:chat:input:submit',
+  chatPanelToggle: 'live2d:chat:panel-toggle',
+  chatStateSync: 'live2d:chat:state-sync',
+  bubbleStateSync: 'live2d:bubble:state-sync',
   windowDrag: 'live2d:window:drag',
   windowControl: 'live2d:window:control',
   chatPanelVisibility: 'live2d:chat:panel-visibility'
@@ -170,9 +173,23 @@ function normalizeWindowControlPayload(payload) {
   return { action };
 }
 
-function createWindowControlListener({ window, onHide = null, onClosePet = null } = {}) {
+function createWindowControlListener({ window, windows = null, onHide = null, onClosePet = null } = {}) {
+  const allowedWindows = Array.isArray(windows) && windows.length > 0
+    ? windows
+    : (window ? [window] : []);
+
   return (event, payload) => {
-    if (!window || window.isDestroyed() || event?.sender !== window.webContents) {
+    const sender = event?.sender;
+    if (!sender || allowedWindows.length === 0) {
+      return;
+    }
+
+    const matched = allowedWindows.find((candidate) => (
+      candidate
+      && !candidate.isDestroyed?.()
+      && candidate.webContents === sender
+    ));
+    if (!matched) {
       return;
     }
 
@@ -200,6 +217,24 @@ function normalizeChatPanelVisibilityPayload(payload) {
   }
   return {
     visible: payload.visible
+  };
+}
+
+function normalizeChatPanelTogglePayload(payload) {
+  return {
+    source: String(payload?.source || 'avatar-window')
+  };
+}
+
+function createChatPanelToggleListener({ window, onToggle = null } = {}) {
+  return (event, payload) => {
+    if (!window || window.isDestroyed() || event?.sender !== window.webContents) {
+      return;
+    }
+    normalizeChatPanelTogglePayload(payload);
+    if (typeof onToggle === 'function') {
+      onToggle();
+    }
   };
 }
 
@@ -245,6 +280,7 @@ async function startDesktopSuite({
     modelDir: config.modelDir,
     modelJsonName: config.modelJsonName
   });
+  const display = screen?.getPrimaryDisplay?.();
 
   logger.info?.('[desktop-live2d] desktop_up_start', {
     modelDir: config.modelDir,
@@ -264,6 +300,275 @@ async function startDesktopSuite({
 
   let rpcServerRef = null;
   let ipcBridgeRef = null;
+  const windowMetrics = resolveWindowMetrics(config.uiConfig);
+  const avatarWindow = createMainWindow({
+    BrowserWindow,
+    preloadPath: path.join(__dirname, 'preload.js'),
+    display,
+    uiConfig: config.uiConfig,
+    windowMetrics
+  });
+  const avatarWindowBounds = avatarWindow.getBounds();
+
+  const chatWindow = createChatWindow({
+    BrowserWindow,
+    preloadPath: path.join(__dirname, 'preload.js'),
+    uiConfig: config.uiConfig,
+    avatarBounds: avatarWindowBounds,
+    display
+  });
+  const bubbleWindow = createBubbleWindow({
+    BrowserWindow,
+    preloadPath: path.join(__dirname, 'preload.js'),
+    avatarBounds: avatarWindowBounds,
+    display
+  });
+  await chatWindow.loadFile(path.join(config.projectRoot, 'apps', 'desktop-live2d', 'renderer', 'chat.html'));
+  await bubbleWindow.loadFile(path.join(config.projectRoot, 'apps', 'desktop-live2d', 'renderer', 'bubble.html'));
+
+  const chatPanelConfig = config.uiConfig?.chat?.panel || {};
+  const chatState = {
+    enabled: Boolean(chatPanelConfig.enabled),
+    visible: Boolean(chatPanelConfig.enabled && chatPanelConfig.defaultVisible),
+    maxMessages: toPositiveInt(chatPanelConfig.maxMessages, 200),
+    inputEnabled: chatPanelConfig.inputEnabled !== false,
+    messages: []
+  };
+  const bubbleState = {
+    visible: false,
+    text: ''
+  };
+  let bubbleHideTimer = null;
+
+  function buildChatStateSnapshot() {
+    return {
+      enabled: chatState.enabled,
+      visible: chatState.visible,
+      inputEnabled: chatState.inputEnabled,
+      maxMessages: chatState.maxMessages,
+      messages: chatState.messages
+    };
+  }
+
+  function syncChatStateToRenderer() {
+    if (chatWindow.isDestroyed()) {
+      return;
+    }
+    chatWindow.webContents.send(CHANNELS.chatStateSync, buildChatStateSnapshot());
+  }
+
+  function syncBubbleStateToRenderer() {
+    if (bubbleWindow.isDestroyed()) {
+      return;
+    }
+    bubbleWindow.webContents.send(CHANNELS.bubbleStateSync, {
+      visible: bubbleState.visible,
+      text: bubbleState.text
+    });
+  }
+
+  function setWindowBoundsIfChanged(windowRef, nextBounds) {
+    if (!windowRef || windowRef.isDestroyed?.() || !nextBounds) {
+      return;
+    }
+    const current = windowRef.getBounds();
+    if (
+      current.x === nextBounds.x
+      && current.y === nextBounds.y
+      && current.width === nextBounds.width
+      && current.height === nextBounds.height
+    ) {
+      return;
+    }
+    windowRef.setBounds(nextBounds, false);
+  }
+
+  function updateChatWindowBounds() {
+    if (!chatState.enabled || chatWindow.isDestroyed()) {
+      return;
+    }
+    const chatBounds = computeChatWindowBounds({
+      avatarBounds: avatarWindow.getBounds(),
+      chatWidth: toPositiveInt(chatPanelConfig.width, 320),
+      chatHeight: toPositiveInt(chatPanelConfig.height, 220),
+      display
+    });
+    setWindowBoundsIfChanged(chatWindow, chatBounds);
+  }
+
+  function updateBubbleWindowBounds() {
+    if (!bubbleState.visible || bubbleWindow.isDestroyed()) {
+      return;
+    }
+    const bubbleBounds = computeBubbleWindowBounds({
+      avatarBounds: avatarWindow.getBounds(),
+      bubbleWidth: 320,
+      bubbleHeight: 120,
+      display
+    });
+    setWindowBoundsIfChanged(bubbleWindow, bubbleBounds);
+  }
+
+  function appendChatMessage(params, fallbackRole = 'assistant') {
+    const text = String(params?.text || '').trim();
+    if (!text) {
+      return { ok: false, count: chatState.messages.length };
+    }
+    const role = String(params?.role || fallbackRole || 'assistant');
+    const message = {
+      role,
+      text,
+      timestamp: Number.isFinite(Number(params?.timestamp)) ? Number(params.timestamp) : Date.now()
+    };
+    chatState.messages = chatState.messages.concat(message);
+    if (chatState.messages.length > chatState.maxMessages) {
+      chatState.messages = chatState.messages.slice(chatState.messages.length - chatState.maxMessages);
+    }
+    syncChatStateToRenderer();
+    return { ok: true, count: chatState.messages.length };
+  }
+
+  function clearChatMessages() {
+    chatState.messages = [];
+    syncChatStateToRenderer();
+    return { ok: true, count: 0 };
+  }
+
+  function setChatPanelVisible(visible) {
+    if (!chatState.enabled) {
+      return { ok: false, visible: false };
+    }
+    chatState.visible = Boolean(visible);
+    syncChatStateToRenderer();
+    if (chatState.visible) {
+      updateChatWindowBounds();
+      chatWindow.show();
+    } else {
+      chatWindow.hide();
+    }
+    return { ok: true, visible: chatState.visible };
+  }
+
+  function toggleChatPanelVisible() {
+    return setChatPanelVisible(!chatState.visible);
+  }
+
+  function hideBubbleWindow() {
+    if (bubbleHideTimer) {
+      clearTimeout(bubbleHideTimer);
+      bubbleHideTimer = null;
+    }
+    bubbleState.visible = false;
+    bubbleState.text = '';
+    syncBubbleStateToRenderer();
+    if (!bubbleWindow.isDestroyed()) {
+      bubbleWindow.hide();
+    }
+  }
+
+  function showBubble(params) {
+    const text = String(params?.text || '').trim();
+    if (!text) {
+      return { ok: false };
+    }
+    const durationMs = Number.isFinite(Number(params?.durationMs))
+      ? Math.max(500, Math.min(30000, Number(params.durationMs)))
+      : 5000;
+    bubbleState.visible = true;
+    bubbleState.text = text;
+    updateBubbleWindowBounds();
+    syncBubbleStateToRenderer();
+    bubbleWindow.showInactive();
+
+    if (bubbleHideTimer) {
+      clearTimeout(bubbleHideTimer);
+    }
+    bubbleHideTimer = setTimeout(() => {
+      hideBubbleWindow();
+    }, durationMs);
+    return { ok: true, expiresAt: Date.now() + durationMs };
+  }
+
+  function hidePetWindows() {
+    if (!avatarWindow.isDestroyed()) {
+      avatarWindow.hide();
+    }
+    if (!chatWindow.isDestroyed()) {
+      chatWindow.hide();
+    }
+    hideBubbleWindow();
+  }
+
+  function showPetWindows() {
+    if (avatarWindow.isDestroyed()) {
+      return;
+    }
+    avatarWindow.show();
+    avatarWindow.focus();
+    if (chatState.visible && !chatWindow.isDestroyed()) {
+      updateChatWindowBounds();
+      chatWindow.show();
+    }
+    updateBubbleWindowBounds();
+  }
+
+  avatarWindow.on('move', () => {
+    updateChatWindowBounds();
+    updateBubbleWindowBounds();
+  });
+  avatarWindow.on('resize', () => {
+    updateChatWindowBounds();
+    updateBubbleWindowBounds();
+  });
+  avatarWindow.on('hide', () => {
+    if (!chatWindow.isDestroyed()) {
+      chatWindow.hide();
+    }
+    hideBubbleWindow();
+  });
+  avatarWindow.on('show', () => {
+    if (chatState.visible && !chatWindow.isDestroyed()) {
+      updateChatWindowBounds();
+      chatWindow.show();
+    }
+  });
+
+  const avatarUiConfig = {
+    ...config.uiConfig,
+    chat: {
+      ...(config.uiConfig?.chat || {}),
+      panel: {
+        ...(config.uiConfig?.chat?.panel || {}),
+        enabled: false
+      }
+    }
+  };
+
+  ipcMain.handle(CHANNELS.getRuntimeConfig, (event) => ({
+    modelRelativePath: config.modelRelativePath,
+    modelName: modelValidation.modelName,
+    gatewayUrl: config.gatewayUrl,
+    uiConfig: event?.sender === avatarWindow.webContents ? avatarUiConfig : config.uiConfig
+  }));
+  const windowDragListener = createWindowDragListener({ BrowserWindow });
+  ipcMain.on(CHANNELS.windowDrag, windowDragListener);
+  const chatPanelVisibilityListener = createChatPanelVisibilityListener({ window: avatarWindow, windowMetrics });
+  ipcMain.on(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
+  const chatPanelToggleListener = createChatPanelToggleListener({
+    window: avatarWindow,
+    onToggle: () => {
+      toggleChatPanelVisible();
+    }
+  });
+  ipcMain.on(CHANNELS.chatPanelToggle, chatPanelToggleListener);
+
+  const windowControlListener = createWindowControlListener({
+    windows: [avatarWindow, chatWindow],
+    onHide: hidePetWindows,
+    onClosePet: hidePetWindows
+  });
+  ipcMain.on(CHANNELS.windowControl, windowControlListener);
+
   const gatewayRuntimeClient = new GatewayRuntimeClient({
     gatewayUrl: config.gatewayUrl,
     sessionId: 'desktop-live2d-chat',
@@ -274,7 +579,7 @@ async function startDesktopSuite({
         params: desktopEvent
       });
 
-      if (desktopEvent.type !== 'runtime.final' || !ipcBridgeRef) {
+      if (desktopEvent.type !== 'runtime.final') {
         return;
       }
 
@@ -282,26 +587,14 @@ async function startDesktopSuite({
       if (!output) {
         return;
       }
-
-      void ipcBridgeRef.invoke({
-        method: 'chat.panel.append',
-        params: {
-          role: 'assistant',
-          text: output,
-          timestamp: Date.now()
-        }
-      }).catch((err) => {
-        logger.error?.('[desktop-live2d] failed to append runtime.final into chat panel', err);
-      });
-
-      void ipcBridgeRef.invoke({
-        method: 'chat.bubble.show',
-        params: {
-          text: output,
-          durationMs: 5000
-        }
-      }).catch((err) => {
-        logger.error?.('[desktop-live2d] failed to render runtime.final bubble', err);
+      appendChatMessage({
+        role: 'assistant',
+        text: output,
+        timestamp: Date.now()
+      }, 'assistant');
+      showBubble({
+        text: output,
+        durationMs: 5000
       });
     }
   });
@@ -314,44 +607,17 @@ async function startDesktopSuite({
     logger.error?.('[desktop-live2d] gateway_session_bootstrap_failed', err);
   }
 
-  const windowMetrics = resolveWindowMetrics(config.uiConfig);
-  const window = createMainWindow({
-    BrowserWindow,
-    preloadPath: path.join(__dirname, 'preload.js'),
-    display: screen?.getPrimaryDisplay?.(),
-    uiConfig: config.uiConfig,
-    windowMetrics
-  });
-
-  ipcMain.handle(CHANNELS.getRuntimeConfig, () => ({
-    modelRelativePath: config.modelRelativePath,
-    modelName: modelValidation.modelName,
-    gatewayUrl: config.gatewayUrl,
-    uiConfig: config.uiConfig
-  }));
-  const windowDragListener = createWindowDragListener({ BrowserWindow });
-  ipcMain.on(CHANNELS.windowDrag, windowDragListener);
-  const chatPanelVisibilityListener = createChatPanelVisibilityListener({ window, windowMetrics });
-  ipcMain.on(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
-  const hidePetWindow = () => {
-    if (!window.isDestroyed()) {
-      window.hide();
-    }
-  };
-
-  const windowControlListener = createWindowControlListener({
-    window,
-    onHide: hidePetWindow,
-    onClosePet: hidePetWindow
-  });
-  ipcMain.on(CHANNELS.windowControl, windowControlListener);
-
   const chatInputListener = createChatInputListener({
     logger,
     onChatInput: (payload) => {
       if (typeof onChatInput === 'function') {
         onChatInput(payload);
       }
+      appendChatMessage({
+        role: 'user',
+        text: payload.text,
+        timestamp: payload.timestamp
+      }, 'user');
 
       if (isNewSessionCommand(payload.text)) {
         void gatewayRuntimeClient.createAndUseNewSession({ permissionLevel: 'medium' }).then((sessionId) => {
@@ -366,27 +632,16 @@ async function startDesktopSuite({
               }
             }
           });
-
-          if (!ipcBridgeRef) {
-            return;
-          }
-
-          void ipcBridgeRef.invoke({ method: 'chat.panel.clear', params: {} }).catch(() => {});
-          void ipcBridgeRef.invoke({
-            method: 'chat.panel.append',
-            params: {
-              role: 'system',
-              text: `[session] switched to ${sessionId}`,
-              timestamp: Date.now()
-            }
-          }).catch(() => {});
-          void ipcBridgeRef.invoke({
-            method: 'chat.bubble.show',
-            params: {
-              text: 'New session created',
-              durationMs: 2200
-            }
-          }).catch(() => {});
+          clearChatMessages();
+          appendChatMessage({
+            role: 'system',
+            text: `[session] switched to ${sessionId}`,
+            timestamp: Date.now()
+          }, 'system');
+          showBubble({
+            text: 'New session created',
+            durationMs: 2200
+          });
         }).catch((err) => {
           logger.error?.('[desktop-live2d] /new session create failed', err);
         });
@@ -405,18 +660,11 @@ async function startDesktopSuite({
             }
           }
         });
-
-        if (!ipcBridgeRef) {
-          return;
-        }
-        void ipcBridgeRef.invoke({
-          method: 'chat.panel.append',
-          params: {
-            role: 'system',
-            text: `[runtime error] ${err?.message || String(err || 'unknown runtime error')}`,
-            timestamp: Date.now()
-          }
-        }).catch(() => {});
+        appendChatMessage({
+          role: 'system',
+          text: `[runtime error] ${err?.message || String(err || 'unknown runtime error')}`,
+          timestamp: Date.now()
+        }, 'system');
       });
     }
   });
@@ -424,12 +672,18 @@ async function startDesktopSuite({
 
   const rendererReadyPromise = waitForRendererReady({ ipcMain, timeoutMs: 15000 });
 
-  await window.loadFile(path.join(config.projectRoot, 'apps', 'desktop-live2d', 'renderer', 'index.html'));
+  await avatarWindow.loadFile(path.join(config.projectRoot, 'apps', 'desktop-live2d', 'renderer', 'index.html'));
   await rendererReadyPromise;
+  syncChatStateToRenderer();
+  syncBubbleStateToRenderer();
+  if (chatState.visible) {
+    updateChatWindowBounds();
+    chatWindow.show();
+  }
 
   const bridge = new IpcRpcBridge({
     ipcMain,
-    webContents: window.webContents,
+    webContents: avatarWindow.webContents,
     invokeChannel: CHANNELS.invoke,
     resultChannel: CHANNELS.result,
     timeoutMs: config.rendererTimeoutMs
@@ -443,7 +697,11 @@ async function startDesktopSuite({
     requestHandler: async (request) => handleDesktopRpcRequest({
       request,
       bridge,
-      rendererTimeoutMs: config.rendererTimeoutMs
+      rendererTimeoutMs: config.rendererTimeoutMs,
+      setChatPanelVisible,
+      appendChatMessage,
+      clearChatMessages,
+      showBubble
     }),
     logger
   });
@@ -484,6 +742,7 @@ async function startDesktopSuite({
     ipcMain.removeHandler(CHANNELS.getRuntimeConfig);
     ipcMain.off(CHANNELS.windowDrag, windowDragListener);
     ipcMain.off(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
+    ipcMain.off(CHANNELS.chatPanelToggle, chatPanelToggleListener);
     ipcMain.off(CHANNELS.windowControl, windowControlListener);
     ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
 
@@ -496,8 +755,15 @@ async function startDesktopSuite({
       ipcBridgeRef = null;
     }
 
-    if (!window.isDestroyed()) {
-      window.destroy();
+    hideBubbleWindow();
+    if (!bubbleWindow.isDestroyed()) {
+      bubbleWindow.destroy();
+    }
+    if (!chatWindow.isDestroyed()) {
+      chatWindow.destroy();
+    }
+    if (!avatarWindow.isDestroyed()) {
+      avatarWindow.destroy();
     }
 
     await gatewaySupervisor.stop();
@@ -506,7 +772,12 @@ async function startDesktopSuite({
   return {
     config,
     summary,
-    window,
+    window: avatarWindow,
+    avatarWindow,
+    chatWindow,
+    bubbleWindow,
+    showPetWindows,
+    hidePetWindows,
     stop
   };
 }
@@ -544,7 +815,15 @@ function createChatInputListener({ logger = console, onChatInput = null } = {}) 
   };
 }
 
-async function handleDesktopRpcRequest({ request, bridge, rendererTimeoutMs }) {
+async function handleDesktopRpcRequest({
+  request,
+  bridge,
+  rendererTimeoutMs,
+  setChatPanelVisible = null,
+  appendChatMessage = null,
+  clearChatMessages = null,
+  showBubble = null
+}) {
   if (request.method === 'tool.list') {
     return {
       tools: listDesktopTools()
@@ -568,6 +847,37 @@ async function handleDesktopRpcRequest({ request, bridge, rendererTimeoutMs }) {
     };
   }
 
+  if (request.method === 'chat.show' || request.method === 'chat.bubble.show') {
+    if (typeof showBubble !== 'function') {
+      return { ok: false };
+    }
+    return showBubble(request.params || {});
+  }
+
+  if (request.method === 'chat.panel.show') {
+    return typeof setChatPanelVisible === 'function'
+      ? setChatPanelVisible(true)
+      : { ok: false, visible: false };
+  }
+
+  if (request.method === 'chat.panel.hide') {
+    return typeof setChatPanelVisible === 'function'
+      ? setChatPanelVisible(false)
+      : { ok: false, visible: false };
+  }
+
+  if (request.method === 'chat.panel.append') {
+    return typeof appendChatMessage === 'function'
+      ? appendChatMessage(request.params || {}, 'assistant')
+      : { ok: false, count: 0 };
+  }
+
+  if (request.method === 'chat.panel.clear') {
+    return typeof clearChatMessages === 'function'
+      ? clearChatMessages()
+      : { ok: false, count: 0 };
+  }
+
   return bridge.invoke({
     method: request.method,
     params: request.params,
@@ -577,10 +887,10 @@ async function handleDesktopRpcRequest({ request, bridge, rendererTimeoutMs }) {
 
 function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windowMetrics }) {
   const windowConfig = uiConfig?.window || {};
-  const initialSize = resolveWindowSizeForChatPanel({
-    windowMetrics,
-    chatPanelVisible: windowMetrics?.defaultChatPanelVisible
-  });
+  const initialSize = {
+    width: windowMetrics?.expandedWidth || 320,
+    height: windowMetrics?.expandedHeight || 500
+  };
   const placement = windowConfig.placement || {};
   const windowBounds = computeWindowBounds({
     width: initialSize.width,
@@ -616,6 +926,73 @@ function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windo
   });
 
   return win;
+}
+
+function createChatWindow({ BrowserWindow, preloadPath, uiConfig, avatarBounds, display }) {
+  const panelConfig = uiConfig?.chat?.panel || {};
+  const width = toPositiveInt(panelConfig.width, 320);
+  const height = toPositiveInt(panelConfig.height, 220);
+  const bounds = computeChatWindowBounds({
+    avatarBounds,
+    chatWidth: width,
+    chatHeight: height,
+    display
+  });
+
+  return new BrowserWindow({
+    width,
+    height,
+    x: bounds.x,
+    y: bounds.y,
+    minWidth: Math.max(260, Math.min(width, width)),
+    minHeight: Math.max(180, Math.min(height, height)),
+    frame: false,
+    transparent: true,
+    hasShadow: true,
+    alwaysOnTop: true,
+    show: false,
+    movable: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+}
+
+function createBubbleWindow({ BrowserWindow, preloadPath, avatarBounds, display }) {
+  const bounds = computeBubbleWindowBounds({
+    avatarBounds,
+    bubbleWidth: 320,
+    bubbleHeight: 120,
+    display
+  });
+
+  const bubbleWindow = new BrowserWindow({
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    alwaysOnTop: true,
+    show: false,
+    focusable: false,
+    resizable: false,
+    movable: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+  bubbleWindow.setIgnoreMouseEvents(true, { forward: true });
+  return bubbleWindow;
 }
 
 function computeRightBottomWindowBounds({ width, height, display, marginRight = 16, marginBottom = 16 }) {
@@ -678,6 +1055,80 @@ function computeWindowBounds({ width, height, display, anchor = 'bottom-right', 
   return computeRightBottomWindowBounds({ width, height, display, marginRight, marginBottom });
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function computeChatWindowBounds({
+  avatarBounds,
+  chatWidth,
+  chatHeight,
+  display,
+  gap = 12,
+  margin = 16
+}) {
+  const workArea = display?.workArea;
+  if (!workArea || !avatarBounds) {
+    return { x: undefined, y: undefined, width: chatWidth, height: chatHeight };
+  }
+
+  const workLeft = workArea.x + margin;
+  const workTop = workArea.y + margin;
+  const workRight = workArea.x + workArea.width - margin;
+  const workBottom = workArea.y + workArea.height - margin;
+
+  let x = avatarBounds.x - chatWidth - gap;
+  if (x < workLeft) {
+    x = avatarBounds.x + avatarBounds.width + gap;
+  }
+  x = clamp(x, workLeft, workRight - chatWidth);
+
+  const preferredY = avatarBounds.y + avatarBounds.height - chatHeight;
+  const y = clamp(preferredY, workTop, workBottom - chatHeight);
+
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: chatWidth,
+    height: chatHeight
+  };
+}
+
+function computeBubbleWindowBounds({
+  avatarBounds,
+  bubbleWidth,
+  bubbleHeight,
+  display,
+  gap = 10,
+  margin = 16
+}) {
+  const workArea = display?.workArea;
+  if (!workArea || !avatarBounds) {
+    return { x: undefined, y: undefined, width: bubbleWidth, height: bubbleHeight };
+  }
+
+  const workLeft = workArea.x + margin;
+  const workTop = workArea.y + margin;
+  const workRight = workArea.x + workArea.width - margin;
+  const workBottom = workArea.y + workArea.height - margin;
+
+  let x = avatarBounds.x - bubbleWidth - gap;
+  if (x < workLeft) {
+    x = avatarBounds.x + avatarBounds.width + gap;
+  }
+  x = clamp(x, workLeft, workRight - bubbleWidth);
+
+  const preferredY = avatarBounds.y + Math.round(avatarBounds.height * 0.15);
+  const y = clamp(preferredY, workTop, workBottom - bubbleHeight);
+
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: bubbleWidth,
+    height: bubbleHeight
+  };
+}
+
 function waitForRendererReady({ ipcMain, timeoutMs }) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -727,10 +1178,16 @@ module.exports = {
   normalizeWindowDragPayload,
   normalizeWindowControlPayload,
   normalizeChatPanelVisibilityPayload,
+  normalizeChatPanelTogglePayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
+  createChatPanelToggleListener,
   createChatInputListener,
   handleDesktopRpcRequest,
-  isNewSessionCommand
+  isNewSessionCommand,
+  createChatWindow,
+  createBubbleWindow,
+  computeChatWindowBounds,
+  computeBubbleWindowBounds
 };

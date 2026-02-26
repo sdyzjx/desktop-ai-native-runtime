@@ -25,16 +25,18 @@
 1. `resolveDesktopLive2dConfig()` 读取配置
 2. `validateModelAssetDirectory()` 校验模型资源
 3. `GatewaySupervisor.start()` 启动或接入网关
-4. `createMainWindow()` 创建透明窗口
+4. 创建三窗口：`createMainWindow()`（Avatar）/ `createChatWindow()`（聊天）/ `createBubbleWindow()`（气泡）
 5. 绑定 IPC（drag/control/chat/rpc）
-6. 加载 renderer 页面并等待 `rendererReady`
+6. 加载 Avatar renderer 页面并等待 `rendererReady`
 7. 创建 `IpcRpcBridge`
 8. 启动 `Live2dRpcServer`
 9. 写入 `data/desktop-live2d/runtime-summary.json`
 
 ### 2.2 控制链（RPC）
 
-外部客户端 -> `Live2dRpcServer` -> `IpcRpcBridge.invoke()` -> Renderer `handleInvoke()` -> `Live2DModel/ChatPanel` -> 返回结果
+外部客户端 -> `Live2dRpcServer` -> `requestHandler`
+- 模型控制方法：`IpcRpcBridge.invoke()` -> Avatar Renderer `handleInvoke()`
+- 聊天与气泡方法：main 进程内存态处理 -> Chat/Bubble 窗口同步
 
 ### 2.3 对话链
 
@@ -42,8 +44,8 @@
 
 网关通知 `runtime.*` -> `GatewayRuntimeClient.onNotification` ->
 - RPC 通知：`desktop.event`
-- UI 追加：`chat.panel.append`
-- 气泡显示：`chat.bubble.show`
+- UI 追加：main 进程 `appendChatMessage()` -> `chatStateSync`
+- 气泡显示：main 进程 `showBubble()` -> `bubbleStateSync`
 
 ## 3. 协议与方法总览
 
@@ -57,6 +59,9 @@
 - `live2d:renderer:error`
 - `live2d:get-runtime-config`
 - `live2d:chat:input:submit`
+- `live2d:chat:panel-toggle`
+- `live2d:chat:state-sync`
+- `live2d:bubble:state-sync`
 - `live2d:window:drag`
 - `live2d:window:control`
 - `live2d:chat:panel-visibility`

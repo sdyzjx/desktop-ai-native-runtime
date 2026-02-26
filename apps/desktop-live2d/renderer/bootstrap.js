@@ -611,6 +611,10 @@
       if (typeof modelTapToggleGate?.tryEnter === 'function' && !modelTapToggleGate.tryEnter()) {
         return;
       }
+      if (!chatPanelEnabled) {
+        bridge?.sendChatPanelToggle?.({ source: 'avatar-window' });
+        return;
+      }
       toggleChatPanelVisible();
     });
   }

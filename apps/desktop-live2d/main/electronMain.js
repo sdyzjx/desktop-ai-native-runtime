@@ -53,12 +53,20 @@ async function bootstrap() {
 }
 
 function hidePetWindow() {
+  if (suite?.hidePetWindows) {
+    suite.hidePetWindows();
+    return;
+  }
   if (suite?.window && !suite.window.isDestroyed()) {
     suite.window.hide();
   }
 }
 
 function showPetWindow() {
+  if (suite?.showPetWindows) {
+    suite.showPetWindows();
+    return;
+  }
   if (suite?.window && !suite.window.isDestroyed()) {
     suite.window.show();
     suite.window.focus();
