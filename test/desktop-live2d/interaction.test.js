@@ -1,7 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createCooldownGate, nearlyEqual, shouldUpdate2D } = require('../../apps/desktop-live2d/renderer/interaction');
+const {
+  createCooldownGate,
+  nearlyEqual,
+  shouldUpdate2D,
+  isImeComposingEvent
+} = require('../../apps/desktop-live2d/renderer/interaction');
 
 test('createCooldownGate blocks repeated toggles until cooldown expires', () => {
   let now = 1000;
@@ -39,4 +44,11 @@ test('nearlyEqual and shouldUpdate2D compare transform deltas with epsilon', () 
 
   assert.equal(shouldUpdate2D(10, 20, 10.00001, 20.00001, 1e-3), false);
   assert.equal(shouldUpdate2D(10, 20, 10.1, 20, 1e-3), true);
+});
+
+test('isImeComposingEvent detects composition states from event and fallback', () => {
+  assert.equal(isImeComposingEvent({ isComposing: true }, false), true);
+  assert.equal(isImeComposingEvent({ keyCode: 229 }, false), true);
+  assert.equal(isImeComposingEvent({ isComposing: false, keyCode: 13 }, true), true);
+  assert.equal(isImeComposingEvent({ isComposing: false, keyCode: 13 }, false), false);
 });

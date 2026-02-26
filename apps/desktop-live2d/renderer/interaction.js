@@ -41,10 +41,25 @@
     return !(nearlyEqual(currentX, nextX, epsilon) && nearlyEqual(currentY, nextY, epsilon));
   }
 
+  function isImeComposingEvent(event, fallbackComposing = false) {
+    if (!event || typeof event !== 'object') {
+      return Boolean(fallbackComposing);
+    }
+    if (event.isComposing === true) {
+      return true;
+    }
+    const keyCode = Number(event.keyCode);
+    if (Number.isInteger(keyCode) && keyCode === 229) {
+      return true;
+    }
+    return Boolean(fallbackComposing);
+  }
+
   const api = {
     createCooldownGate,
     nearlyEqual,
-    shouldUpdate2D
+    shouldUpdate2D,
+    isImeComposingEvent
   };
 
   if (typeof module !== 'undefined' && module.exports) {

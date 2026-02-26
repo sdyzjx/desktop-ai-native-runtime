@@ -18,7 +18,7 @@ const DEFAULT_UI_CONFIG = Object.freeze({
     height: 620,
     minWidth: 360,
     minHeight: 480,
-    compactWhenChatHidden: true,
+    compactWhenChatHidden: false,
     compactWidth: 300,
     compactHeight: 560,
     placement: {
