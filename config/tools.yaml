@@ -10,6 +10,7 @@ policy:
     - workspace.write_file
     - shell.exec
     - persona.update_profile
+    - voice.tts_aliyun_vc
   deny: []
   byProvider: {}
 
@@ -118,4 +119,29 @@ tools:
       properties:
         custom_name: { type: string }
       required: [custom_name]
+      additionalProperties: false
+
+  - name: voice.tts_aliyun_vc
+    type: local
+    adapter: voice.tts_aliyun_vc
+    description: Generate speech audio by Qwen3-TTS-VC (Aliyun DashScope) with policy + cooldown control.
+    input_schema:
+      type: object
+      properties:
+        text: { type: string }
+        voiceId: { type: string }
+        model: { type: string }
+        voiceTag: { type: string, enum: [zh, jp, en] }
+        timeoutSec: { type: integer, minimum: 1, maximum: 120 }
+        replyMeta:
+          type: object
+          properties:
+            inputType: { type: string, enum: [text, audio] }
+            sentenceCount: { type: integer, minimum: 1 }
+            containsCode: { type: boolean }
+            containsTable: { type: boolean }
+            containsManyLinks: { type: boolean }
+            isTroubleshooting: { type: boolean }
+          additionalProperties: false
+      required: [text, voiceId, model]
       additionalProperties: false

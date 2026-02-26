@@ -1,0 +1,19 @@
+voice_policy:
+  must_speak_if:
+    - input_type == audio && reply_complexity == low
+
+  may_speak_if:
+    - sentence_count <= 4
+    - no_code_block == true
+
+  must_not_speak_if:
+    - contains_code == true
+    - contains_table == true
+    - contains_many_links == true
+    - is_troubleshooting == true
+
+  limits:
+    max_chars: 220
+    max_duration_sec: 45
+    cooldown_sec_per_session: 20
+    max_tts_calls_per_minute: 3

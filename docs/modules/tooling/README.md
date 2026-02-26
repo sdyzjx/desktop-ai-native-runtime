@@ -10,6 +10,8 @@
   - 执行管线、中间件顺序、错误规范、审计指标
 - `builtin-fs-shell-adapters.md`
   - 内置工具、文件工具、shell 工具约束与安全策略
+- `voice-tts-aliyun-vc-phase1.md`
+  - Qwen3-TTS-VC 语音输出工具（策略、频控、模型一致性）
 
 ## 统一调用链（简版）
 
