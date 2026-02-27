@@ -8,6 +8,8 @@ const SERVER_SYNC_INTERVAL_MS = 2000;
 const MAX_UPLOAD_IMAGES = 4;
 const MAX_UPLOAD_IMAGE_BYTES = 8 * 1024 * 1024;
 const LIGHTBOX_ANIMATION_MS = 220;
+const DEBUG_PREFS_KEY = 'yachiyo_debug_panel_v1';
+const DEBUG_MAX_LINES = 500;
 
 const elements = {
   sidebar: document.getElementById('sidebar'),
@@ -18,6 +20,16 @@ const elements = {
   runtimeStatus: document.getElementById('runtimeStatus'),
   sessionPermissionSelect: document.getElementById('sessionPermissionSelect'),
   themeSelect: document.getElementById('themeSelect'),
+  debugPanel: document.getElementById('debugPanel'),
+  debugPanelToggleBtn: document.getElementById('debugPanelToggleBtn'),
+  debugStreamStatus: document.getElementById('debugStreamStatus'),
+  debugConnectBtn: document.getElementById('debugConnectBtn'),
+  debugDisconnectBtn: document.getElementById('debugDisconnectBtn'),
+  debugModeBtn: document.getElementById('debugModeBtn'),
+  debugClearBtn: document.getElementById('debugClearBtn'),
+  debugTopicsInput: document.getElementById('debugTopicsInput'),
+  debugTokenInput: document.getElementById('debugTokenInput'),
+  debugStreamList: document.getElementById('debugStreamList'),
   messageList: document.getElementById('messageList'),
   chatInput: document.getElementById('chatInput'),
   sendBtn: document.getElementById('sendBtn'),
@@ -41,6 +53,10 @@ const state = {
   lightboxCloseTimer: null,
   ws: null,
   wsReady: false,
+  debugSource: null,
+  debugConnected: false,
+  debugPanelOpen: true,
+  debugModeEnabled: false,
   isComposing: false,
   themePreference: DEFAULT_THEME_PREFERENCE,
   serverSyncTimer: null,
@@ -58,6 +74,38 @@ function updateComposerState() {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function loadDebugPrefs() {
+  const raw = localStorage.getItem(DEBUG_PREFS_KEY);
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.panelOpen === 'boolean') {
+      state.debugPanelOpen = parsed.panelOpen;
+    }
+    if (typeof parsed.topics === 'string') {
+      elements.debugTopicsInput.value = parsed.topics;
+    }
+  } catch {
+    // ignore malformed local cache
+  }
+}
+
+function persistDebugPrefs() {
+  const payload = {
+    panelOpen: state.debugPanelOpen,
+    topics: String(elements.debugTopicsInput.value || '').trim()
+  };
+  localStorage.setItem(DEBUG_PREFS_KEY, JSON.stringify(payload));
+}
+
+function normalizeDebugTopics(value) {
+  const topics = String(value || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return Array.from(new Set(topics)).join(',');
 }
 
 function formatTime(iso) {
@@ -302,6 +350,174 @@ function formatBytes(size) {
   if (n < 1024) return `${n}B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
   return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function setDebugPanelOpen(open) {
+  state.debugPanelOpen = Boolean(open);
+  elements.debugPanel.classList.toggle('collapsed', !state.debugPanelOpen);
+  elements.debugPanelToggleBtn.textContent = state.debugPanelOpen ? 'Hide Debug' : 'Show Debug';
+  persistDebugPrefs();
+}
+
+function setDebugStreamStatus(text, kind = '') {
+  elements.debugStreamStatus.textContent = String(text || '');
+  elements.debugStreamStatus.classList.remove('connected', 'error');
+  if (kind) {
+    elements.debugStreamStatus.classList.add(kind);
+  }
+}
+
+function setDebugModeButton() {
+  elements.debugModeBtn.textContent = state.debugModeEnabled ? 'Debug ON' : 'Debug OFF';
+}
+
+function safeJsonStringify(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function emitClientDebug(topic, msg, extra = {}) {
+  const normalizedTopic = String(topic || '').trim();
+  if (!normalizedTopic) return;
+  const payload = {
+    event: 'log',
+    topic: normalizedTopic,
+    level: 'info',
+    msg: String(msg || normalizedTopic),
+    meta: {
+      ...extra,
+      active_session_id: state.activeSessionId || null
+    }
+  };
+  fetch('/api/debug/emit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+    keepalive: true
+  }).catch(() => {
+    // non-blocking telemetry path
+  });
+}
+
+function appendDebugLine({ ts, topic, event, payload }) {
+  const line = document.createElement('div');
+  line.className = 'debug-line';
+  const d = Number(ts) ? new Date(Number(ts)) : new Date();
+  const timeText = d.toLocaleTimeString('zh-CN', { hour12: false });
+  const meta = `[${timeText}] [${String(topic || 'unknown')}] [${String(event || 'log')}]`;
+  line.innerHTML = `
+    <span class="debug-line-meta">${escapeHtml(meta)}</span>
+    <span class="debug-line-topic"> ${escapeHtml(safeJsonStringify(payload))}</span>
+  `;
+  elements.debugStreamList.appendChild(line);
+
+  while (elements.debugStreamList.childElementCount > DEBUG_MAX_LINES) {
+    elements.debugStreamList.removeChild(elements.debugStreamList.firstElementChild);
+  }
+  elements.debugStreamList.scrollTop = elements.debugStreamList.scrollHeight;
+}
+
+function disconnectDebugStream() {
+  if (state.debugSource) {
+    state.debugSource.close();
+    state.debugSource = null;
+  }
+  state.debugConnected = false;
+  setDebugStreamStatus('Disconnected');
+}
+
+function buildDebugStreamUrl() {
+  const topics = normalizeDebugTopics(elements.debugTopicsInput.value);
+  const token = String(elements.debugTokenInput.value || '').trim();
+  const params = new URLSearchParams();
+  if (topics) params.set('topics', topics);
+  if (token) params.set('token', token);
+  const query = params.toString();
+  return query ? `/api/debug/events?${query}` : '/api/debug/events';
+}
+
+function handleDebugSsePayload(raw, eventType = 'log') {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(String(raw || '{}'));
+  } catch {
+    parsed = { topic: 'unknown', ts: Date.now(), raw: String(raw || '') };
+  }
+
+  appendDebugLine({
+    ts: parsed.ts || Date.now(),
+    topic: parsed.topic || 'unknown',
+    event: parsed.event || eventType,
+    payload: parsed.payload ?? parsed
+  });
+}
+
+function connectDebugStream() {
+  const streamUrl = buildDebugStreamUrl();
+  const normalizedTopics = normalizeDebugTopics(elements.debugTopicsInput.value);
+  elements.debugTopicsInput.value = normalizedTopics;
+  persistDebugPrefs();
+  disconnectDebugStream();
+  setDebugStreamStatus('Connecting...');
+
+  const source = new EventSource(streamUrl);
+  state.debugSource = source;
+
+  const onAnyEvent = (event, typeHint = 'log') => {
+    handleDebugSsePayload(event.data, typeHint);
+  };
+
+  source.onopen = () => {
+    state.debugConnected = true;
+    setDebugStreamStatus('Streaming', 'connected');
+    emitClientDebug('chain.webui.debug.connected', 'webui debug stream connected', { stream_url: streamUrl });
+  };
+
+  source.onmessage = (event) => onAnyEvent(event, 'message');
+  source.addEventListener('log', (event) => onAnyEvent(event, 'log'));
+  source.addEventListener('metric', (event) => onAnyEvent(event, 'metric'));
+  source.addEventListener('system', (event) => onAnyEvent(event, 'system'));
+
+  source.onerror = () => {
+    state.debugConnected = false;
+    setDebugStreamStatus('Reconnecting...', 'error');
+    emitClientDebug('chain.webui.debug.error', 'webui debug stream reconnecting');
+  };
+}
+
+async function loadDebugMode() {
+  try {
+    const res = await fetch('/api/debug/mode');
+    const data = await res.json();
+    state.debugModeEnabled = Boolean(data?.data?.debug);
+    setDebugModeButton();
+  } catch {
+    state.debugModeEnabled = false;
+    setDebugModeButton();
+  }
+}
+
+async function toggleDebugMode() {
+  const next = !state.debugModeEnabled;
+  try {
+    const res = await fetch('/api/debug/mode', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ debug: next })
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) {
+      throw new Error(data?.error || 'toggle debug mode failed');
+    }
+    state.debugModeEnabled = Boolean(data?.data?.debug);
+    setDebugModeButton();
+    setDebugStreamStatus(`Debug mode ${state.debugModeEnabled ? 'enabled' : 'disabled'}`);
+  } catch (err) {
+    setDebugStreamStatus(`Debug mode update failed: ${err.message || err}`, 'error');
+  }
 }
 
 function extensionFromMimeType(mimeType) {
@@ -571,16 +787,19 @@ function connectWs() {
   if (state.ws && (state.ws.readyState === 0 || state.ws.readyState === 1)) return;
 
   state.ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  emitClientDebug('chain.webui.ws.connecting', 'webui ws connecting');
 
   state.ws.onopen = () => {
     state.wsReady = true;
     setStatus('Connected');
     updateComposerState();
+    emitClientDebug('chain.webui.ws.connected', 'webui ws connected');
   };
 
   state.ws.onclose = () => {
     state.wsReady = false;
     setStatus('Disconnected');
+    emitClientDebug('chain.webui.ws.closed', 'webui ws closed');
     if (state.pending) {
       finishPendingResponse({
         content: 'Error: websocket disconnected before tool finished.',
@@ -593,6 +812,7 @@ function connectWs() {
   state.ws.onerror = () => {
     state.wsReady = false;
     setStatus('Connection error');
+    emitClientDebug('chain.webui.ws.error', 'webui ws error');
     if (state.pending) {
       finishPendingResponse({
         content: 'Error: websocket error before tool finished.',
@@ -612,6 +832,10 @@ function connectWs() {
     if (!state.pending) return;
 
     if (msg.type === 'event') {
+      emitClientDebug('chain.webui.ws.event', 'webui received runtime event', {
+        event: msg.data?.event || null,
+        session_id: msg.data?.session_id || null
+      });
       if (msg.data?.session_id && msg.data.session_id !== state.pending.sessionId) return;
       if (msg.data?.event === 'tool.call') {
         setStatus(`Running tool: ${msg.data.payload?.name || 'unknown'}`);
@@ -620,6 +844,9 @@ function connectWs() {
     }
 
     if (msg.type === 'error') {
+      emitClientDebug('chain.webui.ws.error_message', 'webui received runtime error', {
+        message: msg.message || 'Unknown error'
+      });
       finishPendingResponse({
         content: `Error: ${msg.message || 'Unknown error'}`,
         statusText: 'Error'
@@ -628,6 +855,10 @@ function connectWs() {
     }
 
     if (msg.type === 'final') {
+      emitClientDebug('chain.webui.ws.final', 'webui received runtime final', {
+        session_id: msg.session_id || null,
+        output_chars: String(msg.output || '').length
+      });
       if (msg.session_id && msg.session_id !== state.pending.sessionId) return;
       finishPendingResponse({
         content: msg.output || '',
@@ -700,6 +931,12 @@ function sendMessage() {
       data_url: upload.dataUrl
     }))
   }));
+  emitClientDebug('chain.webui.ws.sent', 'webui sent run request', {
+    session_id: session.id,
+    input_chars: text.length,
+    input_images: uploads.length,
+    permission_level: normalizePermissionLevel(session.permissionLevel)
+  });
 }
 
 function createNewSession() {
@@ -932,6 +1169,22 @@ function bindEvents() {
     applyTheme(nextPreference);
   });
 
+  elements.debugPanelToggleBtn.onclick = () => {
+    setDebugPanelOpen(!state.debugPanelOpen);
+  };
+
+  elements.debugConnectBtn.onclick = connectDebugStream;
+  elements.debugDisconnectBtn.onclick = disconnectDebugStream;
+  elements.debugModeBtn.onclick = () => { void toggleDebugMode(); };
+  elements.debugClearBtn.onclick = () => {
+    elements.debugStreamList.innerHTML = '';
+  };
+  elements.debugTopicsInput.addEventListener('change', () => {
+    elements.debugTopicsInput.value = normalizeDebugTopics(elements.debugTopicsInput.value);
+    persistDebugPrefs();
+    connectDebugStream();
+  });
+
   const themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
   const handleThemeMediaChange = () => {
     if (state.themePreference !== 'auto') return;
@@ -946,10 +1199,16 @@ function bindEvents() {
 
 function bootstrap() {
   loadSessions();
+  loadDebugPrefs();
+  setDebugPanelOpen(state.debugPanelOpen);
   loadThemePreference();
   bindEvents();
+  setDebugModeButton();
   setStatus('Idle');
   connectWs();
+  connectDebugStream();
+  void loadDebugMode();
+  window.addEventListener('beforeunload', disconnectDebugStream);
   startServerSyncLoop();
   void loadPersonaProfile();
   void loadPersonaProfile();

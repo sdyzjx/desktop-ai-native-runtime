@@ -1,8 +1,10 @@
 const { validateRpcRequest } = require('../rpc/jsonRpc');
+const { publishChainEvent } = require('../bus/chainDebug');
 
 class RpcInputQueue {
-  constructor({ maxSize = 2000 } = {}) {
+  constructor({ maxSize = 2000, bus = null } = {}) {
     this.maxSize = maxSize;
+    this.bus = bus;
     this.items = [];
     this.waiters = [];
   }
@@ -14,10 +16,20 @@ class RpcInputQueue {
   async submit(payload, context = {}) {
     const parsed = validateRpcRequest(payload);
     if (!parsed.ok) {
+      publishChainEvent(this.bus, 'queue.submit.rejected', {
+        reason: 'invalid_rpc',
+        error_code: parsed.error?.error?.code ?? null
+      });
       return { accepted: false, response: parsed.error };
     }
 
     if (this.items.length >= this.maxSize) {
+      publishChainEvent(this.bus, 'queue.submit.rejected', {
+        reason: 'queue_full',
+        request_id: parsed.request.id ?? null,
+        queue_size: this.items.length,
+        max_size: this.maxSize
+      });
       return {
         accepted: false,
         response: {
@@ -37,8 +49,20 @@ class RpcInputQueue {
     if (this.waiters.length > 0) {
       const waiter = this.waiters.shift();
       waiter(envelope);
+      publishChainEvent(this.bus, 'queue.submit.accepted', {
+        request_id: parsed.request.id ?? null,
+        method: parsed.request.method,
+        queue_size: this.items.length,
+        mode: 'direct_to_waiter'
+      });
     } else {
       this.items.push(envelope);
+      publishChainEvent(this.bus, 'queue.submit.accepted', {
+        request_id: parsed.request.id ?? null,
+        method: parsed.request.method,
+        queue_size: this.items.length,
+        mode: 'queued'
+      });
     }
 
     return { accepted: true };
@@ -46,7 +70,13 @@ class RpcInputQueue {
 
   async pop() {
     if (this.items.length > 0) {
-      return this.items.shift();
+      const envelope = this.items.shift();
+      publishChainEvent(this.bus, 'queue.pop.dequeued', {
+        request_id: envelope?.request?.id ?? null,
+        method: envelope?.request?.method || null,
+        queue_size: this.items.length
+      });
+      return envelope;
     }
 
     return new Promise((resolve) => {
