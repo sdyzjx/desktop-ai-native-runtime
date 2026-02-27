@@ -243,10 +243,10 @@
 
 ### 6.4 进度记录
 
-- 状态：`TODO`
-- 开始日期：
-- 完成日期：
-- 备注：
+- 状态：`DONE`
+- 开始日期：2026-02-27
+- 完成日期：2026-02-27
+- 备注：已新增 Phase-6 验收与回滚 SOP（`docs/process/live2d-phase6-acceptance-and-rollback-sop.md`），并完成交付归档流程说明。
 
 ---
 
