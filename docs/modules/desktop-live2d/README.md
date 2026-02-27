@@ -1,6 +1,7 @@
 # Desktop Live2D 模块文档索引
 
 - 模块级细粒度文档：`docs/modules/desktop-live2d/module-reference.md`
+- Motion/Expression 资产补全文档：`docs/modules/desktop-live2d/model-motion-expression-assets.md`
 - 施工与阶段计划：`docs/DESKTOP_LIVE2D_CONSTRUCTION_PLAN.md`
 
 建议阅读顺序：
