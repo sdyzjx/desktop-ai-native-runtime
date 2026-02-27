@@ -54,57 +54,53 @@ function execFileAsync(cmd, args, options = {}) {
   });
 }
 
-async function callDashscopeTts({ text, model, voiceId, voiceTag }) {
+async function callDashscopeTts({ text, model, voiceId, voiceTag, timeoutMs = 60_000 }) {
   // 优先从 providers.yaml 的 tts_dashscope provider 读配置，env 作为 fallback
   const providerCfg = loadTtsProviderConfig();
 
-  const apiKey = (providerCfg && providerCfg.api_key)
-    || process.env.DASHSCOPE_API_KEY;
-  if (!apiKey) {
-    const err = new Error('DASHSCOPE_API_KEY is not set and no tts_dashscope provider configured');
-    err.code = 'TTS_CONFIG_MISSING';
-    throw err;
-  }
-
-  // base_url 从 providers.yaml 读取，切换区域只需改 providers.yaml 的 base_url：
-  // 北京区: https://dashscope.aliyuncs.com/api/v1
-  // 新加坡区: https://dashscope-intl.aliyuncs.com/api/v1
-  const baseUrl = (providerCfg && providerCfg.base_url)
-    || process.env.DASHSCOPE_BASE_URL
-    || 'https://dashscope.aliyuncs.com/api/v1';
-
-  // model 和 voiceId 不在 tool schema 里暴露，统一从 providers.yaml 的 qwen3_tts 读取
   const defaultModel = (providerCfg && providerCfg.tts_model) || 'qwen3-tts-vc-2026-01-22';
   const defaultVoice = (providerCfg && providerCfg.tts_voice) || '';
 
-  const scriptPath = path.resolve(process.cwd(), 'scripts/qwen_voice_reply.py');
+  const cliOverride = process.env.VOICE_REPLY_CLI;
 
-  const args = [
-    scriptPath,
-    '--voice-tag',
-    voiceTag,
-    '--model',
-    defaultModel,
-    '--voice',
-    defaultVoice,
-    '--emit-manifest',
-    text
-  ];
+  let cmd, cmdArgs, execEnv;
+  if (cliOverride) {
+    // test/override mode: text at position $7 for mock script compatibility
+    cmd = cliOverride;
+    cmdArgs = [voiceTag, defaultModel, defaultVoice, '--emit-manifest', '--', '--', text];
+    execEnv = process.env;
+  } else {
+    const apiKey = (providerCfg && providerCfg.api_key) || process.env.DASHSCOPE_API_KEY;
+    if (!apiKey) {
+      const err = new Error('DASHSCOPE_API_KEY is not set and no tts_dashscope provider configured');
+      err.code = 'TTS_CONFIG_MISSING';
+      throw err;
+    }
+    // base_url 从 providers.yaml 读取，切换区域只需改 providers.yaml 的 base_url：
+    // 北京区: https://dashscope.aliyuncs.com/api/v1
+    // 新加坡区: https://dashscope-intl.aliyuncs.com/api/v1
+    const baseUrl = (providerCfg && providerCfg.base_url)
+      || process.env.DASHSCOPE_BASE_URL
+      || 'https://dashscope.aliyuncs.com/api/v1';
 
-  const { stdout } = await execFileAsync('python3', args, {
-    env: {
-      ...process.env,
-      DASHSCOPE_API_KEY: apiKey,
-      DASHSCOPE_BASE_URL: baseUrl
-    },
-    timeout: 60_000
-  });
+    const scriptPath = path.resolve(process.cwd(), 'scripts/qwen_voice_reply.py');
+    cmd = 'python3';
+    cmdArgs = [scriptPath, '--voice-tag', voiceTag, '--model', defaultModel, '--voice', defaultVoice, '--emit-manifest', text];
+    execEnv = { ...process.env, DASHSCOPE_API_KEY: apiKey, DASHSCOPE_BASE_URL: baseUrl };
+  }
+
+  const { stdout } = await execFileAsync(cmd, cmdArgs, { env: execEnv, timeout: timeoutMs });
 
   const output = String(stdout || '').trim();
   if (!output) {
     const err = new Error('tts output is empty');
     err.code = 'TTS_PROVIDER_DOWN';
     throw err;
+  }
+
+  // cliOverride mode: script prints plain path directly
+  if (cliOverride) {
+    return output;
   }
 
   let manifest;
@@ -286,6 +282,7 @@ async function ttsAliyunVc(args = {}, context = {}) {
           model: args.model,   // undefined 时 callDashscopeTts 内部会用 providerCfg.tts_model
           voiceId: args.voiceId, // 同上，undefined 时用 providerCfg.tts_voice
           voiceTag,
+          timeoutMs,
           signal: controller.signal
         });
         clearTimeout(timer);
