@@ -1104,7 +1104,8 @@ function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windo
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      autoplayPolicy: 'no-user-gesture-required'
     }
   });
 
