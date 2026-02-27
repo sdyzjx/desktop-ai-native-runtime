@@ -142,7 +142,10 @@ async function callDashscopeTts({ text, model, voiceId, voiceTag, timeoutMs = 60
 
 function normalizeExecError(err) {
   const raw = err?.raw || err;
-  if (raw && (raw.killed || raw.signal === 'SIGTERM' || raw.code === 'ETIMEDOUT') || err.code === 'TTS_TIMEOUT') {
+  const isTimeout = (raw && (raw.killed || raw.signal === 'SIGTERM' || raw.code === 'ETIMEDOUT'))
+    || err.code === 'TTS_TIMEOUT'
+    || (err.message && err.message.includes('ETIMEDOUT'));
+  if (isTimeout) {
     return makeToolError('TTS_TIMEOUT', err.message || 'tts timeout');
   }
   if (err.code === 'TTS_CONFIG_MISSING') {
