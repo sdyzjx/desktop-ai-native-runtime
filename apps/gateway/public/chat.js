@@ -452,15 +452,24 @@ async function onImageFilesSelected(fileList) {
 
 function renderMessages() {
   const session = getActiveSession();
-  elements.messageList.innerHTML = '';
 
   if (!session || session.messages.length === 0) {
+    elements.messageList.innerHTML = '';
     const hint = document.createElement('div');
     hint.className = 'empty-hint';
     hint.textContent = 'Start a new conversation.';
     elements.messageList.appendChild(hint);
     return;
   }
+
+  // 只在消息数量变化时才重建 DOM，避免每次 sync 都清空重建导致气泡跳动
+  const renderedCount = elements.messageList.querySelectorAll('.message-wrap').length;
+  if (renderedCount === session.messages.length) return;
+
+  // 记录用户是否已经在底部（距底部 60px 内视为在底部）
+  const atBottom = elements.messageList.scrollHeight - elements.messageList.scrollTop - elements.messageList.clientHeight < 60;
+
+  elements.messageList.innerHTML = '';
 
   session.messages.forEach((msg) => {
     const wrap = document.createElement('div');
@@ -523,7 +532,10 @@ function renderMessages() {
     elements.messageList.appendChild(wrap);
   });
 
-  elements.messageList.scrollTop = elements.messageList.scrollHeight;
+  // 只在用户本来就在底部时才自动滚底，不强制打断用户滚动
+  if (atBottom) {
+    elements.messageList.scrollTop = elements.messageList.scrollHeight;
+  }
 }
 
 function renderHeader() {
