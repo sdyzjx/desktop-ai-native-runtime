@@ -20,6 +20,8 @@
   - live2d adapter 的错误码归一、trace 透传、参数收紧规则
 - `live2d-action-queue-and-cooldown.md`
   - 动作队列、忙时策略与 cooldown 配置说明
+- `live2d-semantic-presets.md`
+  - emote/gesture/react 语义工具与预设配置说明
 
 ## 统一调用链（简版）
 
