@@ -116,6 +116,14 @@ const METHOD_SCHEMAS = Object.freeze({
     properties: {
       audioPath: { type: 'string', minLength: 1 }
     }
+  },
+  'voice.play.test': {
+    type: 'object',
+    properties: {
+      audioRef: { type: 'string', minLength: 1 },
+      gatewayUrl: { type: 'string' }
+    },
+    required: ['audioRef']
   }
 });
 
