@@ -108,6 +108,14 @@ const METHOD_SCHEMAS = Object.freeze({
       arguments: { type: 'object', additionalProperties: true },
       traceId: { type: 'string', minLength: 1, maxLength: 128 }
     }
+  },
+  'voice.play.test': {
+    type: 'object',
+    properties: {
+      audioRef: { type: 'string', minLength: 1 },
+      gatewayUrl: { type: 'string' }
+    },
+    required: ['audioRef']
   }
 });
 

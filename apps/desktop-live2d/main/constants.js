@@ -23,7 +23,8 @@ const RPC_METHODS_V1 = Object.freeze([
   'chat.panel.append',
   'chat.panel.clear',
   'tool.list',
-  'tool.invoke'
+  'tool.invoke',
+  'voice.play.test'
 ]);
 
 module.exports = {

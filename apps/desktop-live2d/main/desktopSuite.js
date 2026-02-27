@@ -869,7 +869,8 @@ async function startDesktopSuite({
       setChatPanelVisible,
       appendChatMessage,
       clearChatMessages,
-      showBubble
+      showBubble,
+      avatarWindow
     }),
     logger
   });
@@ -992,7 +993,8 @@ async function handleDesktopRpcRequest({
   setChatPanelVisible = null,
   appendChatMessage = null,
   clearChatMessages = null,
-  showBubble = null
+  showBubble = null,
+  avatarWindow = null
 }) {
   if (request.method === 'tool.list') {
     return {
@@ -1015,6 +1017,17 @@ async function handleDesktopRpcRequest({
       tool: resolved.toolName,
       result
     };
+  }
+
+  if (request.method === 'voice.play.test') {
+    const audioRef = String(request.params?.audioRef || '');
+    const gatewayUrl = String(request.params?.gatewayUrl || 'http://127.0.0.1:3000');
+    if (!audioRef) return { ok: false, error: 'audioRef required' };
+    if (!avatarWindow.isDestroyed()) {
+      avatarWindow.webContents.send('desktop:voice:play', { audioRef, format: 'ogg', gatewayUrl });
+      return { ok: true, audioRef };
+    }
+    return { ok: false, error: 'avatarWindow not available' };
   }
 
   if (request.method === 'chat.show' || request.method === 'chat.bubble.show') {
