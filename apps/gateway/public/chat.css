@@ -126,7 +126,7 @@ body.chat-page {
 
 .chat-main {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr auto auto;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -297,6 +297,115 @@ body.chat-page {
 .message-meta {
   color: var(--muted);
   font-size: 11px;
+}
+
+.debug-panel {
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  padding: 10px 20px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.debug-panel.collapsed {
+  display: none;
+}
+
+.debug-toolbar {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.debug-status-wrap {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.debug-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.debug-stream-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.debug-stream-status.connected {
+  color: var(--accent);
+}
+
+.debug-stream-status.error {
+  color: #ff7d7d;
+}
+
+.debug-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.debug-filter-row {
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.debug-input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-solid) 84%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.debug-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.debug-stream-list {
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+  height: 180px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-solid) 78%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 8px 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.debug-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.debug-line-meta {
+  color: var(--muted);
+}
+
+.debug-line-topic {
+  color: color-mix(in srgb, var(--primary) 78%, #ffffff);
 }
 
 .composer-wrap {
@@ -563,6 +672,24 @@ body.chat-page {
 
   .message-list {
     padding: 18px 14px 20px;
+  }
+
+  .debug-panel {
+    padding: 10px 12px 12px;
+  }
+
+  .debug-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .debug-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .debug-filter-row {
+    grid-template-columns: 1fr;
   }
 
   .composer-wrap {

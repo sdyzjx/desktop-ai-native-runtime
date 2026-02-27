@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const { RuntimeState, RuntimeStateMachine } = require('./stateMachine');
+const { publishChainEvent } = require('../bus/chainDebug');
 
 function isValidMessageContent(content) {
   if (typeof content === 'string') {
@@ -185,6 +186,12 @@ class ToolLoopRunner {
     };
 
     sm.transition(RuntimeState.RUNNING);
+    publishChainEvent(this.bus, 'loop.start', {
+      session_id: sessionId,
+      trace_id: traceId,
+      input_chars: String(input || '').length,
+      input_images: normalizedInputImages.length
+    });
     emit('plan', {
       input,
       input_images: normalizedInputImages.length,
@@ -200,10 +207,23 @@ class ToolLoopRunner {
 
       while (ctx.stepIndex < this.maxStep) {
         ctx.stepIndex += 1;
+        publishChainEvent(this.bus, 'loop.decide.start', {
+          session_id: sessionId,
+          trace_id: traceId,
+          step_index: ctx.stepIndex,
+          messages: ctx.messages.length
+        });
 
         const decision = await reasoner.decide({
           messages: ctx.messages,
           tools: this.listTools()
+        });
+        publishChainEvent(this.bus, 'loop.decide.completed', {
+          session_id: sessionId,
+          trace_id: traceId,
+          step_index: ctx.stepIndex,
+          decision_type: decision?.type || 'unknown',
+          tool_calls: Array.isArray(decision?.tools) ? decision.tools.length : (decision?.tool ? 1 : 0)
         });
 
         emit('llm.final', { decision: formatDecisionEvent(decision) });
@@ -214,6 +234,12 @@ class ToolLoopRunner {
           }
 
           sm.transition(RuntimeState.DONE);
+          publishChainEvent(this.bus, 'loop.final', {
+            session_id: sessionId,
+            trace_id: traceId,
+            step_index: ctx.stepIndex,
+            state: sm.state
+          });
           emit('done', { output: decision.output, state: sm.state });
           return { output: decision.output, traceId, state: sm.state };
         }
@@ -264,14 +290,37 @@ class ToolLoopRunner {
             name: call.name,
             args: call.args || {}
           });
+          publishChainEvent(this.bus, 'loop.tool.requested', {
+            session_id: sessionId,
+            trace_id: traceId,
+            step_index: ctx.stepIndex,
+            call_id: call.call_id,
+            tool_name: call.name
+          });
 
           this.bus.publish('tool.call.requested', toolCallPayload);
 
+          publishChainEvent(this.bus, 'loop.tool.waiting_result', {
+            session_id: sessionId,
+            trace_id: traceId,
+            step_index: ctx.stepIndex,
+            call_id: call.call_id,
+            tool_name: call.name
+          });
           const toolResult = await this.bus.waitFor(
             'tool.call.result',
             (payload) => payload.trace_id === traceId && payload.call_id === call.call_id,
             this.toolResultTimeoutMs
           );
+          publishChainEvent(this.bus, 'loop.tool.result_received', {
+            session_id: sessionId,
+            trace_id: traceId,
+            step_index: ctx.stepIndex,
+            call_id: call.call_id,
+            tool_name: call.name,
+            ok: Boolean(toolResult?.ok),
+            code: toolResult?.code || null
+          });
 
           if (!toolResult.ok) {
             sm.transition(RuntimeState.ERROR);
@@ -302,10 +351,20 @@ class ToolLoopRunner {
 
       sm.transition(RuntimeState.DONE);
       const fallback = '达到 max_step，已停止工具调用并收束。';
+      publishChainEvent(this.bus, 'loop.max_step_reached', {
+        session_id: sessionId,
+        trace_id: traceId,
+        max_step: this.maxStep
+      });
       emit('done', { output: fallback, state: sm.state });
       return { output: fallback, traceId, state: sm.state };
     } catch (err) {
       sm.transition(RuntimeState.ERROR);
+      publishChainEvent(this.bus, 'loop.error', {
+        session_id: sessionId,
+        trace_id: traceId,
+        error: err?.message || String(err)
+      });
       emit('tool.error', { error: err.message || String(err) });
       return { output: `运行错误：${err.message || String(err)}`, traceId, state: sm.state };
     }

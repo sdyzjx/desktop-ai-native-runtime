@@ -1,5 +1,7 @@
 const { EventEmitter } = require('events');
 
+const BUS_ALL_TOPIC = '__bus_all__';
+
 class RuntimeEventBus {
   constructor({ maxListeners = 200 } = {}) {
     this.emitter = new EventEmitter();
@@ -8,6 +10,7 @@ class RuntimeEventBus {
 
   publish(topic, payload) {
     this.emitter.emit(topic, payload);
+    this.emitter.emit(BUS_ALL_TOPIC, { topic, payload });
   }
 
   subscribe(topic, handler) {
@@ -17,6 +20,11 @@ class RuntimeEventBus {
 
   once(topic, handler) {
     this.emitter.once(topic, handler);
+  }
+
+  subscribeAll(handler) {
+    this.emitter.on(BUS_ALL_TOPIC, handler);
+    return () => this.emitter.off(BUS_ALL_TOPIC, handler);
   }
 
   waitFor(topic, predicate, timeoutMs = 8000) {
@@ -48,4 +56,4 @@ class RuntimeEventBus {
   }
 }
 
-module.exports = { RuntimeEventBus };
+module.exports = { RuntimeEventBus, BUS_ALL_TOPIC };

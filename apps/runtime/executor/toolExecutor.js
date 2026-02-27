@@ -4,6 +4,7 @@ const { resolveTool } = require('../tooling/middlewares/resolveTool');
 const { validateSchema } = require('../tooling/middlewares/validateSchema');
 const { enforcePolicy } = require('../tooling/middlewares/enforcePolicy');
 const { auditLog } = require('../tooling/middlewares/auditLog');
+const { publishChainEvent } = require('../bus/chainDebug');
 
 function isRegistryObject(obj) {
   return obj && typeof obj === 'object' && !Array.isArray(obj) && !obj.get && !obj.list;
@@ -65,7 +66,8 @@ class ToolExecutor {
           call_id: meta.call_id || null,
           permission_level: meta.permission_level || null,
           workspace_root: meta.workspace_root || null,
-          publishEvent: ctx.publishEvent || null
+          publishEvent: ctx.publishEvent || null,
+          bus: ctx.bus || null
         });
       }
     ]);
@@ -84,6 +86,7 @@ class ToolExecutor {
       meta: buildMeta(context),
       workspaceRoot: context.workspaceRoot || process.cwd(),
       publishEvent: context.publishEvent || null,
+      bus: context.bus || null,
       registry: this.registry,
       policy: this.policy,
       result: null,
@@ -91,9 +94,34 @@ class ToolExecutor {
     };
 
     try {
+      publishChainEvent(ctx.bus, 'executor.start', {
+        trace_id: ctx.meta.trace_id,
+        session_id: ctx.meta.session_id,
+        step_index: ctx.meta.step_index,
+        call_id: ctx.meta.call_id,
+        tool_name: toolCall?.name || null
+      });
       await this.pipeline(ctx);
+      publishChainEvent(ctx.bus, 'executor.completed', {
+        trace_id: ctx.meta.trace_id,
+        session_id: ctx.meta.session_id,
+        step_index: ctx.meta.step_index,
+        call_id: ctx.meta.call_id,
+        tool_name: toolCall?.name || null,
+        ok: true
+      });
       return { ok: true, result: String(ctx.result), metrics: ctx.metrics };
     } catch (e) {
+      publishChainEvent(ctx.bus, 'executor.completed', {
+        trace_id: ctx.meta.trace_id,
+        session_id: ctx.meta.session_id,
+        step_index: ctx.meta.step_index,
+        call_id: ctx.meta.call_id,
+        tool_name: toolCall?.name || null,
+        ok: false,
+        code: e?.code || ErrorCode.RUNTIME_ERROR,
+        error: e?.message || String(e)
+      });
       if (e instanceof ToolingError) {
         return {
           ok: false,

@@ -725,6 +725,11 @@ async function startDesktopSuite({
     sessionId: 'desktop-live2d-chat',
     logger,
     onNotification: (desktopEvent) => {
+      void gatewayRuntimeClient.emitDebug('chain.electron.notification.received', 'electron main received gateway notification', {
+        type: desktopEvent?.type || null,
+        session_id: desktopEvent?.data?.session_id || null,
+        trace_id: desktopEvent?.data?.trace_id || null
+      });
       rpcServerRef?.notify({
         method: 'desktop.event',
         params: desktopEvent
@@ -736,6 +741,10 @@ async function startDesktopSuite({
 
       const output = String(desktopEvent.data?.output || '').trim();
       if (!output) {
+        void gatewayRuntimeClient.emitDebug('chain.electron.notification.final_empty', 'electron main received empty final output', {
+          session_id: desktopEvent?.data?.session_id || null,
+          trace_id: desktopEvent?.data?.trace_id || null
+        });
         return;
       }
       appendChatMessage({
@@ -747,20 +756,42 @@ async function startDesktopSuite({
         text: output,
         durationMs: 5000
       });
+      void gatewayRuntimeClient.emitDebug('chain.electron.ui.output_rendered', 'electron main rendered assistant output to chat+bubble', {
+        session_id: desktopEvent?.data?.session_id || null,
+        trace_id: desktopEvent?.data?.trace_id || null,
+        output_chars: output.length
+      });
     }
   });
   const initialSessionId = createDesktopSessionId();
   gatewayRuntimeClient.setSessionId(initialSessionId);
+  void gatewayRuntimeClient.emitDebug('chain.electron.session.initialized', 'electron main initialized session id', {
+    session_id: initialSessionId
+  });
   try {
     await gatewayRuntimeClient.ensureSession({ sessionId: initialSessionId, permissionLevel: 'medium' });
     logger.info?.('[desktop-live2d] gateway_session_bootstrap_ok', { sessionId: initialSessionId });
+    void gatewayRuntimeClient.emitDebug('chain.electron.session.bootstrap_ok', 'electron main ensured initial session', {
+      session_id: initialSessionId,
+      permission_level: 'medium'
+    });
   } catch (err) {
     logger.error?.('[desktop-live2d] gateway_session_bootstrap_failed', err);
+    void gatewayRuntimeClient.emitDebug('chain.electron.session.bootstrap_failed', 'electron main failed to ensure initial session', {
+      session_id: initialSessionId,
+      error: err?.message || String(err)
+    });
   }
 
   const chatInputListener = createChatInputListener({
     logger,
     onChatInput: (payload) => {
+      const isNewSession = isNewSessionCommand(payload.text);
+      void gatewayRuntimeClient.emitDebug('chain.electron.chat_input.received', 'electron main received chat input', {
+        session_id: gatewayRuntimeClient.getSessionId(),
+        input_chars: String(payload?.text || '').trim().length,
+        is_new_session_command: isNewSession
+      });
       if (typeof onChatInput === 'function') {
         onChatInput(payload);
       }
@@ -770,9 +801,16 @@ async function startDesktopSuite({
         timestamp: payload.timestamp
       }, 'user');
 
-      if (isNewSessionCommand(payload.text)) {
+      if (isNewSession) {
+        void gatewayRuntimeClient.emitDebug('chain.electron.session.new_command', 'electron main handling /new session command', {
+          previous_session_id: gatewayRuntimeClient.getSessionId()
+        });
         void gatewayRuntimeClient.createAndUseNewSession({ permissionLevel: 'medium' }).then((sessionId) => {
           logger.info?.('[desktop-live2d] gateway_session_switched', { sessionId });
+          void gatewayRuntimeClient.emitDebug('chain.electron.session.switched', 'electron main switched to new session', {
+            session_id: sessionId,
+            permission_level: 'medium'
+          });
           rpcServerRef?.notify({
             method: 'desktop.event',
             params: {
@@ -795,12 +833,23 @@ async function startDesktopSuite({
           });
         }).catch((err) => {
           logger.error?.('[desktop-live2d] /new session create failed', err);
+          void gatewayRuntimeClient.emitDebug('chain.electron.session.new_failed', 'electron main failed to create new session', {
+            error: err?.message || String(err)
+          });
         });
         return;
       }
 
+      void gatewayRuntimeClient.emitDebug('chain.electron.run.dispatched', 'electron main dispatching runInput', {
+        session_id: gatewayRuntimeClient.getSessionId(),
+        input_chars: String(payload?.text || '').trim().length
+      });
       void gatewayRuntimeClient.runInput({ input: payload.text }).catch((err) => {
         logger.error?.('[desktop-live2d] gateway runtime input failed', err);
+        void gatewayRuntimeClient.emitDebug('chain.electron.run.failed', 'electron main runInput failed', {
+          session_id: gatewayRuntimeClient.getSessionId(),
+          error: err?.message || String(err)
+        });
         rpcServerRef?.notify({
           method: 'desktop.event',
           params: {

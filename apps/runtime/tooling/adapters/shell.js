@@ -1,4 +1,4 @@
-const { execFile } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
 const { ToolingError, ErrorCode } = require('../errors');
 const { getShellPermissionProfile } = require('../../security/sessionPermissionPolicy');
@@ -180,21 +180,74 @@ function runExec(args, context = {}) {
   }
 
   const timeoutMs = Math.max(1000, Number(args.timeoutSec || context.timeoutSec || 20) * 1000);
+  const debugEnabled = Boolean(context.bus && typeof context.bus.isDebugMode === 'function' && context.bus.isDebugMode());
+
+  function publishDebug(topic, payload) {
+    if (!debugEnabled || typeof context.publishEvent !== 'function') return;
+    context.publishEvent(topic, payload);
+  }
 
   return new Promise((resolve, reject) => {
-    execFile(bin, argv, { cwd, timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        if (error.killed || error.signal === 'SIGTERM') {
-          reject(new ToolingError(ErrorCode.TIMEOUT, `command timeout after ${timeoutMs}ms`));
-          return;
-        }
-        reject(new ToolingError(ErrorCode.RUNTIME_ERROR, error.message));
+    const proc = spawn(bin, argv, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const startedAt = Date.now();
+    let timedOut = false;
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      proc.kill('SIGTERM');
+    }, timeoutMs);
+
+    proc.stdout.on('data', (chunk) => {
+      const text = String(chunk || '');
+      stdout += text;
+      publishDebug('shell.exec.stdout', {
+        command,
+        bin,
+        chunk: text,
+        ts: Date.now()
+      });
+    });
+
+    proc.stderr.on('data', (chunk) => {
+      const text = String(chunk || '');
+      stderr += text;
+      publishDebug('shell.exec.stderr', {
+        command,
+        bin,
+        chunk: text,
+        ts: Date.now()
+      });
+    });
+
+    proc.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(new ToolingError(ErrorCode.RUNTIME_ERROR, error.message || String(error)));
+    });
+
+    proc.on('close', (code, signal) => {
+      clearTimeout(timeout);
+      publishDebug('shell.exec.exit', {
+        command,
+        bin,
+        code: Number(code),
+        signal: signal || null,
+        duration_ms: Date.now() - startedAt,
+        timed_out: timedOut
+      });
+
+      if (timedOut) {
+        reject(new ToolingError(ErrorCode.TIMEOUT, `command timeout after ${timeoutMs}ms`));
         return;
       }
 
       const maxChars = Number(context.maxOutputChars || 8000);
-      const out = `${stdout || ''}${stderr ? `\n[stderr]\n${stderr}` : ''}`.slice(0, maxChars);
-      resolve(out || '(no output)');
+      const combined = `${stdout || ''}${stderr ? `\n[stderr]\n${stderr}` : ''}`.slice(0, maxChars);
+      if (Number(code) !== 0) {
+        reject(new ToolingError(ErrorCode.RUNTIME_ERROR, combined || `command failed with exit code ${code}`));
+        return;
+      }
+      resolve(combined || '(no output)');
     });
   });
 }
