@@ -73,7 +73,12 @@ function resolveDesktopLive2dConfig({ env = process.env, projectRoot = PROJECT_R
   const gatewayPort = toPositiveInt(env.PORT, 3000);
   const gatewayUrl = env.DESKTOP_GATEWAY_URL || `http://127.0.0.1:${gatewayPort}`;
   const rpcPort = toPositiveInt(env.DESKTOP_LIVE2D_RPC_PORT, DEFAULT_RPC_PORT);
-  const rpcToken = env.DESKTOP_LIVE2D_RPC_TOKEN || randomUUID();
+  const hasRpcToken = typeof env.DESKTOP_LIVE2D_RPC_TOKEN === 'string' && env.DESKTOP_LIVE2D_RPC_TOKEN.trim().length > 0;
+  const rpcToken = hasRpcToken ? env.DESKTOP_LIVE2D_RPC_TOKEN : randomUUID();
+  if (!hasRpcToken && env === process.env) {
+    // Keep runtime live2d adapter and desktop rpc server on the same token when token is auto-generated.
+    process.env.DESKTOP_LIVE2D_RPC_TOKEN = rpcToken;
+  }
   const rendererTimeoutMs = toPositiveInt(env.DESKTOP_LIVE2D_RENDERER_TIMEOUT_MS, DEFAULT_RENDERER_TIMEOUT_MS);
   const uiConfigPath = path.resolve(
     env.DESKTOP_LIVE2D_CONFIG_PATH || path.join(runtimePaths.configDir, 'desktop-live2d.json')
