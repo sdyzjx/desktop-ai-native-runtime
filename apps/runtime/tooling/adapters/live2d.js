@@ -16,7 +16,31 @@ function normalizeRpcUrl({ host = DEFAULT_RPC_HOST, port = DEFAULT_RPC_PORT, tok
   return url.toString();
 }
 
-function invokeLive2dRpc({ method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS, env = process.env, WebSocketImpl = WebSocket } = {}) {
+function buildRequestId(traceId) {
+  const trace = String(traceId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
+  const suffix = randomUUID().replace(/-/g, '').slice(0, 12);
+  return trace ? `live2d-${trace}-${suffix}` : `live2d-${suffix}`;
+}
+
+function mapRpcCodeToToolingCode(rpcCode) {
+  const code = Number(rpcCode);
+  if (code === -32602) return ErrorCode.VALIDATION_ERROR;
+  if (code === -32006) return ErrorCode.PERMISSION_DENIED;
+  if (code === -32003) return ErrorCode.TIMEOUT;
+  return ErrorCode.RUNTIME_ERROR;
+}
+
+function sanitizeRpcParams(params = {}) {
+  if (!params || typeof params !== 'object' || Array.isArray(params)) {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, 'live2d tool args must be an object');
+  }
+
+  const cloned = { ...params };
+  delete cloned.timeoutMs;
+  return cloned;
+}
+
+function invokeLive2dRpc({ method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS, env = process.env, WebSocketImpl = WebSocket, traceId = null } = {}) {
   if (!method) {
     throw new ToolingError(ErrorCode.VALIDATION_ERROR, 'live2d rpc method is required');
   }
@@ -27,12 +51,12 @@ function invokeLive2dRpc({ method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS, 
     token: env.DESKTOP_LIVE2D_RPC_TOKEN || ''
   });
 
-  const requestId = `live2d-${randomUUID()}`;
+  const requestId = buildRequestId(traceId);
   const payload = {
     jsonrpc: '2.0',
     id: requestId,
     method,
-    params
+    params: sanitizeRpcParams(params)
   };
 
   return new Promise((resolve, reject) => {
@@ -46,7 +70,11 @@ function invokeLive2dRpc({ method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS, 
       } catch {
         // ignore
       }
-      reject(new ToolingError(ErrorCode.TIMEOUT, `live2d rpc timeout after ${timeoutMs}ms`));
+      reject(new ToolingError(ErrorCode.TIMEOUT, `live2d rpc timeout after ${timeoutMs}ms`, {
+        request_id: requestId,
+        method,
+        trace_id: traceId || null
+      }));
     }, Math.max(500, Number(timeoutMs) || DEFAULT_TIMEOUT_MS));
 
     const finish = (fn, value) => {
@@ -79,9 +107,14 @@ function invokeLive2dRpc({ method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS, 
         finish(
           reject,
           new ToolingError(
-            ErrorCode.RUNTIME_ERROR,
+            mapRpcCodeToToolingCode(message.error.code),
             `live2d rpc error(${message.error.code}): ${message.error.message || 'unknown error'}`,
-            { rpcError: message.error }
+            {
+              request_id: requestId,
+              method,
+              trace_id: traceId || null,
+              rpcError: message.error
+            }
           )
         );
         return;
@@ -91,12 +124,26 @@ function invokeLive2dRpc({ method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS, 
     });
 
     ws.on('error', (err) => {
-      finish(reject, new ToolingError(ErrorCode.RUNTIME_ERROR, `live2d rpc connection failed: ${err.message || String(err)}`));
+      finish(
+        reject,
+        new ToolingError(ErrorCode.RUNTIME_ERROR, `live2d rpc connection failed: ${err.message || String(err)}`, {
+          request_id: requestId,
+          method,
+          trace_id: traceId || null
+        })
+      );
     });
 
     ws.on('close', () => {
       if (!settled) {
-        finish(reject, new ToolingError(ErrorCode.RUNTIME_ERROR, 'live2d rpc connection closed before response'));
+        finish(
+          reject,
+          new ToolingError(ErrorCode.RUNTIME_ERROR, 'live2d rpc connection closed before response', {
+            request_id: requestId,
+            method,
+            trace_id: traceId || null
+          })
+        );
       }
     });
   });
@@ -109,7 +156,8 @@ function withLive2dMethod(method) {
       method,
       params: args,
       timeoutMs,
-      env: process.env
+      env: process.env,
+      traceId: context.trace_id || null
     });
     return JSON.stringify({ ok: true, method, result });
   };
@@ -123,6 +171,9 @@ module.exports = {
   __internal: {
     invokeLive2dRpc,
     normalizeRpcUrl,
-    withLive2dMethod
+    withLive2dMethod,
+    mapRpcCodeToToolingCode,
+    sanitizeRpcParams,
+    buildRequestId
   }
 };
