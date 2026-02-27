@@ -18,6 +18,8 @@
   - runtime 到 desktop-live2d 的 RPC 桥接（live2d 原子工具映射、连接参数、错误处理）
 - `live2d-error-trace-contract.md`
   - live2d adapter 的错误码归一、trace 透传、参数收紧规则
+- `live2d-action-queue-and-cooldown.md`
+  - 动作队列、忙时策略与 cooldown 配置说明
 
 ## 统一调用链（简版）
 

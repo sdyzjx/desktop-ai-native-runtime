@@ -9,7 +9,9 @@ const {
   normalizeRpcUrl,
   mapRpcCodeToToolingCode,
   sanitizeRpcParams,
-  buildRequestId
+  buildRequestId,
+  createLive2dAdapters,
+  createActionQueue
 } = live2dAdapters.__internal;
 
 async function createWsServer() {
@@ -44,6 +46,23 @@ test('sanitizeRpcParams strips timeoutMs and validates object', () => {
   assert.equal(out.group, 'Idle');
   assert.equal(Object.hasOwn(out, 'timeoutMs'), false);
   assert.throws(() => sanitizeRpcParams([]), /must be an object/i);
+});
+
+test('createActionQueue drop_if_busy rejects when pending exists', async () => {
+  const queue = createActionQueue();
+  let release;
+  const blocker = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  const first = queue.run('s1', () => blocker, 'enqueue');
+  await assert.rejects(
+    queue.run('s1', async () => 'x', 'drop_if_busy'),
+    /queue busy/i
+  );
+
+  release();
+  await first;
 });
 
 test('invokeLive2dRpc returns rpc result', async (t) => {
@@ -127,6 +146,42 @@ test('invokeLive2dRpc maps rpc error to tooling error code', async (t) => {
       return true;
     }
   );
+});
+
+test('createLive2dAdapters serializes action calls per session', async () => {
+  const starts = [];
+  const ends = [];
+  const adapter = createLive2dAdapters({
+    invokeRpc: async ({ method }) => {
+      starts.push({ method, at: Date.now() });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      ends.push({ method, at: Date.now() });
+      return { ok: true };
+    },
+    actionCooldownMs: 0
+  });
+
+  const p1 = adapter['live2d.motion.play']({ group: 'Idle' }, { session_id: 's1' });
+  const p2 = adapter['live2d.expression.set']({ name: 'smile' }, { session_id: 's1' });
+  await Promise.all([p1, p2]);
+
+  assert.equal(starts.length, 2);
+  assert.equal(ends.length, 2);
+  assert.ok(starts[1].at >= ends[0].at);
+});
+
+test('createLive2dAdapters applies action cooldown', async () => {
+  const adapter = createLive2dAdapters({
+    invokeRpc: async () => ({ ok: true }),
+    actionCooldownMs: 40
+  });
+
+  const t0 = Date.now();
+  await adapter['live2d.motion.play']({ group: 'Idle' }, { session_id: 's-cool' });
+  await adapter['live2d.motion.play']({ group: 'Idle' }, { session_id: 's-cool' });
+  const elapsed = Date.now() - t0;
+
+  assert.ok(elapsed >= 35);
 });
 
 test('live2d.motion.play adapter maps to model.motion.play and strips timeoutMs param', async (t) => {
