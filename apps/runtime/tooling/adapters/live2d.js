@@ -5,6 +5,7 @@ const { ToolingError, ErrorCode } = require('../errors');
 const DEFAULT_RPC_HOST = '127.0.0.1';
 const DEFAULT_RPC_PORT = 17373;
 const DEFAULT_TIMEOUT_MS = 4000;
+const DEFAULT_ACTION_COOLDOWN_MS = 250;
 
 function normalizeRpcUrl({ host = DEFAULT_RPC_HOST, port = DEFAULT_RPC_PORT, token = '' } = {}) {
   const safeHost = String(host || DEFAULT_RPC_HOST).trim() || DEFAULT_RPC_HOST;
@@ -38,6 +39,10 @@ function sanitizeRpcParams(params = {}) {
   const cloned = { ...params };
   delete cloned.timeoutMs;
   return cloned;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
 
 function invokeLive2dRpc({ method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS, env = process.env, WebSocketImpl = WebSocket, traceId = null } = {}) {
@@ -149,31 +154,119 @@ function invokeLive2dRpc({ method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS, 
   });
 }
 
-function withLive2dMethod(method) {
-  return async (args = {}, context = {}) => {
-    const timeoutMs = Math.max(500, Number(args.timeoutMs || context.timeoutMs || DEFAULT_TIMEOUT_MS));
-    const result = await invokeLive2dRpc({
-      method,
-      params: args,
-      timeoutMs,
-      env: process.env,
-      traceId: context.trace_id || null
-    });
-    return JSON.stringify({ ok: true, method, result });
+function createActionQueue() {
+  const state = new Map();
+
+  function getBucket(key) {
+    if (!state.has(key)) {
+      state.set(key, { tail: Promise.resolve(), pending: 0 });
+    }
+    return state.get(key);
+  }
+
+  async function run(key, task, policy = 'enqueue') {
+    const bucket = getBucket(key);
+
+    if (policy === 'drop_if_busy' && bucket.pending > 0) {
+      throw new ToolingError(ErrorCode.RUNTIME_ERROR, `live2d action queue busy for ${key}`);
+    }
+
+    bucket.pending += 1;
+    const runTask = async () => {
+      try {
+        return await task();
+      } finally {
+        bucket.pending = Math.max(0, bucket.pending - 1);
+      }
+    };
+
+    const wrapped = bucket.tail.then(runTask, runTask);
+    bucket.tail = wrapped.catch(() => undefined);
+    return wrapped;
+  }
+
+  function getPending(key) {
+    return state.get(key)?.pending || 0;
+  }
+
+  return { run, getPending };
+}
+
+function createLive2dAdapters({
+  invokeRpc = invokeLive2dRpc,
+  now = () => Date.now(),
+  sleepFn = sleep,
+  actionCooldownMs = Math.max(0, Number(process.env.LIVE2D_ACTION_COOLDOWN_MS || DEFAULT_ACTION_COOLDOWN_MS)),
+  actionQueuePolicy = String(process.env.LIVE2D_ACTION_QUEUE_POLICY || 'enqueue').trim() || 'enqueue'
+} = {}) {
+  const actionQueue = createActionQueue();
+  const lastActionAt = new Map();
+
+  function withLive2dMethod(method, { isAction = false } = {}) {
+    return async (args = {}, context = {}) => {
+      const timeoutMs = Math.max(500, Number(args.timeoutMs || context.timeoutMs || DEFAULT_TIMEOUT_MS));
+      const traceId = context.trace_id || null;
+      const sessionKey = String(context.session_id || 'global');
+
+      const executeOnce = async () => {
+        if (isAction && actionCooldownMs > 0) {
+          const prev = Number(lastActionAt.get(sessionKey) || 0);
+          const waitMs = prev + actionCooldownMs - Number(now());
+          if (waitMs > 0) {
+            await sleepFn(waitMs);
+          }
+        }
+
+        const result = await invokeRpc({
+          method,
+          params: args,
+          timeoutMs,
+          env: process.env,
+          traceId
+        });
+
+        if (isAction) {
+          lastActionAt.set(sessionKey, Number(now()));
+        }
+
+        return JSON.stringify({ ok: true, method, result });
+      };
+
+      if (!isAction) {
+        return executeOnce();
+      }
+
+      return actionQueue.run(sessionKey, executeOnce, actionQueuePolicy);
+    };
+  }
+
+  return {
+    'live2d.param.set': withLive2dMethod('model.param.set', { isAction: false }),
+    'live2d.param.batch_set': withLive2dMethod('model.param.batchSet', { isAction: false }),
+    'live2d.motion.play': withLive2dMethod('model.motion.play', { isAction: true }),
+    'live2d.expression.set': withLive2dMethod('model.expression.set', { isAction: true }),
+    __internal: {
+      invokeRpc,
+      actionQueue,
+      lastActionAt,
+      actionCooldownMs,
+      actionQueuePolicy
+    }
   };
 }
 
+const live2dAdapters = createLive2dAdapters();
+
 module.exports = {
-  'live2d.param.set': withLive2dMethod('model.param.set'),
-  'live2d.param.batch_set': withLive2dMethod('model.param.batchSet'),
-  'live2d.motion.play': withLive2dMethod('model.motion.play'),
-  'live2d.expression.set': withLive2dMethod('model.expression.set'),
+  ...live2dAdapters,
   __internal: {
     invokeLive2dRpc,
     normalizeRpcUrl,
-    withLive2dMethod,
+    buildRequestId,
     mapRpcCodeToToolingCode,
     sanitizeRpcParams,
-    buildRequestId
+    createActionQueue,
+    createLive2dAdapters,
+    ...live2dAdapters.__internal
   }
 };
