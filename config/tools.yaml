@@ -10,6 +10,9 @@ policy:
     - workspace.write_file
     - shell.exec
     - persona.update_profile
+    - voice.tts_aliyun_vc
+    - voice.asr_aliyun
+    - voice.stats
   deny: []
   byProvider: {}
 
@@ -118,4 +121,57 @@ tools:
       properties:
         custom_name: { type: string }
       required: [custom_name]
+      additionalProperties: false
+
+  - name: voice.tts_aliyun_vc
+    type: local
+    adapter: voice.tts_aliyun_vc
+    description: >
+      Generate speech audio via Qwen3-TTS-VC (Aliyun DashScope).
+      Only provide text and voiceTag. Model and voice are managed by the qwen3_tts provider config and must NOT be passed.
+    input_schema:
+      type: object
+      properties:
+        text: { type: string }
+        voiceTag: { type: string, enum: [zh, jp, en] }
+        timeoutSec: { type: integer, minimum: 1, maximum: 120 }
+        turnId: { type: string }
+        idempotencyKey: { type: string }
+        replyMeta:
+          type: object
+          properties:
+            inputType: { type: string, enum: [text, audio] }
+            sentenceCount: { type: integer, minimum: 1 }
+            containsCode: { type: boolean }
+            containsTable: { type: boolean }
+            containsManyLinks: { type: boolean }
+            isTroubleshooting: { type: boolean }
+          additionalProperties: false
+      required: [text]
+      additionalProperties: false
+
+  - name: voice.asr_aliyun
+    type: local
+    adapter: voice.asr_aliyun
+    description: Transcribe audio to text with Aliyun ASR and feed into session loop.
+    input_schema:
+      type: object
+      properties:
+        audioRef: { type: string }
+        format: { type: string, enum: [wav, mp3, ogg, webm, m4a] }
+        lang: { type: string, enum: [zh, en, auto] }
+        timeoutSec: { type: integer, minimum: 1, maximum: 120 }
+        hints:
+          type: array
+          items: { type: string }
+      required: [audioRef, format]
+      additionalProperties: false
+
+  - name: voice.stats
+    type: local
+    adapter: voice.stats
+    description: Return in-memory voice pipeline metrics snapshot.
+    input_schema:
+      type: object
+      properties: {}
       additionalProperties: false

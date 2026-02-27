@@ -515,7 +515,7 @@ Do not add free-form items outside this format.
 - Created At: 2026-02-27 17:05
 - Source: user
 - Priority: P1
-- Status: TODO
+- Status: DONE
 - Owner: runtime
 - Branch: `feature-voice-phase1-tts-mvp`
 - Description:
@@ -560,6 +560,7 @@ Do not add free-form items outside this format.
   - TDB
 - Update Log:
   - 2026-02-27 17:05 TODO requirement created, design discussed with user.
+  - 2026-02-27 17:53 DONE implemented: playback field in tools.yaml, resolvePlayback() in voice.js, /api/audio gateway endpoint, web <audio> rendering in chat.js, electron IPC path via desktopSuite+preload+bootstrap. npm test 207/207.
 
 - Created At: 2026-02-26 17:32
 - Source: user

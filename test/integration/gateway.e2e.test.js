@@ -281,6 +281,8 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     assert.equal(health.ok, true);
     assert.equal(health.llm.active_provider, 'mock');
     assert.equal(health.session_store.root_dir, sessionStoreDir);
+    assert.equal(typeof health.voice, 'object');
+    assert.equal(typeof health.voice.tts_total, 'number');
 
     const personaProfile = await fetch(`http://127.0.0.1:${gatewayPort}/api/persona/profile`).then((r) => r.json());
     assert.equal(personaProfile.ok, true);

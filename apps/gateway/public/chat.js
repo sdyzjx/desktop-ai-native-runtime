@@ -452,15 +452,24 @@ async function onImageFilesSelected(fileList) {
 
 function renderMessages() {
   const session = getActiveSession();
-  elements.messageList.innerHTML = '';
 
   if (!session || session.messages.length === 0) {
+    elements.messageList.innerHTML = '';
     const hint = document.createElement('div');
     hint.className = 'empty-hint';
     hint.textContent = 'Start a new conversation.';
     elements.messageList.appendChild(hint);
     return;
   }
+
+  // 只在消息数量变化时才重建 DOM，避免每次 sync 都清空重建导致气泡跳动
+  const renderedCount = elements.messageList.querySelectorAll('.message-wrap').length;
+  if (renderedCount === session.messages.length) return;
+
+  // 记录用户是否已经在底部（距底部 60px 内视为在底部）
+  const atBottom = elements.messageList.scrollHeight - elements.messageList.scrollTop - elements.messageList.clientHeight < 60;
+
+  elements.messageList.innerHTML = '';
 
   session.messages.forEach((msg) => {
     const wrap = document.createElement('div');
@@ -523,7 +532,10 @@ function renderMessages() {
     elements.messageList.appendChild(wrap);
   });
 
-  elements.messageList.scrollTop = elements.messageList.scrollHeight;
+  // 只在用户本来就在底部时才自动滚底，不强制打断用户滚动
+  if (atBottom) {
+    elements.messageList.scrollTop = elements.messageList.scrollHeight;
+  }
 }
 
 function renderHeader() {
@@ -754,13 +766,16 @@ async function syncSessionsFromServer() {
 
   if (latestServerId && !state.pending) {
     const activeExists = Boolean(state.activeSessionId && getSessionById(state.activeSessionId));
-    if (!state.serverSyncInitialized || !activeExists || String(state.activeSessionId || '').startsWith('chat-')) {
+    if (!state.serverSyncInitialized || !activeExists) {
+      // 首次初始化或当前 session 已不存在时，跟随服务端最新 session
       state.activeSessionId = latestServerId;
       state.followServerSessionId = latestServerId;
     } else if (state.followServerSessionId && state.activeSessionId === state.followServerSessionId) {
+      // 用户未手动切换过（followServerSessionId 未被清空），跟随服务端
       state.activeSessionId = latestServerId;
       state.followServerSessionId = latestServerId;
     }
+    // 用户已手动选择 session（followServerSessionId === null），不强制跳转
     state.serverSyncInitialized = true;
   }
 
@@ -943,6 +958,24 @@ function bootstrap() {
   renderUploadPreview();
   updateComposerState();
   render();
+  void loadGitBranch();
+}
+
+async function loadGitBranch() {
+  try {
+    const res = await fetch('/api/git/branch');
+    const data = await res.json();
+    if (data.ok && data.branch) {
+      const badge = document.getElementById('gitBranchBadge');
+      const name = document.getElementById('gitBranchName');
+      if (badge && name) {
+        name.textContent = data.branch;
+        badge.style.display = 'flex';
+      }
+    }
+  } catch {
+    // silently ignore
+  }
 }
 
 bootstrap();

@@ -1,0 +1,78 @@
+class InMemoryVoiceCooldownStore {
+  constructor() {
+    this.calls = new Map();
+  }
+
+  _bucket(sessionId) {
+    const key = String(sessionId || 'global');
+    if (!this.calls.has(key)) this.calls.set(key, []);
+    return this.calls.get(key);
+  }
+
+  getState(sessionId, nowMs = Date.now()) {
+    const bucket = this._bucket(sessionId);
+    const oneMinuteAgo = nowMs - 60_000;
+    const valid = bucket.filter((ts) => ts >= oneMinuteAgo);
+    this.calls.set(String(sessionId || 'global'), valid);
+
+    const lastCallAt = valid.length ? valid[valid.length - 1] : null;
+    return {
+      callsInLastMinute: valid.length,
+      lastCallAt
+    };
+  }
+
+  addCall(sessionId, nowMs = Date.now()) {
+    const bucket = this._bucket(sessionId);
+    bucket.push(nowMs);
+    this.calls.set(String(sessionId || 'global'), bucket);
+  }
+}
+
+class InMemoryVoiceIdempotencyStore {
+  constructor() {
+    this.store = new Map();
+  }
+
+  _key(sessionId, idempotencyKey) {
+    return `${String(sessionId || 'global')}::${String(idempotencyKey || '')}`;
+  }
+
+  get(sessionId, idempotencyKey) {
+    if (!idempotencyKey) return null;
+    return this.store.get(this._key(sessionId, idempotencyKey)) || null;
+  }
+
+  set(sessionId, idempotencyKey, value) {
+    if (!idempotencyKey) return;
+    this.store.set(this._key(sessionId, idempotencyKey), value);
+  }
+
+  clear() {
+    this.store.clear();
+  }
+}
+
+class InMemoryVoiceActiveJobStore {
+  constructor() {
+    this.activeBySession = new Map();
+  }
+
+  setActive(sessionId, jobId) {
+    this.activeBySession.set(String(sessionId || 'global'), String(jobId));
+  }
+
+  getActive(sessionId) {
+    return this.activeBySession.get(String(sessionId || 'global')) || null;
+  }
+
+  clear() {
+    this.activeBySession.clear();
+  }
+}
+
+module.exports = {
+  InMemoryVoiceCooldownStore,
+  InMemoryVoiceIdempotencyStore,
+  InMemoryVoiceActiveJobStore
+};

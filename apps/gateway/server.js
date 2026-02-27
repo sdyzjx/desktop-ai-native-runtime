@@ -1,5 +1,7 @@
+require('dotenv').config({ path: require('node:path').resolve(__dirname, '../../.env') });
 const express = require('express');
 const fs = require('node:fs/promises');
+const { execFile } = require('node:child_process');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
@@ -29,6 +31,7 @@ const { SkillRuntimeManager } = require('../runtime/skills/skillRuntimeManager')
 const { getRuntimePaths } = require('../runtime/skills/runtimePaths');
 const { PersonaContextBuilder } = require('../runtime/persona/personaContextBuilder');
 const { PersonaProfileStore } = require('../runtime/persona/personaProfileStore');
+const { __internal: voiceInternal } = require('../runtime/tooling/adapters/voice');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -163,9 +166,23 @@ app.get('/api/session-images/:sessionId/:fileName', async (req, res) => {
   }
 });
 
+app.get('/api/git/branch', (_, res) => {
+  execFile('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: path.resolve(__dirname, '../..') }, (err, stdout) => {
+    if (err) {
+      res.json({ ok: false, branch: null });
+      return;
+    }
+    res.json({ ok: true, branch: stdout.trim() });
+  });
+});
+
 app.get('/health', async (_, res) => {
   const sessionStats = await sessionStore.getStats();
   const memoryStats = await longTermMemoryStore.getStats();
+  const voiceStats = typeof voiceInternal?.snapshotMetrics === 'function'
+    ? voiceInternal.snapshotMetrics()
+    : null;
+
   res.json({
     ok: true,
     uptime_seconds: Math.floor(process.uptime()),
@@ -174,6 +191,7 @@ app.get('/health', async (_, res) => {
     tools: toolConfigManager.getSummary(),
     session_store: sessionStats,
     memory_store: memoryStats,
+    voice: voiceStats,
     workspace_store: {
       root_dir: workspaceManager.rootDir
     }
@@ -420,9 +438,49 @@ function normalizeInputImages(rawInputImages) {
   return { ok: true, images };
 }
 
+function normalizeInputAudio(rawInputAudio) {
+  if (rawInputAudio === undefined || rawInputAudio === null) {
+    return { ok: true, audio: null };
+  }
+
+  if (!rawInputAudio || typeof rawInputAudio !== 'object' || Array.isArray(rawInputAudio)) {
+    return { ok: false, error: 'params.input_audio must be an object' };
+  }
+
+  const audioRef = typeof rawInputAudio.audio_ref === 'string' ? rawInputAudio.audio_ref.trim() : '';
+  const format = typeof rawInputAudio.format === 'string' ? rawInputAudio.format.trim().toLowerCase() : '';
+  const lang = typeof rawInputAudio.lang === 'string' ? rawInputAudio.lang.trim().toLowerCase() : 'auto';
+  const hints = Array.isArray(rawInputAudio.hints)
+    ? rawInputAudio.hints.filter((item) => typeof item === 'string').map((s) => s.trim()).filter(Boolean)
+    : [];
+
+  if (!audioRef || !format) {
+    return { ok: false, error: 'params.input_audio.audio_ref and params.input_audio.format are required' };
+  }
+
+  if (!['wav', 'mp3', 'ogg', 'webm', 'm4a'].includes(format)) {
+    return { ok: false, error: 'params.input_audio.format must be one of wav|mp3|ogg|webm|m4a' };
+  }
+
+  if (!['zh', 'en', 'auto'].includes(lang)) {
+    return { ok: false, error: 'params.input_audio.lang must be one of zh|en|auto' };
+  }
+
+  return {
+    ok: true,
+    audio: {
+      audio_ref: audioRef,
+      format,
+      lang,
+      hints
+    }
+  };
+}
+
 async function enqueueRpc(ws, rpcPayload, mode) {
   const requestInput = String(rpcPayload.params?.input || '');
   const normalizedImages = normalizeInputImages(rpcPayload.params?.input_images);
+  const normalizedAudio = normalizeInputAudio(rpcPayload.params?.input_audio);
   const requestId = rpcPayload.id ?? null;
   const requestedPermissionLevel = rpcPayload.params?.permission_level;
 
@@ -435,13 +493,23 @@ async function enqueueRpc(ws, rpcPayload, mode) {
     return;
   }
 
-  const inputImages = normalizedImages.images;
-  if (!requestInput.trim() && inputImages.length === 0) {
+  if (!normalizedAudio.ok) {
     if (mode === 'legacy') {
-      sendSafe(ws, { type: 'error', message: 'input text or input_images is required' });
+      sendSafe(ws, { type: 'error', message: normalizedAudio.error });
       return;
     }
-    sendSafe(ws, createRpcError(requestId, RpcErrorCode.INVALID_PARAMS, 'params.input or params.input_images is required'));
+    sendSafe(ws, createRpcError(requestId, RpcErrorCode.INVALID_PARAMS, normalizedAudio.error));
+    return;
+  }
+
+  const inputImages = normalizedImages.images;
+  const inputAudio = normalizedAudio.audio;
+  if (!requestInput.trim() && inputImages.length === 0 && !inputAudio) {
+    if (mode === 'legacy') {
+      sendSafe(ws, { type: 'error', message: 'input text or input_images or input_audio is required' });
+      return;
+    }
+    sendSafe(ws, createRpcError(requestId, RpcErrorCode.INVALID_PARAMS, 'params.input or params.input_images or params.input_audio is required'));
     return;
   }
 
@@ -473,6 +541,55 @@ async function enqueueRpc(ws, rpcPayload, mode) {
       return {
         permission_level: permissionLevel,
         workspace_root: normalizedWorkspace.root_dir
+      };
+    },
+    transcribeAudio: async ({ session_id: sessionId, input_audio: inputAudio, runtime_context: runtimeContext }) => {
+      if (!inputAudio || typeof inputAudio !== 'object') {
+        return { text: '', confidence: null };
+      }
+
+      const toolResult = await executor.execute({
+        name: 'voice.asr_aliyun',
+        args: {
+          audioRef: inputAudio.audio_ref,
+          format: inputAudio.format,
+          lang: inputAudio.lang || 'auto',
+          hints: Array.isArray(inputAudio.hints) ? inputAudio.hints : []
+        }
+      }, {
+        permission_level: runtimeContext?.permission_level || null,
+        workspace_root: runtimeContext?.workspace_root || null,
+        workspaceRoot: runtimeContext?.workspace_root || process.cwd(),
+        meta: {
+          session_id: sessionId,
+          permission_level: runtimeContext?.permission_level || null,
+          workspace_root: runtimeContext?.workspace_root || null,
+          input_type: 'audio'
+        },
+        publishEvent: (topic, eventPayload = {}) => {
+          bus.publish(topic, {
+            session_id: sessionId,
+            tool_name: 'voice.asr_aliyun',
+            ...eventPayload
+          });
+        }
+      });
+
+      if (!toolResult.ok) {
+        throw new Error(toolResult.error || 'asr failed');
+      }
+
+      let parsed = null;
+      try {
+        parsed = JSON.parse(String(toolResult.result || '{}'));
+      } catch {
+        parsed = null;
+      }
+
+      return {
+        text: typeof parsed?.text === 'string' ? parsed.text : '',
+        confidence: Number(parsed?.confidence) || null,
+        segments: Array.isArray(parsed?.segments) ? parsed.segments : []
       };
     },
     send: (payload) => sendSafe(ws, payload),
@@ -525,7 +642,7 @@ async function enqueueRpc(ws, rpcPayload, mode) {
 
       return [...seedMessages, ...recentMessages];
     },
-    onRunStart: async ({ session_id: sessionId, runtime_context: runtimeContext }) => {
+    onRunStart: async ({ session_id: sessionId, input, runtime_context: runtimeContext }) => {
       await sessionStore.createSessionIfNotExists({ sessionId, title: 'New chat' });
       let persistedInputImages = [];
       try {
@@ -541,7 +658,7 @@ async function enqueueRpc(ws, rpcPayload, mode) {
       }
       await sessionStore.appendMessage(sessionId, {
         role: 'user',
-        content: requestInput,
+        content: String(input || requestInput || ''),
         request_id: requestId,
         metadata: {
           mode,
@@ -553,7 +670,16 @@ async function enqueueRpc(ws, rpcPayload, mode) {
             mime_type: image.mime_type,
             size_bytes: image.size_bytes,
             url: image.url || ''
-          }))
+          })),
+          input_audio: runtimeContext?.input_audio
+            ? {
+              audio_ref: runtimeContext.input_audio.audio_ref || '',
+              format: runtimeContext.input_audio.format || '',
+              lang: runtimeContext.input_audio.lang || 'auto',
+              transcribed_text: runtimeContext.input_audio.transcribed_text || '',
+              confidence: runtimeContext.input_audio.confidence ?? null
+            }
+            : null
         }
       });
     },

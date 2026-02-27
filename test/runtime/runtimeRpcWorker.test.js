@@ -156,3 +156,58 @@ test('RuntimeRpcWorker accepts image-only input_images and forwards to runner', 
 
   worker.stop();
 });
+
+test('RuntimeRpcWorker transcribes input_audio via hook and forwards transcribed text', async () => {
+  const queue = new RpcInputQueue();
+  const bus = new RuntimeEventBus();
+
+  let seenInput = null;
+  let seenRuntimeContext = null;
+  let startHookInput = null;
+  let startHookAudio = null;
+  const runner = {
+    async run({ input, runtimeContext }) {
+      seenInput = input;
+      seenRuntimeContext = runtimeContext;
+      return { output: `ok:${input}`, traceId: 't-audio-1', state: 'DONE' };
+    }
+  };
+
+  const worker = new RuntimeRpcWorker({ queue, runner, bus });
+  worker.start();
+
+  const sends = [];
+  const accepted = await queue.submit({
+    jsonrpc: '2.0',
+    id: 'audio-1',
+    method: 'runtime.run',
+    params: {
+      session_id: 'audio-session',
+      input_audio: {
+        audio_ref: 'file:///tmp/voice.mp3',
+        format: 'mp3',
+        lang: 'zh'
+      }
+    }
+  }, {
+    send: (payload) => sends.push(payload),
+    transcribeAudio: async () => ({ text: '这是转写文本', confidence: 0.92 }),
+    buildRunContext: async () => ({ permission_level: 'medium', workspace_root: '/tmp/ws-audio' }),
+    onRunStart: async ({ input, runtime_context: runtimeContext }) => {
+      startHookInput = input;
+      startHookAudio = runtimeContext?.input_audio || null;
+    }
+  });
+
+  assert.equal(accepted.accepted, true);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  assert.equal(seenInput, '这是转写文本');
+  assert.equal(seenRuntimeContext.input_audio.transcribed_text, '这是转写文本');
+  assert.equal(startHookInput, '这是转写文本');
+  assert.equal(startHookAudio.transcribed_text, '这是转写文本');
+  assert.equal(startHookAudio.confidence, 0.92);
+  assert.equal(sends.some((item) => item.id === 'audio-1' && item.result?.output === 'ok:这是转写文本'), true);
+
+  worker.stop();
+});
