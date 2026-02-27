@@ -1,11 +1,19 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const WebSocket = require('ws');
+const YAML = require('yaml');
+
 const { ToolingError, ErrorCode } = require('../errors');
+const { getRuntimePaths } = require('../../skills/runtimePaths');
 
 const DEFAULT_RPC_HOST = '127.0.0.1';
 const DEFAULT_RPC_PORT = 17373;
 const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_ACTION_COOLDOWN_MS = 250;
+
+const DEFAULT_PRESET_PATH = path.join(getRuntimePaths().configDir, 'live2d-presets.yaml');
+const TEMPLATE_PRESET_PATH = path.resolve(__dirname, '..', '..', '..', '..', 'config', 'live2d-presets.yaml');
 
 function normalizeRpcUrl({ host = DEFAULT_RPC_HOST, port = DEFAULT_RPC_PORT, token = '' } = {}) {
   const safeHost = String(host || DEFAULT_RPC_HOST).trim() || DEFAULT_RPC_HOST;
@@ -43,6 +51,32 @@ function sanitizeRpcParams(params = {}) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+function ensurePresetFileExists(presetPath = DEFAULT_PRESET_PATH) {
+  if (fs.existsSync(presetPath)) return presetPath;
+  fs.mkdirSync(path.dirname(presetPath), { recursive: true });
+  if (fs.existsSync(TEMPLATE_PRESET_PATH)) {
+    fs.copyFileSync(TEMPLATE_PRESET_PATH, presetPath);
+    return presetPath;
+  }
+  throw new ToolingError(ErrorCode.CONFIG_ERROR, `live2d preset template missing: ${TEMPLATE_PRESET_PATH}`);
+}
+
+function loadLive2dPresetConfig(presetPath = DEFAULT_PRESET_PATH) {
+  const filePath = ensurePresetFileExists(presetPath);
+  const raw = YAML.parse(fs.readFileSync(filePath, 'utf8')) || {};
+  return normalizeLive2dPresetConfig(raw);
+}
+
+function normalizeLive2dPresetConfig(config = {}) {
+  const normalized = {
+    version: Number(config.version || 1),
+    emote: config.emote && typeof config.emote === 'object' ? config.emote : {},
+    gesture: config.gesture && typeof config.gesture === 'object' ? config.gesture : {},
+    react: config.react && typeof config.react === 'object' ? config.react : {}
+  };
+  return normalized;
 }
 
 function invokeLive2dRpc({ method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS, env = process.env, WebSocketImpl = WebSocket, traceId = null } = {}) {
@@ -185,11 +219,89 @@ function createActionQueue() {
     return wrapped;
   }
 
-  function getPending(key) {
-    return state.get(key)?.pending || 0;
+  return { run };
+}
+
+function toActionStep(step) {
+  if (!step || typeof step !== 'object') {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, 'react step must be an object');
   }
 
-  return { run, getPending };
+  if (step.type === 'wait') {
+    return { type: 'wait', ms: Math.max(0, Number(step.ms) || 0) };
+  }
+
+  if (step.type === 'expression') {
+    return { type: 'rpc', method: 'model.expression.set', params: { name: String(step.name || '') }, isAction: true };
+  }
+
+  if (step.type === 'motion') {
+    const params = { group: String(step.group || '') };
+    if (step.index != null) params.index = Number(step.index);
+    return { type: 'rpc', method: 'model.motion.play', params, isAction: true };
+  }
+
+  if (step.type === 'param_batch') {
+    return { type: 'rpc', method: 'model.param.batchSet', params: { updates: Array.isArray(step.updates) ? step.updates : [] }, isAction: false };
+  }
+
+  throw new ToolingError(ErrorCode.VALIDATION_ERROR, `unsupported react step type: ${step.type}`);
+}
+
+function resolveEmotePlan(args, presetConfig) {
+  const emotion = String(args.emotion || '').trim();
+  const intensity = String(args.intensity || 'medium').trim();
+  if (!emotion) {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, 'live2d.emote requires non-empty emotion');
+  }
+  const emotionDef = presetConfig.emote?.[emotion];
+  const picked = emotionDef?.[intensity] || emotionDef?.medium || null;
+  if (!picked) {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, `live2d.emote preset not found: ${emotion}/${intensity}`);
+  }
+
+  const steps = [];
+  if (picked.expression) {
+    steps.push({ type: 'rpc', method: 'model.expression.set', params: { name: String(picked.expression) }, isAction: true });
+  }
+  if (Array.isArray(picked.params) && picked.params.length > 0) {
+    steps.push({ type: 'rpc', method: 'model.param.batchSet', params: { updates: picked.params }, isAction: false });
+  }
+  return steps;
+}
+
+function resolveGesturePlan(args, presetConfig) {
+  const type = String(args.type || '').trim();
+  if (!type) {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, 'live2d.gesture requires non-empty type');
+  }
+  const def = presetConfig.gesture?.[type];
+  if (!def) {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, `live2d.gesture preset not found: ${type}`);
+  }
+
+  const steps = [];
+  if (def.expression) {
+    steps.push({ type: 'rpc', method: 'model.expression.set', params: { name: String(def.expression) }, isAction: true });
+  }
+  if (def.motion && def.motion.group) {
+    const params = { group: String(def.motion.group) };
+    if (def.motion.index != null) params.index = Number(def.motion.index);
+    steps.push({ type: 'rpc', method: 'model.motion.play', params, isAction: true });
+  }
+  return steps;
+}
+
+function resolveReactPlan(args, presetConfig) {
+  const intent = String(args.intent || '').trim();
+  if (!intent) {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, 'live2d.react requires non-empty intent');
+  }
+  const def = presetConfig.react?.[intent];
+  if (!Array.isArray(def) || def.length === 0) {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, `live2d.react preset not found: ${intent}`);
+  }
+  return def.map(toActionStep);
 }
 
 function createLive2dAdapters({
@@ -197,10 +309,35 @@ function createLive2dAdapters({
   now = () => Date.now(),
   sleepFn = sleep,
   actionCooldownMs = Math.max(0, Number(process.env.LIVE2D_ACTION_COOLDOWN_MS || DEFAULT_ACTION_COOLDOWN_MS)),
-  actionQueuePolicy = String(process.env.LIVE2D_ACTION_QUEUE_POLICY || 'enqueue').trim() || 'enqueue'
+  actionQueuePolicy = String(process.env.LIVE2D_ACTION_QUEUE_POLICY || 'enqueue').trim() || 'enqueue',
+  presetConfig = loadLive2dPresetConfig(process.env.LIVE2D_PRESETS_PATH || DEFAULT_PRESET_PATH)
 } = {}) {
   const actionQueue = createActionQueue();
   const lastActionAt = new Map();
+
+  async function runRpcStep({ method, params, isAction, timeoutMs, traceId, sessionKey }) {
+    if (isAction && actionCooldownMs > 0) {
+      const prev = Number(lastActionAt.get(sessionKey) || 0);
+      const waitMs = prev + actionCooldownMs - Number(now());
+      if (waitMs > 0) {
+        await sleepFn(waitMs);
+      }
+    }
+
+    const result = await invokeRpc({
+      method,
+      params,
+      timeoutMs,
+      env: process.env,
+      traceId
+    });
+
+    if (isAction) {
+      lastActionAt.set(sessionKey, Number(now()));
+    }
+
+    return result;
+  }
 
   function withLive2dMethod(method, { isAction = false } = {}) {
     return async (args = {}, context = {}) => {
@@ -209,26 +346,14 @@ function createLive2dAdapters({
       const sessionKey = String(context.session_id || 'global');
 
       const executeOnce = async () => {
-        if (isAction && actionCooldownMs > 0) {
-          const prev = Number(lastActionAt.get(sessionKey) || 0);
-          const waitMs = prev + actionCooldownMs - Number(now());
-          if (waitMs > 0) {
-            await sleepFn(waitMs);
-          }
-        }
-
-        const result = await invokeRpc({
+        const result = await runRpcStep({
           method,
           params: args,
+          isAction,
           timeoutMs,
-          env: process.env,
-          traceId
+          traceId,
+          sessionKey
         });
-
-        if (isAction) {
-          lastActionAt.set(sessionKey, Number(now()));
-        }
-
         return JSON.stringify({ ok: true, method, result });
       };
 
@@ -240,17 +365,53 @@ function createLive2dAdapters({
     };
   }
 
+  function withSemanticTool(name, resolver) {
+    return async (args = {}, context = {}) => {
+      const timeoutMs = Math.max(500, Number(args.timeoutMs || context.timeoutMs || DEFAULT_TIMEOUT_MS));
+      const traceId = context.trace_id || null;
+      const sessionKey = String(context.session_id || 'global');
+      const steps = resolver(args, presetConfig);
+
+      const executePlan = async () => {
+        const trace = [];
+        for (const step of steps) {
+          if (step.type === 'wait') {
+            await sleepFn(step.ms);
+            trace.push({ type: 'wait', ms: step.ms });
+            continue;
+          }
+          const result = await runRpcStep({
+            method: step.method,
+            params: step.params,
+            isAction: step.isAction,
+            timeoutMs,
+            traceId,
+            sessionKey
+          });
+          trace.push({ type: 'rpc', method: step.method, result });
+        }
+        return JSON.stringify({ ok: true, tool: name, steps: trace.length, trace });
+      };
+
+      return actionQueue.run(sessionKey, executePlan, actionQueuePolicy);
+    };
+  }
+
   return {
     'live2d.param.set': withLive2dMethod('model.param.set', { isAction: false }),
     'live2d.param.batch_set': withLive2dMethod('model.param.batchSet', { isAction: false }),
     'live2d.motion.play': withLive2dMethod('model.motion.play', { isAction: true }),
     'live2d.expression.set': withLive2dMethod('model.expression.set', { isAction: true }),
+    'live2d.emote': withSemanticTool('live2d.emote', resolveEmotePlan),
+    'live2d.gesture': withSemanticTool('live2d.gesture', resolveGesturePlan),
+    'live2d.react': withSemanticTool('live2d.react', resolveReactPlan),
     __internal: {
       invokeRpc,
       actionQueue,
       lastActionAt,
       actionCooldownMs,
-      actionQueuePolicy
+      actionQueuePolicy,
+      presetConfig
     }
   };
 }
@@ -267,6 +428,12 @@ module.exports = {
     sanitizeRpcParams,
     createActionQueue,
     createLive2dAdapters,
+    resolveEmotePlan,
+    resolveGesturePlan,
+    resolveReactPlan,
+    toActionStep,
+    loadLive2dPresetConfig,
+    normalizeLive2dPresetConfig,
     ...live2dAdapters.__internal
   }
 };

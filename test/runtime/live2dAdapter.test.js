@@ -184,6 +184,67 @@ test('createLive2dAdapters applies action cooldown', async () => {
   assert.ok(elapsed >= 35);
 });
 
+test('semantic tools map presets to rpc calls in order', async () => {
+  const calls = [];
+  const adapter = createLive2dAdapters({
+    invokeRpc: async ({ method, params }) => {
+      calls.push({ method, params });
+      return { ok: true };
+    },
+    actionCooldownMs: 0,
+    presetConfig: {
+      version: 1,
+      emote: {
+        happy: {
+          medium: {
+            expression: 'smile',
+            params: [{ name: 'ParamMouthForm', value: 0.6 }]
+          }
+        }
+      },
+      gesture: {
+        greet: {
+          expression: 'smile',
+          motion: { group: 'Greet', index: 0 }
+        }
+      },
+      react: {
+        error: [
+          { type: 'expression', name: 'tears' },
+          { type: 'motion', group: 'ReactError', index: 0 }
+        ]
+      }
+    }
+  });
+
+  await adapter['live2d.emote']({ emotion: 'happy', intensity: 'medium' }, { session_id: 's2' });
+  await adapter['live2d.gesture']({ type: 'greet' }, { session_id: 's2' });
+  await adapter['live2d.react']({ intent: 'error' }, { session_id: 's2' });
+
+  const methods = calls.map((c) => c.method);
+  assert.deepEqual(methods, [
+    'model.expression.set',
+    'model.param.batchSet',
+    'model.expression.set',
+    'model.motion.play',
+    'model.expression.set',
+    'model.motion.play'
+  ]);
+});
+
+test('semantic tool throws validation error when preset missing', async () => {
+  const adapter = createLive2dAdapters({
+    invokeRpc: async () => ({ ok: true }),
+    actionCooldownMs: 0,
+    presetConfig: { version: 1, emote: {}, gesture: {}, react: {} }
+  });
+
+  await assert.rejects(
+    adapter['live2d.react']({ intent: 'unknown' }, { session_id: 's3' }),
+    (err) => err.code === 'VALIDATION_ERROR'
+  );
+});
+
 test('live2d.motion.play adapter maps to model.motion.play and strips timeoutMs param', async (t) => {
   const token = 'token-2';
   const { wss, port } = await createWsServer();
