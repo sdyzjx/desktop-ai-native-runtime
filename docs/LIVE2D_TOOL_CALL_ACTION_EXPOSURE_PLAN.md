@@ -1,4 +1,4 @@
-# Live2D 动作能力 Tool Call 暴露初步方案
+# Live2D 动作能力 Tool Call 暴露完整方案（含 Motion 补全）
 
 ## 1. 背景
 
@@ -6,163 +6,321 @@
 - 关联 issue：`#20`
 - 开发分支：`codex/feature/live2d-tool-call-interface`
 
-当前 `desktop-live2d` 已具备 RPC 与基础工具映射能力，但主 runtime 的通用工具链尚未直接暴露 Live2D 动作能力，且模型资源侧存在动作/表情声明缺口。
+当前 `desktop-live2d` 已具备 RPC 与基础工具映射能力，但主 runtime 的通用工具链尚未直接暴露 Live2D 动作能力，模型资源也存在 Motion/Expression 声明缺口。
 
-## 2. 现状结论
+---
 
-1. 已有可用能力：
+## 2. 现状与问题清单（已核实）
+
+### 2.1 已有能力
+
 - `model.param.set` / `model.param.batchSet`
 - `model.motion.play`
 - `model.expression.set`
 - `tool.list` / `tool.invoke`（桌宠 RPC 层）
 
-2. 关键缺口：
-- `config/tools.yaml` 尚未纳入 Live2D 工具定义（模型无法走 runtime 通用 tool pipeline 直接调用）
-- 当前 `assets/live2d/yachiyo-kaguya/八千代辉夜姬.model3.json` 未声明 `Motions` / `Expressions`
-- 模型目录无 `*.motion3.json`，仅存在 `*.exp3.json`
+### 2.2 核心问题
+
+1. **runtime tool pipeline 未接入 live2d**
+   - `config/tools.yaml` 尚未声明 live2d 工具，LLM 无法走 runtime 通道调用。
+
+2. **命名体系不统一**
+   - 方案定义 `live2d.*`，现有桌宠工具名偏 `desktop_model_*`，易导致 contract 混乱。
+
+3. **模型资源不完整**
+   - `assets/live2d/yachiyo-kaguya/八千代辉夜姬.model3.json` 未声明 `Motions/Expressions`。
+   - 当前目录仅有 `*.exp3.json`，无 `*.motion3.json`。
+
+4. **高层语义工具未落地**
+   - `live2d.emote/gesture/react` 仍停留在设计稿。
+
+5. **失败路径可能静默**
+   - 参数处理与错误上抛不够严格，可能出现“调用返回成功但实际无动作”。
+
+6. **并发控制不够动作友好**
+   - 缺会话级动作串行队列与动作冷却策略，连发易抖动。
+
+7. **观测链路尚未统一**
+   - trace 透传与错误码归一仍需收敛。
+
+---
 
 ## 3. 目标与边界
 
-## 3.1 目标
+### 3.1 目标
 
-1. 让大模型可通过 runtime 标准 tool call 调用 Live2D 动作能力。
+1. 大模型可通过 runtime 标准 tool call 稳定调用 Live2D。
 2. 同时提供：
-- 底层工具：参数/动作/表情直控
-- 高层工具：语义动作预设（更模型友好）
-3. 保证失败路径可观测：统一错误码、日志、trace 关联。
+   - 底层原子工具（参数/动作/表情）
+   - 高层语义工具（emote/gesture/react）
+3. 具备稳定性与可观测性：
+   - 统一错误码
+   - trace 全链路
+   - 可限流、可回滚
 
-## 3.2 非目标
+### 3.2 非目标
 
-1. 本阶段不做复杂动作编辑器或可视化动作编排 UI。
-2. 本阶段不引入多模型驱动或跨角色动作共享协议。
+1. 本阶段不做动作编辑器或可视化编排 UI。
+2. 本阶段不做多角色共享动作协议与跨模型迁移自动适配。
 
-## 4. 方案总览
+---
 
-采用“双层工具接口 + 一条执行链”：
+## 4. 总体架构（收敛版）
 
-1. 底层原子能力：
-- `live2d.param.set`
-- `live2d.param.batch_set`
-- `live2d.motion.play`
-- `live2d.expression.set`
+采用“**双层工具接口 + 单执行链 + 配置化预设**”：
 
-2. 高层语义能力（推荐模型优先调用）：
-- `live2d.emote`
-- `live2d.gesture`
-- `live2d.react`
+1. 底层原子工具（稳定、强约束）
+   - `live2d.param.set`
+   - `live2d.param.batch_set`
+   - `live2d.motion.play`
+   - `live2d.expression.set`
 
-3. 执行链：
-- `ToolLoopRunner -> ToolCallDispatcher -> ToolExecutor -> live2d adapter -> desktop RPC(tool.invoke/或直调方法) -> renderer`
+2. 高层语义工具（推荐模型优先调用）
+   - `live2d.emote`
+   - `live2d.gesture`
+   - `live2d.react`
 
-## 5. 接口设计（初稿）
+3. 执行链
+   - `ToolLoopRunner -> ToolCallDispatcher -> ToolExecutor -> live2d adapter -> desktop RPC(tool.invoke/model.*) -> renderer`
 
-## 5.1 底层工具
+4. 兼容策略
+   - `desktop_model_*` 作为内部兼容别名保留，不作为对外主 contract。
+
+---
+
+## 5. 接口设计
+
+### 5.1 底层工具（对外标准）
 
 1. `live2d.motion.play`
-- 入参：`group`(string, required), `index`(integer, optional)
-- 作用：播放指定动作组/索引
+   - 入参：`group`(string, required), `index`(integer, optional)
+   - 作用：播放动作组/索引
 
 2. `live2d.expression.set`
-- 入参：`name`(string, required)
-- 作用：切换表情
+   - 入参：`name`(string, required)
+   - 作用：切换表情
 
 3. `live2d.param.set`
-- 入参：`name`(string, required), `value`(number, required)
-- 作用：设置单参数
+   - 入参：`name`(string, required), `value`(number, required)
+   - 作用：设置单参数
 
 4. `live2d.param.batch_set`
-- 入参：`updates`(array<{name,value}>, required)
-- 作用：批量参数更新
+   - 入参：`updates`(array<{name,value}>, required)
+   - 作用：批量参数更新
 
-## 5.2 高层工具（语义到原子映射）
+> 要求：所有 schema 默认 `additionalProperties: false`。
+
+### 5.2 高层工具（语义层）
 
 1. `live2d.emote`
-- 入参：`emotion`(enum), `intensity`(low|medium|high)
-- 输出：映射到 `expression + param.batch_set`
+   - 入参：`emotion`(enum), `intensity`(low|medium|high)
+   - 映射：`expression + param.batch_set`
 
 2. `live2d.gesture`
-- 入参：`type`(enum: greet|agree|deny|think|shy...)
-- 输出：映射到 `motion.play`（必要时叠加 expression）
+   - 入参：`type`(enum: greet|agree|deny|think|shy...)
+   - 映射：`motion.play`（可叠加 expression）
 
 3. `live2d.react`
-- 入参：`intent`(enum: success|error|apology|confused|waiting...)
-- 输出：调用预设动作模板（短序列）
+   - 入参：`intent`(enum: success|error|apology|confused|waiting...)
+   - 映射：短序列（expression + motion + recover）
 
-说明：高层工具的映射表独立配置，避免写死在代码里，便于后续调优。
+> 语义映射必须配置化，禁止硬编码在业务主干。
 
-## 6. 配置与资源改造
+---
 
-1. 模型资源侧：
-- 补齐/导入 `*.motion3.json`
-- 在 `model3.json` 中声明 `Motions`
-- 在 `model3.json` 中声明 `Expressions`（绑定现有 `*.exp3.json`）
+## 6. Motion / Expression 资源补全方案
 
-2. runtime 工具配置侧：
-- 在 `config/tools.yaml` 新增 Live2D 工具条目与 schema
-- 将工具加入 policy allow（可按 provider 做粒度限制）
+### 6.1 当前模型现状（八千代）
 
-3. 桌宠映射侧：
-- `apps/desktop-live2d/main/toolRegistry.js` 维护白名单与映射
-- 新增高层动作映射模块（建议独立文件）
+- 已有 expression 文件：
+  - `泪珠.exp3.json`
+  - `眯眯眼.exp3.json`
+  - `眼泪.exp3.json`
+  - `笑咪咪.exp3.json`
+- 缺失：`*.motion3.json`
+- 缺失：`model3.json` 中 `Expressions` / `Motions` 声明
 
-## 7. 安全与稳定性策略
+### 6.2 补全优先级
 
-1. 白名单：
-- 只允许声明在 registry 的工具名
-- 高层工具参数使用 enum + `additionalProperties: false`
+1. **P0：先可跑**
+   - 在 `model3.json` 挂载现有 4 个 expression
+   - 新增最小 3 个 motion（Idle/Greet/ReactError）
 
-2. 并发与节流：
-- 同一会话动作调用串行执行
-- 复用并细化 `rpcRateLimiter`（按 method/tool 细分）
-- 增加动作冷却（避免抖动/连发）
+2. **P1：可用性增强**
+   - 扩充动作组（Idle/TapBody/React）
+   - 增加 motion 元数据（FadeIn/FadeOut 等）
 
-3. 错误与审计：
-- 统一错误码：`-32602` 参数错误、`-32006` 不允许、`-32005` 内部错误、`-32003` 超时
-- 事件日志包含：`trace_id`、`session_id`、`call_id`、`tool_name`、`latency_ms`
+3. **P2：正式资产化**
+   - 使用八千代模型自身参数体系导出 motion，替换临时联调动作
 
-## 8. 测试方案
+### 6.3 资源来源策略
 
-1. 单元测试：
-- `toolRegistry` 映射与拒绝路径
-- 新增高层动作映射模块（覆盖所有 enum 分支）
-- schema 校验与参数边界
+- 联调参考：`Live2D/CubismWebSamples`（Haru/Mark/Natori 结构可用）
+- 最终上线：优先使用八千代原始工程导出动作（避免参数 ID 不匹配）
+- 许可要求：遵循 Live2D 及素材包 license，不默认允许跨模型商用复用
 
-2. 集成测试：
-- runtime `tool.call.requested -> result` 全链路
-- 桌宠 RPC `tool.invoke` 到 renderer 成功/失败路径
-- 并发/限流场景（超额触发返回 rate limited）
+---
 
-3. 冒烟测试：
-- `npm run desktop:smoke` 增加 Live2D 动作调用断言
+## 7. 配置与代码改造清单
 
-## 9. 分阶段实施计划
+### 7.1 模型资源侧
 
-1. Phase A（资源与底层能力打通）
-- 补模型动作/表情声明
-- 打通 runtime -> live2d 底层 4 个工具
+- 新增 `*.motion3.json`
+- 更新 `八千代辉夜姬.model3.json`：
+  - `FileReferences.Expressions`
+  - `FileReferences.Motions`
 
-2. Phase B（高层语义工具）
-- 实现 `emote/gesture/react` 映射
-- 配置化预设表与最小冷却策略
-
-3. Phase C（收敛与验收）
-- 完成测试矩阵
-- 补齐模块文档与 `PROGRESS_TODO.md` 回填
-
-## 10. 影响文件（预估）
+### 7.2 runtime 侧
 
 - `config/tools.yaml`
+  - 新增 live2d 原子工具定义
+  - policy allow / byProvider 精细控制
+- 新增/完善 `live2d adapter`
+  - 入参校验
+  - RPC 转发
+  - 错误码归一
+  - trace 透传
+
+### 7.3 desktop-live2d 侧
+
+- `toolRegistry.js`
+  - 对外 contract 与内部 method 映射
+- `rpcValidator.js`
+  - 严格 schema 校验
+- `rpcRateLimiter.js`
+  - method/tool 细粒度配额
+- `renderer/bootstrap.js`
+  - 模型 capability 探测
+  - 动作队列与冷却执行
+
+### 7.4 能力发现（关键）
+
+`tool.list` 返回建议增加：
+- `supportsMotions`
+- `supportsExpressions`
+- `motionGroups`
+- `expressionNames`
+
+用于降低 LLM 猜测组名导致的失败率。
+
+---
+
+## 8. 稳定性与安全策略
+
+1. **白名单控制**
+   - 仅允许 registry 声明的工具名
+   - 高层工具参数 enum 化
+
+2. **并发控制**
+   - 按 `session_id + model_id` 串行队列
+   - 动作冷却（默认 200~400ms）
+
+3. **限流策略**
+   - RPC method 级 + tool 级双层限流
+
+4. **统一错误码**
+   - `-32602` 参数错误
+   - `-32004` 模型未加载
+   - `-32006` 不允许调用
+   - `-32002` 速率限制
+   - `-32005` 内部错误
+   - `-32003` 超时
+
+5. **审计字段**
+   - `trace_id`、`session_id`、`call_id`、`tool_name`、`latency_ms`
+
+---
+
+## 9. 测试与验收
+
+### 9.1 单元测试
+
+- `toolRegistry` 映射/拒绝路径
+- schema 严格校验（含 additionalProperties）
+- 高层语义映射覆盖（emote/gesture/react）
+
+### 9.2 集成测试
+
+- runtime `tool.call.requested -> result` 全链路
+- `tool.invoke` 到 renderer 的成功/失败路径
+- 限流与并发队列行为
+
+### 9.3 冒烟测试
+
+- 增加：
+  - 1 次 `live2d.motion.play`
+  - 1 次 `live2d.expression.set`
+  - 1 次 `live2d.react`
+
+### 9.4 验收标准
+
+- 关键场景无 silent fail
+- 连续触发动作无明显抖动/错序
+- 错误可定位（日志可追踪到 call_id）
+
+---
+
+## 10. 分阶段落地计划（建议 PR 切分）
+
+### PR1（协议与链路）
+
+- 统一命名 contract
+- `tools.yaml` 接入 live2d 原子工具
+- live2d adapter 最小打通
+
+### PR2（资源补齐）
+
+- 补 `Motions/Expressions` 声明
+- 导入最小 motion 集
+- capability 返回完善
+
+### PR3（稳定性）
+
+- 校验收紧
+- 错误码归一
+- trace 透传
+
+### PR4（动作体验）
+
+- 会话队列 + 冷却策略
+- 限流细化
+
+### PR5（语义层）
+
+- `emote/gesture/react` 配置化映射
+- 文档与测试收口
+
+---
+
+## 11. 影响文件（预估）
+
+- `config/tools.yaml`
+- `config/live2d-presets.yaml`（新增）
 - `apps/runtime/tooling/*`
 - `apps/runtime/executor/*`
 - `apps/desktop-live2d/main/*`
-- `apps/desktop-live2d/renderer/*`（仅必要时）
+- `apps/desktop-live2d/renderer/*`
 - `assets/live2d/yachiyo-kaguya/*`
 - `test/runtime/*`
 - `test/desktop-live2d/*`
 
-## 11. 回滚策略
+---
 
-1. 配置回滚优先：移除 `config/tools.yaml` 中新增 Live2D 工具暴露。
-2. 保留底层 RPC 方法，但禁用高层语义工具入口。
-3. 若动作触发异常，优先切回参数直控最小能力集合。
+## 12. 回滚策略
 
+1. 配置回滚优先：移除/禁用 `tools.yaml` live2d 暴露。
+2. 功能降级：仅保留底层参数工具（`param.set` / `expression.set`）。
+3. 资源回退：切回旧版 `model3.json` 与资产快照。
+4. 故障快速判定：执行 `tool.list + state.get` 诊断能力状态。
+
+---
+
+## 13. 当前待办（可直接执行）
+
+1. 在八千代 `model3.json` 挂载现有 4 个 exp3。
+2. 补最小 3 个 motion3 并声明到 `Motions`。
+3. 在 `config/tools.yaml` 加入 4 个 live2d 原子工具。
+4. 实现 adapter + 严格校验 + 错误码归一。
+5. 添加一条完整冒烟测试并通过。
+
+> 完成上述 5 项后，即可从“设计稿阶段”进入“可稳定联调阶段”。
