@@ -205,6 +205,16 @@ app.get('/api/sessions', async (req, res) => {
   res.json({ ok: true, data: result });
 });
 
+app.get('/api/version', (req, res) => {
+  try {
+    const { execSync } = require('node:child_process');
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', { stdio: 'pipe' }).toString().trim();
+    res.json({ ok: true, data: { branch } });
+  } catch (e) {
+    res.json({ ok: true, data: { branch: 'unknown' } });
+  }
+});
+
 app.get('/api/sessions/:sessionId', async (req, res) => {
   const session = await sessionStore.getSession(req.params.sessionId);
   if (!session) {

@@ -963,14 +963,12 @@ function bootstrap() {
 
 async function loadGitBranch() {
   try {
-    const res = await fetch('/api/git/branch');
+    const res = await fetch('/api/version');
     const data = await res.json();
-    if (data.ok && data.branch) {
-      const badge = document.getElementById('gitBranchBadge');
-      const name = document.getElementById('gitBranchName');
-      if (badge && name) {
-        name.textContent = data.branch;
-        badge.style.display = 'flex';
+    if (data.ok && data.data && data.data.branch) {
+      const tag = document.getElementById('versionTag');
+      if (tag) {
+        tag.textContent = `branch: ${data.data.branch}`;
       }
     }
   } catch {
