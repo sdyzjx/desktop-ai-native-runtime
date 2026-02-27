@@ -730,24 +730,6 @@ async function startDesktopSuite({
         params: desktopEvent
       });
 
-      // handle voice playback for electron mode
-      if (desktopEvent.type === 'runtime.event') {
-        const eventName = desktopEvent.data?.event || desktopEvent.data?.payload?.event;
-        if (eventName === 'voice.playback.electron') {
-          const payload = desktopEvent.data?.payload || desktopEvent.data;
-          const audioRef = payload?.audio_ref || payload?.audioRef;
-          if (audioRef && !avatarWindow.isDestroyed()) {
-            logger.info?.('[desktop-live2d] voice_playback_electron_ipc', { audioRef: audioRef.split('/').pop() });
-            avatarWindow.webContents.send('desktop:voice:play', {
-              audioRef,
-              format: payload?.format || 'ogg',
-              gatewayUrl: config.gatewayUrl
-            });
-          }
-        }
-        return;
-      }
-
       if (desktopEvent.type !== 'runtime.final') {
         return;
       }
@@ -775,9 +757,6 @@ async function startDesktopSuite({
   } catch (err) {
     logger.error?.('[desktop-live2d] gateway_session_bootstrap_failed', err);
   }
-
-  gatewayRuntimeClient.startNotificationStream();
-  logger.info?.('[desktop-live2d] notification_stream_started');
 
   const chatInputListener = createChatInputListener({
     logger,
@@ -873,8 +852,7 @@ async function startDesktopSuite({
       setChatPanelVisible,
       appendChatMessage,
       clearChatMessages,
-      showBubble,
-      avatarWindow
+      showBubble
     }),
     logger
   });
@@ -942,7 +920,6 @@ async function startDesktopSuite({
     }
 
     await gatewaySupervisor.stop();
-    gatewayRuntimeClient.stopNotificationStream();
   }
 
   return {
@@ -998,8 +975,7 @@ async function handleDesktopRpcRequest({
   setChatPanelVisible = null,
   appendChatMessage = null,
   clearChatMessages = null,
-  showBubble = null,
-  avatarWindow = null
+  showBubble = null
 }) {
   if (request.method === 'tool.list') {
     return {
@@ -1022,17 +998,6 @@ async function handleDesktopRpcRequest({
       tool: resolved.toolName,
       result
     };
-  }
-
-  if (request.method === 'voice.play.test') {
-    const audioRef = String(request.params?.audioRef || '');
-    const gatewayUrl = String(request.params?.gatewayUrl || 'http://127.0.0.1:3000');
-    if (!audioRef) return { ok: false, error: 'audioRef required' };
-    if (!avatarWindow.isDestroyed()) {
-      avatarWindow.webContents.send('desktop:voice:play', { audioRef, format: 'ogg', gatewayUrl });
-      return { ok: true, audioRef };
-    }
-    return { ok: false, error: 'avatarWindow not available' };
   }
 
   if (request.method === 'chat.show' || request.method === 'chat.bubble.show') {
@@ -1109,8 +1074,7 @@ function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windo
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
-      autoplayPolicy: 'no-user-gesture-required'
+      sandbox: false
     }
   });
 

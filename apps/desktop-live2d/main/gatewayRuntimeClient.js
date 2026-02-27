@@ -210,45 +210,6 @@ class GatewayRuntimeClient {
       });
     });
   }
-
-  startNotificationStream() {
-    if (this._notifWs) return;
-
-    const connect = () => {
-      if (this._notifStopped) return;
-      const ws = new this.WebSocketImpl(this.gatewayWsUrl);
-      this._notifWs = ws;
-
-      ws.on('message', (raw) => {
-        let message;
-        try { message = JSON.parse(String(raw)); } catch { return; }
-        const desktopEvent = mapGatewayMessageToDesktopEvent(message);
-        if (desktopEvent && typeof this.onNotification === 'function') {
-          try { this.onNotification(desktopEvent, message); } catch { /* ignore */ }
-        }
-      });
-
-      ws.on('close', () => {
-        this._notifWs = null;
-        if (!this._notifStopped) {
-          setTimeout(connect, 2000);
-        }
-      });
-
-      ws.on('error', () => { /* reconnect handled by close */ });
-    };
-
-    this._notifStopped = false;
-    connect();
-  }
-
-  stopNotificationStream() {
-    this._notifStopped = true;
-    if (this._notifWs) {
-      try { this._notifWs.close(); } catch { /* ignore */ }
-      this._notifWs = null;
-    }
-  }
 }
 
 module.exports = {

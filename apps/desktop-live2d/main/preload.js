@@ -63,11 +63,6 @@ contextBridge.exposeInMainWorld('desktopLive2dBridge', {
   sendChatPanelVisibility(payload = {}) {
     ipcRenderer.send(CHANNELS.chatPanelVisibility, payload);
   },
-  onVoicePlay(handler) {
-    const listener = (_event, payload) => handler(payload);
-    ipcRenderer.on('desktop:voice:play', listener);
-    return () => ipcRenderer.off('desktop:voice:play', listener);
-  },
   getRuntimeConfig() {
     return ipcRenderer.invoke(CHANNELS.getRuntimeConfig);
   }

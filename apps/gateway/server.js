@@ -1,7 +1,6 @@
 require('dotenv').config({ path: require('node:path').resolve(__dirname, '../../.env') });
 const express = require('express');
 const fs = require('node:fs/promises');
-const os = require('node:os');
 const { execFile } = require('node:child_process');
 const { WebSocketServer } = require('ws');
 const path = require('path');
@@ -164,33 +163,6 @@ app.get('/api/session-images/:sessionId/:fileName', async (req, res) => {
     res.sendFile(absolutePath);
   } catch {
     res.status(404).json({ ok: false, error: 'image not found' });
-  }
-});
-
-app.get('/api/audio', async (req, res) => {
-  const reqPath = String(req.query.path || '').trim();
-  if (!reqPath) {
-    res.status(400).json({ ok: false, error: 'path is required' });
-    return;
-  }
-
-  const allowedRoot = path.resolve(os.homedir(), 'yachiyo', 'data');
-  const resolved = path.resolve(reqPath);
-  if (!resolved.startsWith(allowedRoot + path.sep) && !resolved.startsWith(allowedRoot)) {
-    res.status(403).json({ ok: false, error: 'access denied' });
-    return;
-  }
-
-  const ext = path.extname(resolved).toLowerCase();
-  const contentTypeMap = { '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4' };
-  const contentType = contentTypeMap[ext] || 'application/octet-stream';
-
-  try {
-    await fs.access(resolved);
-    res.setHeader('Content-Type', contentType);
-    res.sendFile(resolved);
-  } catch {
-    res.status(404).json({ ok: false, error: 'audio file not found' });
   }
 });
 

@@ -54,7 +54,7 @@ function execFileAsync(cmd, args, options = {}) {
   });
 }
 
-async function callDashscopeTts({ text, model, voiceId, voiceTag, timeoutMs = 60_000 }) {
+async function callDashscopeTts({ text, model, voiceId, voiceTag }) {
   // 优先从 providers.yaml 的 tts_dashscope provider 读配置，env 作为 fallback
   const providerCfg = loadTtsProviderConfig();
 
@@ -78,35 +78,26 @@ async function callDashscopeTts({ text, model, voiceId, voiceTag, timeoutMs = 60
   const defaultVoice = (providerCfg && providerCfg.tts_voice) || '';
 
   const scriptPath = path.resolve(process.cwd(), 'scripts/qwen_voice_reply.py');
-  const cliOverride = process.env.VOICE_REPLY_CLI;
 
-  let cmd, cmdArgs;
-  if (cliOverride) {
-    // test/override mode: simplified args, text at position $7 for mock script compatibility
-    cmd = cliOverride;
-    cmdArgs = [voiceTag, defaultModel, defaultVoice, '--emit-manifest', '--', '--', text];
-  } else {
-    cmd = 'python3';
-    cmdArgs = [
-      scriptPath,
-      '--voice-tag',
-      voiceTag,
-      '--model',
-      defaultModel,
-      '--voice',
-      defaultVoice,
-      '--emit-manifest',
-      text
-    ];
-  }
+  const args = [
+    scriptPath,
+    '--voice-tag',
+    voiceTag,
+    '--model',
+    defaultModel,
+    '--voice',
+    defaultVoice,
+    '--emit-manifest',
+    text
+  ];
 
-  const { stdout } = await execFileAsync(cmd, cmdArgs, {
+  const { stdout } = await execFileAsync('python3', args, {
     env: {
       ...process.env,
       DASHSCOPE_API_KEY: apiKey,
       DASHSCOPE_BASE_URL: baseUrl
     },
-    timeout: timeoutMs
+    timeout: 60_000
   });
 
   const output = String(stdout || '').trim();
@@ -120,14 +111,9 @@ async function callDashscopeTts({ text, model, voiceId, voiceTag, timeoutMs = 60
   try {
     manifest = JSON.parse(output);
   } catch (e) {
-    // CLI override may output plain path (for testing)
-    if (cliOverride && output && !output.startsWith('{')) {
-      manifest = { audio_path: output };
-    } else {
-      const err = new Error('failed to parse tts manifest json');
-      err.code = 'TTS_PROVIDER_DOWN';
-      throw err;
-    }
+    const err = new Error('failed to parse tts manifest json');
+    err.code = 'TTS_PROVIDER_DOWN';
+    throw err;
   }
 
   const audioPath = manifest && typeof manifest.audio_path === 'string' ? manifest.audio_path : '';
@@ -205,13 +191,6 @@ function checkModelVoiceCompatibility({ model, voiceId, registry = {} }) {
       { expected: profile.targetModel, actual: model, voiceId }
     );
   }
-}
-
-function resolvePlayback(args, providerCfg) {
-  const modes = ['local', 'web', 'electron', 'none'];
-  if (args?.playback && modes.includes(args.playback)) return args.playback;
-  if (providerCfg?.default_playback && modes.includes(providerCfg.default_playback)) return providerCfg.default_playback;
-  return 'local';
 }
 
 function publishVoiceEvent(context, topic, payload = {}) {
@@ -304,10 +283,9 @@ async function ttsAliyunVc(args = {}, context = {}) {
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         audioPath = await callDashscopeTts({
           text,
-          model: args.model,
-          voiceId: args.voiceId,
+          model: args.model,   // undefined 时 callDashscopeTts 内部会用 providerCfg.tts_model
+          voiceId: args.voiceId, // 同上，undefined 时用 providerCfg.tts_voice
           voiceTag,
-          timeoutMs,
           signal: controller.signal
         });
         clearTimeout(timer);
@@ -348,50 +326,21 @@ async function ttsAliyunVc(args = {}, context = {}) {
 
     cooldownStore.addCall(sessionId, nowMs);
 
-    const providerCfg = loadTtsProviderConfig();
-    const playback = resolvePlayback(args, providerCfg);
-
-    // playback dispatch
-    switch (playback) {
-      case 'local':
-        // ogg → wav → afplay（本机调试用，非阻塞）
-        try {
-          const wavPath = audioPath.replace(/\.ogg$/, '.wav');
-          const { spawn } = require('node:child_process');
-          const ffmpeg = spawn('ffmpeg', ['-v', 'quiet', '-y', '-i', audioPath, wavPath]);
-          ffmpeg.on('close', (code) => {
-            if (code === 0) {
-              spawn('afplay', [wavPath], { detached: true, stdio: 'ignore' }).unref();
-            }
-          });
-        } catch (_) { /* autoplay failure is non-fatal */ }
-        break;
-
-      case 'web':
-        // no local playback; audioRef is returned in payload for browser <audio>
-        break;
-
-      case 'electron':
-        // publish event for Electron main process to pick up via IPC
-        if (typeof context.publishEvent === 'function') {
-          context.publishEvent('voice.playback.electron', {
-            audio_ref: audioPath,
-            format: 'ogg',
-            session_id: sessionId
-          });
+    // autoplay: ogg → wav → afplay（本机调试用，非阻塞）
+    try {
+      const wavPath = audioPath.replace(/\.ogg$/, '.wav');
+      const { spawn } = require('node:child_process');
+      const ffmpeg = spawn('ffmpeg', ['-v', 'quiet', '-y', '-i', audioPath, wavPath]);
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          spawn('afplay', [wavPath], { detached: true, stdio: 'ignore' }).unref();
         }
-        break;
-
-      case 'none':
-      default:
-        // synthesize only, no playback
-        break;
-    }
+      });
+    } catch (_) { /* autoplay failure is non-fatal */ }
 
     const payload = {
-      audioRef: audioPath,
+      audioRef: `file://${audioPath}`,
       format: 'ogg',
-      playback,
       voiceTag,
       model: String(args.model || 'qwen3-tts-vc-2026-01-22'),
       voiceId: String(args.voiceId || ''),

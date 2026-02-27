@@ -622,11 +622,3 @@ body.chat-page {
     scroll-behavior: auto !important;
   }
 }
-
-.audio-player {
-  margin-top: 8px;
-  width: 100%;
-  max-width: 320px;
-  border-radius: 8px;
-  outline: none;
-}
