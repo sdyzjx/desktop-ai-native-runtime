@@ -98,6 +98,15 @@ Branch: `codex/feature/electron-desktop`
 10. `TODO` Add privileged fixed-session control dialog in Web UI (highest permission)
 - Requirement: `REQ-20260226-012`
 
+11. `TODO` Live2D Llorach frequency-based lip sync upgrade
+- Requirement: `REQ-20260227-014`
+
+12. `TODO` Runtime observability — EventBus SSE stream + shell exec tracing
+- Requirement: `REQ-20260227-015`
+
+13. `TODO` Config management v2 — raw YAML editor + agent dialog + git commit history
+- Requirement: `REQ-20260227-016`
+
 ## 3.2 Merge Gate (before `main`)
 
 1. `TODO` complete manual acceptance on integration branch
@@ -502,7 +511,56 @@ Do not add free-form items outside this format.
 - Update Log:
   - 2026-02-26 17:32 TODO requirement created from user request.
 
-### [REQ-20260226-012] WebUI 增加固定高权限控制会话对话框
+### [REQ-20260227-013] voice.tts_aliyun_vc 多端播放模式切换
+- Created At: 2026-02-27 17:05
+- Source: user
+- Priority: P1
+- Status: TODO
+- Owner: runtime
+- Branch: `feature-voice-phase1-tts-mvp`
+- Description:
+  - 为 `voice.tts_aliyun_vc` 工具增加 `playback` 字段，支持在本地（afplay）、Web UI（`<audio>` 播放器）、Electron 桌面端三种播放模式之间切换，并在 `providers.yaml` 中配置默认播放模式。
+- Acceptance Criteria:
+  1. `tools.yaml` 中 `voice.tts_aliyun_vc` 新增 `playback` 字段（`local | web | electron | none`），LLM 可按上下文传入。
+  2. `providers.yaml` 的 `qwen3_tts` provider 支持 `default_playback` 字段，作为 `playback` 的默认值。
+  3. `local` 模式：合成完成后通过 `ffmpeg ogg→wav + afplay` 在本机播放（现有行为）。
+  4. `web` 模式：不在服务端播放，payload 中携带 `audioRef`，gateway `/api/audio?path=` 接口提供文件，前端 `chat.js` 识别 manifest 并渲染内联 `<audio>` 播放器。
+  5. `electron` 模式：通过 EventBus 发出 `voice.playback.electron` 事件，Electron 主进程订阅后通过 IPC 触发 renderer 播放。
+  6. `none` 模式：只合成，不播放，仅返回 `audioRef`。
+  7. 优先级：`args.playback` > `providerCfg.default_playback` > `'local'`。
+- Impacted Modules:
+  - `config/tools.yaml`
+  - `apps/runtime/tooling/adapters/voice.js`
+  - `apps/gateway/server.js`（`/api/audio` 接口）
+  - `apps/gateway/public/chat.js`（`extractAudioPath` + `<audio>` 渲染）
+  - `apps/gateway/public/chat.css`（音频气泡样式）
+  - `apps/desktop-live2d/main/gatewayRuntimeClient.js`（订阅 `voice.playback.electron`）
+  - `apps/desktop-live2d/renderer/bootstrap.js`（IPC 接收并播放）
+  - `~/yachiyo/config/providers.yaml`（`default_playback` 字段）
+- Risks/Dependencies:
+  - `web` 模式依赖 PR #12（`wkf16:feature/voice-synthesis`）中的 `/api/audio` 接口和 `extractAudioPath` 逻辑，需先合并或手动移植。
+  - `electron` 模式依赖 Electron 桌面端 IPC 通道稳定性，需与 REQ-20260226-005 的 desktop 模块协同。
+  - `local` 模式依赖本机 `ffmpeg` 和 `afplay`（macOS 专属），跨平台需额外适配。
+- Plan:
+  1. `tools.yaml`：新增 `playback` 字段定义（enum + description）。
+  2. `providers.yaml`：`qwen3_tts` 增加 `default_playback: local`。
+  3. `providerConfigStore.js`：`tts_dashscope` validation 增加 `default_playback` 可选字段校验。
+  4. `voice.js`：在成功路径里增加 `resolvePlayback` 函数 + `switch(playback)` 分支：
+     - `local`：现有 afplay 逻辑
+     - `web`：跳过播放，payload 带 `audioRef`
+     - `electron`：`publishVoiceEvent(context, 'voice.playback.electron', { audio_ref, format })`
+     - `none`：跳过播放
+  5. `web` 模式：移植 PR #12 的 `/api/audio` 接口（gateway）+ `extractAudioPath` + `<audio>` 渲染（chat.js）+ 音频气泡样式（chat.css）。
+  6. `electron` 模式：
+     - `gatewayRuntimeClient.js` 订阅 `voice.playback.electron` EventBus 事件
+     - 通过 IPC 发送 `desktop:voice:play` 到 renderer
+     - `bootstrap.js` 监听 `desktop:voice:play`，用 `<audio>` 或 Web Audio API 播放 `audioRef`（需通过 `/api/audio` 接口转换为可访问 URL）
+  7. 补充单元测试：各 playback 模式的分支覆盖。
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-27 17:05 TODO requirement created, design discussed with user.
+
 - Created At: 2026-02-26 17:32
 - Source: user
 - Priority: P0
@@ -532,3 +590,156 @@ Do not add free-form items outside this format.
   - TDB
 - Update Log:
   - 2026-02-26 17:32 TODO requirement created from user request.
+
+### [REQ-20260227-014] Live2D Llorach 频谱对口型升级
+- Created At: 2026-02-27 18:30
+- Source: user
+- Priority: P1
+- Status: TODO
+- Owner: runtime
+- Branch: `feature-voice-phase1-tts-mvp`
+- Description:
+  - 将现有 Live2D 对口型方案从"全频段音量驱动"升级为基于 Llorach 2016 论文的频谱分析算法，同时驱动 `ParamMouthOpenY`（开合）和 `ParamMouthForm`（形状），实现更自然的口型表现。
+- Background:
+  - 当前实现（`bootstrap.js` 第 913-958 行）已有完整的 Web Audio API + pixiTicker 链路，但算法只取全频段平均音量映射到 `ParamMouthOpenY`，嘴巴只有开合没有形状变化。
+  - 模型 `八千代辉夜姬` 经参数枚举确认同时具备 `ParamMouthOpenY`（嘴　张开和闭合）和 `ParamMouthForm`（嘴　变形），支持完整的频谱方案。
+  - `LipSync.Ids` 在 `model3.json` 中为空，但代码直接调用 `setParameterValueById` 绕过了该限制，无需改模型文件。
+- Acceptance Criteria:
+  1. 替换后 `ParamMouthOpenY` 由频谱 open/pressed 权重驱动，不再是全频段平均音量。
+  2. `ParamMouthForm` 由 kiss/pressed 权重驱动，说话时嘴形有明显变化。
+  3. 平滑处理（SMOOTHING=0.39）消除嘴巴抖动。
+  4. 不改动 IPC 链路、音频播放、pixiTicker 挂载/卸载逻辑。
+- Impacted Modules:
+  - `apps/desktop-live2d/renderer/bootstrap.js`（唯一改动文件，替换 `updateLipSync` 函数）
+- Risks/Dependencies:
+  - `SENSITIVITY` 和 `VOCAL_TRACT_FACTOR` 参数需人工试听调整（女声推荐初始值 1.21）。
+  - 若模型实际参数名与 `cdi3.json` 不一致，需运行时枚举确认。
+- Plan:
+  1. 在 `onVoicePlay` 回调的 `audioCtx` 初始化后，计算 `freqIndices`（频率边界 bin 索引）和平滑数组（`lastSamples` / `lastSamples2`）。
+  2. 替换 `updateLipSync` 函数为 Llorach 算法：
+     - `getByteFrequencyData` → Uint8 转 float → dB 转换 → 时域平滑
+     - 4 频段能量计算（0-500 / 500-700 / 700-3000 / 3000-6000 Hz，乘以 `VOCAL_TRACT_FACTOR`）
+     - 4 种嘴型权重（kiss / pressed / open / closed）
+     - `ParamMouthOpenY = open + 0.3 * pressed`
+     - `ParamMouthForm = kiss - pressed`
+  3. 人工试听调参（`SENSITIVITY` / `VOCAL_TRACT_FACTOR`），确认口型自然。
+  4. 验收：播放 TTS 音频时嘴形有明显开合+形状变化，静音时嘴巴闭合。
+- Algorithm Reference (Llorach 2016 → JS):
+  ```js
+  // 频率边界（Hz），乘以声道长度因子
+  const BOUNDING_FREQS = [0, 500, 700, 3000, 6000];
+  const VOCAL_TRACT_FACTOR = 1.21; // 女声/高音
+  const SENSITIVITY = 0.43;
+  const SMOOTHING = 0.39;
+
+  // 初始化（audioCtx 创建后执行一次）
+  const freqIndices = BOUNDING_FREQS.map(f =>
+    Math.floor(2 * fftSize / sampleRate * f * VOCAL_TRACT_FACTOR)
+  );
+  let lastSamples = new Float32Array(sampleCount);
+  let lastSamples2 = new Float32Array(sampleCount);
+
+  // 每帧（pixiTicker）
+  const updateLipSync = () => {
+    const rawData = new Uint8Array(sampleCount);
+    analyser.getByteFrequencyData(rawData);
+    const samplesRaw = new Float32Array(sampleCount);
+    const samples = new Float32Array(sampleCount);
+    const oneMinusSmoothing = 1 - SMOOTHING;
+    for (let i = 0; i < sampleCount; i++) {
+      samplesRaw[i] = rawData[i] / 255.0;
+      lastSamples[i] = SMOOTHING * lastSamples2[i] + oneMinusSmoothing * lastSamples[i];
+      samplesRaw[i] = SMOOTHING * lastSamples[i] + oneMinusSmoothing * samplesRaw[i];
+      const db = 20 * Math.log10(samplesRaw[i] + 1e-10);
+      samples[i] = SENSITIVITY + (db + 20) / 140.0;
+      lastSamples2[i] = lastSamples[i];
+      lastSamples[i] = samplesRaw[i];
+    }
+    const binEnergy = new Float32Array(4);
+    for (let i = 0; i < 4; i++) {
+      const start = freqIndices[i], end = freqIndices[i + 1];
+      let sum = 0;
+      for (let j = start; j < end; j++) sum += samples[j] > 0 ? samples[j] : 0;
+      binEnergy[i] = sum / Math.max(1, end - start);
+    }
+    const kiss = binEnergy[1] >= 0.2
+      ? Math.min(1, Math.max(0, 1 - 3 * binEnergy[2]))
+      : Math.min(1, Math.max(0, (1 - 3 * binEnergy[2]) * 5 * binEnergy[1]));
+    const pressed = Math.min(1, Math.max(0, 3 * binEnergy[3] + 2 * binEnergy[2]));
+    const open    = Math.min(1, Math.max(0, 0.8 * (binEnergy[1] - binEnergy[3]) + binEnergy[2]));
+    coreModel.setParameterValueById('ParamMouthOpenY', Math.min(1, open + 0.3 * pressed));
+    coreModel.setParameterValueById('ParamMouthForm', kiss - pressed);
+  };
+  ```
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-27 18:30 TODO requirement created, algorithm researched and model params confirmed.
+
+### [REQ-20260227-015] Runtime 可观测性 — EventBus SSE 流 + shell exec 实时追踪
+- Created At: 2026-02-27 18:30
+- Source: user
+- Priority: P1
+- Status: TODO
+- Owner: runtime
+- Branch: TDB
+- Description:
+  - 新增 Runtime 可观测性基础设施：通过 SSE 端点实时暴露 EventBus 事件流，并支持全局 debug 开关，开启后 `shell.exec` adapter 实时 publish stdout/stderr 到 bus，WebUI 内嵌 debug panel 消费事件。
+- Acceptance Criteria:
+  1. `GET /api/debug/events` SSE 端点可用，支持 `?topics=` 过滤。
+  2. `PUT /api/debug/mode { debug: true|false }` 可全局开关 debug 模式。
+  3. debug 开启时，`shell.exec` 执行过程中实时 publish `shell.exec.stdout` / `shell.exec.stderr` / `shell.exec.exit` 事件。
+  4. WebUI 内嵌 debug panel，通过 `EventSource` 消费 SSE，不需要新窗口。
+  5. `curl -N http://localhost:3000/api/debug/events` 可直接使用。
+- Impacted Modules:
+  - `apps/gateway/server.js`（SSE 端点 + debug mode API，~40 行）
+  - `apps/runtime/tooling/adapters/shell.js`（execSync → spawn + debug publish，~30 行）
+  - `apps/runtime/orchestrator/toolCallDispatcher.js`（context 传入 bus，1 行）
+  - `apps/gateway/public/chat.js` + `index.html`（WebUI debug panel，~30 行）
+- Risks/Dependencies:
+  - SSE 连接数过多时需限流（建议最多 5 个并发 debug 连接）。
+  - shell.js 从 execSync 改为 spawn 需验证现有 shell 工具行为不变。
+- Plan:
+  1. `server.js`：初始化 `debugMode` flag，添加 `GET /api/debug/events` SSE 端点和 `PUT /api/debug/mode` 开关 API，挂 `bus.isDebugMode` getter。
+  2. `toolCallDispatcher.js`：executor context 中加 `bus: this.bus`（1 行）。
+  3. `shell.js`：将 `execSync` 替换为 `spawn`，在 stdout/stderr/close 事件中判断 `context.bus?.isDebugMode()` 后 `publishEvent`。
+  4. WebUI：`index.html` 加 debug panel 容器，`chat.js` 加 `toggleDebug()` + `EventSource` + `appendDebugLine()`。
+  5. 验收：开启 debug → 触发 shell tool → curl/WebUI 能看到实时 stdout 流。
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-27 18:30 TODO requirement created, implementation plan finalized. GitHub issue: #19.
+
+### [REQ-20260227-016] Config 管理 v2 — 全 YAML 编辑器 + Agent 对话框 + git commit 历史
+- Created At: 2026-02-27 18:30
+- Source: user
+- Priority: P2
+- Status: TODO
+- Owner: runtime
+- Branch: TDB
+- Description:
+  - 将现有仅覆盖 `providers.yaml` 的图形化 config UI 升级为：覆盖所有配置文件的纯 raw YAML 编辑器、内嵌 Agent 对话框（可直接让 agent 读改 config）、以及每次保存自动 git commit 的变更历史管理。
+- Acceptance Criteria:
+  1. 新 `/config-v2.html` 页面支持 tab 切换编辑所有配置文件（providers / tools / skills / persona / voice-policy / desktop-live2d）。
+  2. 每次 PUT 保存后自动执行 `git commit`，commit message 含文件名 + 时间戳。
+  3. 内嵌 Agent 对话框，agent 可读取当前文件内容并建议/执行修改。
+  4. 后端补全所有 config 文件的 raw 读写 API（tools / skills / persona / voice-policy）。
+- Impacted Modules:
+  - `apps/gateway/server.js`（新增 config raw API）
+  - `apps/gateway/public/config-v2.html` + `config-v2.js`（新页面）
+  - `apps/runtime/config/*`（各 ConfigStore 补全 saveRawYaml）
+- Risks/Dependencies:
+  - `tools.yaml` 的 `policy.deny` 若被 agent 改错会导致 agent 失去工具权限，需加保护。
+  - git commit 需要仓库有 `user.email` / `user.name` 配置，启动时检查。
+  - `~/yachiyo/config/` 与 `open-yachiyo/config/` 两套路径需统一（建议软链接或统一用仓库路径）。
+- Plan:
+  1. MVP：后端补全 tools / skills / persona / voice-policy 的 `GET/PUT /api/config/:file/raw` 接口。
+  2. MVP：前端新建 `/config-v2.html`，tab 切换 + textarea 编辑，保存时调 PUT API + 触发 git commit。
+  3. MVP：git commit 封装为 `commitConfigChange(filename)` 工具函数，在 PUT handler 里调用。
+  4. 后续：CodeMirror YAML 语法高亮 + 错误提示。
+  5. 后续：内嵌 Agent 对话框，注入当前文件内容为 context，agent 可直接写入编辑器。
+  6. 后续：git log / diff 面板，支持回滚到历史 commit。
+- Commits/PR:
+  - TDB
+- Update Log:
+  - 2026-02-27 18:30 TODO requirement created, feasibility analyzed.
