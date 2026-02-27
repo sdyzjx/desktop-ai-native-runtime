@@ -13,6 +13,10 @@ policy:
     - voice.tts_aliyun_vc
     - voice.asr_aliyun
     - voice.stats
+    - live2d.param.set
+    - live2d.param.batch_set
+    - live2d.motion.play
+    - live2d.expression.set
   deny: []
   byProvider: {}
 
@@ -174,4 +178,60 @@ tools:
     input_schema:
       type: object
       properties: {}
+      additionalProperties: false
+
+  - name: live2d.param.set
+    type: local
+    adapter: live2d.param.set
+    description: Set one Live2D model parameter by name.
+    input_schema:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128 }
+        value: { type: number }
+      required: [name, value]
+      additionalProperties: false
+
+  - name: live2d.param.batch_set
+    type: local
+    adapter: live2d.param.batch_set
+    description: Set multiple Live2D model parameters in one call.
+    input_schema:
+      type: object
+      properties:
+        updates:
+          type: array
+          minItems: 1
+          maxItems: 60
+          items:
+            type: object
+            properties:
+              name: { type: string, minLength: 1, maxLength: 128 }
+              value: { type: number }
+            required: [name, value]
+            additionalProperties: false
+      required: [updates]
+      additionalProperties: false
+
+  - name: live2d.motion.play
+    type: local
+    adapter: live2d.motion.play
+    description: Play one Live2D motion group/index.
+    input_schema:
+      type: object
+      properties:
+        group: { type: string, minLength: 1, maxLength: 128 }
+        index: { type: integer, minimum: 0, maximum: 1024 }
+      required: [group]
+      additionalProperties: false
+
+  - name: live2d.expression.set
+    type: local
+    adapter: live2d.expression.set
+    description: Set one Live2D expression by name.
+    input_schema:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128 }
+      required: [name]
       additionalProperties: false
