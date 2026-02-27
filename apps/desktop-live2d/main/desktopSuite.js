@@ -737,6 +737,7 @@ async function startDesktopSuite({
           const payload = desktopEvent.data?.payload || desktopEvent.data;
           const audioRef = payload?.audio_ref || payload?.audioRef;
           if (audioRef && !avatarWindow.isDestroyed()) {
+            logger.info?.('[desktop-live2d] voice_playback_electron_ipc', { audioRef: audioRef.split('/').pop() });
             avatarWindow.webContents.send('desktop:voice:play', {
               audioRef,
               format: payload?.format || 'ogg',
@@ -774,6 +775,9 @@ async function startDesktopSuite({
   } catch (err) {
     logger.error?.('[desktop-live2d] gateway_session_bootstrap_failed', err);
   }
+
+  gatewayRuntimeClient.startNotificationStream();
+  logger.info?.('[desktop-live2d] notification_stream_started');
 
   const chatInputListener = createChatInputListener({
     logger,
@@ -938,6 +942,7 @@ async function startDesktopSuite({
     }
 
     await gatewaySupervisor.stop();
+    gatewayRuntimeClient.stopNotificationStream();
   }
 
   return {
