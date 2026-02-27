@@ -14,6 +14,8 @@
   let pixiApp = null;
   let live2dModel = null;
   let hideBubbleTimer = null;
+  const systemAudio = new Audio();
+  systemAudio.autoplay = true;
   let dragPointerState = null;
   let suppressModelTapUntil = 0;
   let stableModelScale = null;
@@ -847,6 +849,7 @@
   }
 
   async function handleInvoke(payload) {
+    console.log('[Renderer] Received RPC invoke:', payload);
     const { requestId, method, params } = payload || {};
 
     try {
@@ -871,6 +874,20 @@
         result = appendChatMessage(params, 'assistant');
       } else if (method === 'chat.panel.clear') {
         result = clearChatMessages();
+      } else if (method === 'server_event_forward') {
+        const { name, data } = params || {};
+        console.log('[Renderer] Received RPC invoke:', name);
+        if (name === 'voice.play') {
+          try {
+            systemAudio.src = `file://${data.audioPath}`;
+            systemAudio.play().catch(console.error);
+            result = { ok: true };
+          } catch (err) {
+            throw createRpcError(-32000, 'play failed');
+          }
+        } else {
+          result = { ok: true, ignored: true };
+        }
       } else {
         throw createRpcError(-32601, `method not found: ${method}`);
       }

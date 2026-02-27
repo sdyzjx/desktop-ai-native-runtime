@@ -754,8 +754,10 @@ async function enqueueRpc(ws, rpcPayload, mode) {
 }
 
 wss.on('connection', (ws) => {
+  console.log("ws connection！");
   ws.on('message', async (raw) => {
     let msg;
+    console.log("ws message！", raw.toString());
     try {
       msg = JSON.parse(raw.toString());
     } catch {
@@ -764,6 +766,7 @@ wss.on('connection', (ws) => {
     }
 
     if (msg && msg.jsonrpc === '2.0') {
+      console.log(`[GW RPC] [${msg.id || 'notify'}] ${msg.method}`, JSON.stringify(msg.params).substring(0, 200));
       await enqueueRpc(ws, msg, 'rpc');
       return;
     }
@@ -785,5 +788,26 @@ wss.on('connection', (ws) => {
     }
 
     sendSafe(ws, createRpcError(null, RpcErrorCode.INVALID_REQUEST, 'Unsupported message format'));
+  });
+
+  const onGlobalEvent = (topic, payload) => {
+    if (typeof topic === 'string' && (topic.startsWith('ui.') || topic.startsWith('client.') || topic.startsWith('voice.'))) {
+      const rpcPayload = {
+        jsonrpc: '2.0',
+        method: 'runtime.event',
+        params: {
+          name: topic,
+          data: payload
+        }
+      };
+      sendSafe(ws, rpcPayload);
+    }
+  };
+
+  // Subscribe to the wildcard topic we just added
+  const unsubscribe = bus.subscribe('*', onGlobalEvent);
+
+  ws.on('close', () => {
+    unsubscribe();
   });
 });

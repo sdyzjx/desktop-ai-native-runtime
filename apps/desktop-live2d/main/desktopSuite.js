@@ -730,6 +730,23 @@ async function startDesktopSuite({
         params: desktopEvent
       });
 
+      //  2. 【核心改造】：新增这块透明透传网关逻辑！
+      if (desktopEvent.type === 'runtime.event' && desktopEvent.data?.name) {
+        const eventName = desktopEvent.data.name;
+        console.log('[desktop-live2d] gateway_event_forward', { eventName });
+        // 一旦发现是这些前缀，无脑扔给前端
+        if (eventName.startsWith('ui.') || eventName.startsWith('client.') || eventName.startsWith('voice.')) {
+          bridge.invoke({
+            method: 'server_event_forward',  // 给前端的一个“盲盒”名字
+            params: {
+              name: eventName,             // 真实的事件名字
+              data: desktopEvent.data.data // 事件装的业务数据
+            },
+            timeoutMs: config.rendererTimeoutMs
+          }).catch(() => { }); // 丢帧不报错
+        }
+      }
+
       if (desktopEvent.type !== 'runtime.final') {
         return;
       }
@@ -977,6 +994,8 @@ async function handleDesktopRpcRequest({
   clearChatMessages = null,
   showBubble = null
 }) {
+  console.log(`[Desktop RPC] Received method: ${request.method}`, request.params);
+
   if (request.method === 'tool.list') {
     return {
       tools: listDesktopTools()
@@ -1074,7 +1093,8 @@ function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windo
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      webSecurity: false
     }
   });
 

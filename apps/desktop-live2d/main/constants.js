@@ -22,6 +22,7 @@ const RPC_METHODS_V1 = Object.freeze([
   'chat.panel.hide',
   'chat.panel.append',
   'chat.panel.clear',
+  'voice.play',
   'tool.list',
   'tool.invoke'
 ]);

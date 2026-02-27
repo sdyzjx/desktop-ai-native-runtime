@@ -7,7 +7,11 @@ class RuntimeEventBus {
   }
 
   publish(topic, payload) {
+    if (topic.startsWith('ui.') || topic.startsWith('client.') || topic.startsWith('voice.')) {
+      console.log(`[EventBus] 收到待转发事件: ${topic}`, JSON.stringify(payload));
+    }
     this.emitter.emit(topic, payload);
+    this.emitter.emit('*', topic, payload);
   }
 
   subscribe(topic, handler) {
