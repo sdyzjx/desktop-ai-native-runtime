@@ -1,0 +1,46 @@
+version: 1
+
+emote:
+  happy:
+    low:
+      expression: smile
+      params:
+        - { name: ParamMouthForm, value: 0.3 }
+    medium:
+      expression: smile
+      params:
+        - { name: ParamMouthForm, value: 0.55 }
+    high:
+      expression: smile
+      params:
+        - { name: ParamMouthForm, value: 0.8 }
+  sad:
+    medium:
+      expression: tears
+      params:
+        - { name: ParamBrowLY, value: -0.5 }
+        - { name: ParamBrowRY, value: -0.5 }
+
+gesture:
+  greet:
+    expression: smile
+    motion:
+      group: Greet
+      index: 0
+  think:
+    expression: narrow_eyes
+    motion:
+      group: Idle
+      index: 0
+
+react:
+  success:
+    - { type: expression, name: smile }
+    - { type: motion, group: Greet, index: 0 }
+  error:
+    - { type: expression, name: tears }
+    - { type: motion, group: ReactError, index: 0 }
+  waiting:
+    - { type: expression, name: narrow_eyes }
+    - { type: wait, ms: 220 }
+    - { type: motion, group: Idle, index: 0 }

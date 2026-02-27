@@ -17,6 +17,9 @@ policy:
     - live2d.param.batch_set
     - live2d.motion.play
     - live2d.expression.set
+    - live2d.emote
+    - live2d.gesture
+    - live2d.react
   deny: []
   byProvider: {}
 
@@ -234,4 +237,41 @@ tools:
       properties:
         name: { type: string, minLength: 1, maxLength: 128 }
       required: [name]
+      additionalProperties: false
+
+  - name: live2d.emote
+    type: local
+    adapter: live2d.emote
+    description: Trigger semantic emotion preset and map to expression/parameters.
+    input_schema:
+      type: object
+      properties:
+        emotion: { type: string, minLength: 1, maxLength: 64 }
+        intensity: { type: string, enum: [low, medium, high] }
+        timeoutMs: { type: integer, minimum: 500, maximum: 120000 }
+      required: [emotion]
+      additionalProperties: false
+
+  - name: live2d.gesture
+    type: local
+    adapter: live2d.gesture
+    description: Trigger semantic gesture preset and map to motion/expression.
+    input_schema:
+      type: object
+      properties:
+        type: { type: string, minLength: 1, maxLength: 64 }
+        timeoutMs: { type: integer, minimum: 500, maximum: 120000 }
+      required: [type]
+      additionalProperties: false
+
+  - name: live2d.react
+    type: local
+    adapter: live2d.react
+    description: Trigger semantic reaction preset sequence.
+    input_schema:
+      type: object
+      properties:
+        intent: { type: string, minLength: 1, maxLength: 64 }
+        timeoutMs: { type: integer, minimum: 500, maximum: 120000 }
+      required: [intent]
       additionalProperties: false

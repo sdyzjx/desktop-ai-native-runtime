@@ -22,6 +22,7 @@ test('ToolConfigStore loads yaml and validates structure', () => {
   assert.equal(Array.isArray(cfg.tools), true);
   assert.ok(cfg.tools.some((t) => t.name === 'workspace.write_file'));
   assert.ok(cfg.tools.some((t) => t.name === 'live2d.motion.play'));
+  assert.ok(cfg.tools.some((t) => t.name === 'live2d.react'));
 });
 
 test('ToolExecutor rejects invalid args by schema', async () => {
