@@ -137,6 +137,13 @@ tools:
         timeoutSec: { type: integer, minimum: 1, maximum: 120 }
         turnId: { type: string }
         idempotencyKey: { type: string }
+        playback:
+          type: string
+          enum: [local, web, electron, none]
+          description: >
+            Playback mode after synthesis.
+            local=afplay on host (default), web=return audioRef for browser <audio> player,
+            electron=send IPC event to desktop renderer, none=synthesize only.
         replyMeta:
           type: object
           properties:

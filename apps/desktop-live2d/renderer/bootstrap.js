@@ -910,6 +910,13 @@
         void handleInvoke(payload);
       });
 
+      bridge.onVoicePlay?.((payload) => {
+        if (!payload?.audioRef) return;
+        const src = `${payload.gatewayUrl || ''}/api/audio?path=${encodeURIComponent(payload.audioRef)}`;
+        const audio = new Audio(src);
+        audio.play().catch(() => { /* non-fatal */ });
+      });
+
       bridge.notifyReady({ ok: true });
     } catch (err) {
       state.lastError = err?.message || String(err || 'renderer bootstrap failed');

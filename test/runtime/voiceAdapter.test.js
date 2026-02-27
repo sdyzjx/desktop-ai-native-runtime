@@ -81,7 +81,7 @@ test('voice adapter executes configured CLI and returns audioRef', async () => {
 
     const result = JSON.parse(resultJson);
     assert.equal(result.format, 'ogg');
-    assert.equal(result.audioRef, 'file:///tmp/mock-audio.ogg');
+    assert.equal(result.audioRef, '/tmp/mock-audio.ogg');
   } finally {
     if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
     else delete process.env.VOICE_REPLY_CLI;
@@ -166,8 +166,8 @@ test('voice adapter deduplicates same idempotencyKey and avoids duplicate cli ca
     const first = JSON.parse(await ttsAliyunVc(args, context));
     const second = JSON.parse(await ttsAliyunVc(args, context));
 
-    assert.equal(first.audioRef, 'file:///tmp/mock-idem-1.ogg');
-    assert.equal(second.audioRef, 'file:///tmp/mock-idem-1.ogg');
+    assert.equal(first.audioRef, '/tmp/mock-idem-1.ogg');
+    assert.equal(second.audioRef, '/tmp/mock-idem-1.ogg');
 
     const countRaw = await fs.readFile(counter, 'utf8');
     assert.equal(Number(countRaw.trim()), 1);
@@ -211,7 +211,7 @@ test('voice adapter cancels stale job when superseded by newer request', async (
     await new Promise((r) => setTimeout(r, 100));
     const fastResult = JSON.parse(await ttsAliyunVc({ ...base, text: 'fast' }, ctx));
 
-    assert.equal(fastResult.audioRef, 'file:///tmp/mock-cancel-fast.ogg');
+    assert.equal(fastResult.audioRef, '/tmp/mock-cancel-fast.ogg');
 
     await assert.rejects(
       async () => {
@@ -258,7 +258,7 @@ test('voice adapter retries once on provider error then succeeds', async () => {
       }
     ));
 
-    assert.equal(result.audioRef, 'file:///tmp/mock-retry-ok.ogg');
+    assert.equal(result.audioRef, '/tmp/mock-retry-ok.ogg');
   } finally {
     if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
     else delete process.env.VOICE_REPLY_CLI;

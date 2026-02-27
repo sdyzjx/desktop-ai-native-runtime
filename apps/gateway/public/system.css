@@ -149,3 +149,28 @@ textarea:focus {
     scroll-behavior: auto !important;
   }
 }
+
+.git-branch-badge {
+  position: fixed;
+  bottom: 12px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  z-index: 100;
+  user-select: none;
+}
+
+.git-branch-icon {
+  font-style: normal;
+  opacity: 0.7;
+}

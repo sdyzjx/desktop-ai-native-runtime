@@ -523,6 +523,14 @@ function renderMessages() {
       bubble.appendChild(attachmentList);
     }
 
+    if (msg.audioRef && typeof msg.audioRef === 'string') {
+      const audioEl = document.createElement('audio');
+      audioEl.className = 'audio-player';
+      audioEl.controls = true;
+      audioEl.src = `/api/audio?path=${encodeURIComponent(msg.audioRef)}`;
+      bubble.appendChild(audioEl);
+    }
+
     const meta = document.createElement('div');
     meta.className = 'message-meta';
     meta.textContent = `${msg.role === 'user' ? 'You' : 'Assistant'} · ${formatTime(msg.createdAt)}`;
@@ -555,10 +563,13 @@ function resolvePendingSession() {
   return getSessionById(state.pending.sessionId);
 }
 
-function finishPendingResponse({ content, statusText }) {
+function finishPendingResponse({ content, statusText, audioRef }) {
   const pendingSession = resolvePendingSession();
   if (pendingSession) {
-    updateMessage(pendingSession, state.pending.assistantMsgId, { content: String(content || '') });
+    updateMessage(pendingSession, state.pending.assistantMsgId, {
+      content: String(content || ''),
+      audioRef: audioRef || null
+    });
   }
 
   state.pending = null;
@@ -629,9 +640,16 @@ function connectWs() {
 
     if (msg.type === 'final') {
       if (msg.session_id && msg.session_id !== state.pending.sessionId) return;
+      // extract audioRef from tool result if present in output JSON
+      let audioRef = null;
+      try {
+        const parsed = JSON.parse(msg.output || '');
+        if (parsed && typeof parsed.audioRef === 'string') audioRef = parsed.audioRef;
+      } catch { /* output is plain text, no audioRef */ }
       finishPendingResponse({
         content: msg.output || '',
-        statusText: 'Idle'
+        statusText: 'Idle',
+        audioRef
       });
     }
   };

@@ -730,6 +730,23 @@ async function startDesktopSuite({
         params: desktopEvent
       });
 
+      // handle voice playback for electron mode
+      if (desktopEvent.type === 'runtime.event') {
+        const eventName = desktopEvent.data?.event || desktopEvent.data?.payload?.event;
+        if (eventName === 'voice.playback.electron') {
+          const payload = desktopEvent.data?.payload || desktopEvent.data;
+          const audioRef = payload?.audio_ref || payload?.audioRef;
+          if (audioRef && !avatarWindow.isDestroyed()) {
+            avatarWindow.webContents.send('desktop:voice:play', {
+              audioRef,
+              format: payload?.format || 'ogg',
+              gatewayUrl: config.gatewayUrl
+            });
+          }
+        }
+        return;
+      }
+
       if (desktopEvent.type !== 'runtime.final') {
         return;
       }
