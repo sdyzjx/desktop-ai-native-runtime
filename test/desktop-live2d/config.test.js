@@ -93,3 +93,22 @@ test('resolveDesktopLive2dConfig loads overrides from YACHIYO_HOME/config/deskto
   assert.equal(config.uiConfig.chat.panel.defaultVisible, false);
   assert.equal(config.uiConfig.chat.panel.maxMessages, 88);
 });
+
+test('resolveDesktopLive2dConfig writes generated rpc token back to process.env', () => {
+  const previousToken = process.env.DESKTOP_LIVE2D_RPC_TOKEN;
+  const yachiyoHome = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-home-'));
+
+  try {
+    delete process.env.DESKTOP_LIVE2D_RPC_TOKEN;
+    process.env.YACHIYO_HOME = yachiyoHome;
+
+    const config = resolveDesktopLive2dConfig();
+    assert.equal(typeof config.rpcToken, 'string');
+    assert.ok(config.rpcToken.length > 0);
+    assert.equal(process.env.DESKTOP_LIVE2D_RPC_TOKEN, config.rpcToken);
+  } finally {
+    if (previousToken) process.env.DESKTOP_LIVE2D_RPC_TOKEN = previousToken;
+    else delete process.env.DESKTOP_LIVE2D_RPC_TOKEN;
+    delete process.env.YACHIYO_HOME;
+  }
+});
