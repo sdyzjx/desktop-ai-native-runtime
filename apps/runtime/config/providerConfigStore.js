@@ -21,6 +21,8 @@ function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+const SUPPORTED_TYPES = ['openai_compatible', 'tts_dashscope'];
+
 function validateConfig(config) {
   if (!isObject(config)) {
     throw new Error('providers.yaml root must be an object');
@@ -46,18 +48,33 @@ function validateConfig(config) {
       throw new Error(`provider ${name} must be an object`);
     }
 
-    if (provider.type !== 'openai_compatible') {
-      throw new Error(`provider ${name} type must be openai_compatible`);
+    const type = provider.type;
+    if (!SUPPORTED_TYPES.includes(type)) {
+      throw new Error(`provider ${name} type must be one of: ${SUPPORTED_TYPES.join(', ')}`);
     }
 
-    if (typeof provider.base_url !== 'string' || !provider.base_url) {
-      throw new Error(`provider ${name} must define base_url`);
+    // openai_compatible 需要 base_url + model
+    if (type === 'openai_compatible') {
+      if (typeof provider.base_url !== 'string' || !provider.base_url) {
+        throw new Error(`provider ${name} must define base_url`);
+      }
+      if (typeof provider.model !== 'string' || !provider.model) {
+        throw new Error(`provider ${name} must define model`);
+      }
     }
 
-    if (typeof provider.model !== 'string' || !provider.model) {
-      throw new Error(`provider ${name} must define model`);
+    // tts_dashscope 需要 tts_model + tts_voice + base_url
+    if (type === 'tts_dashscope') {
+      if (typeof provider.tts_model !== 'string' || !provider.tts_model) {
+        throw new Error(`provider ${name} must define tts_model`);
+      }
+      if (typeof provider.tts_voice !== 'string' || !provider.tts_voice) {
+        throw new Error(`provider ${name} must define tts_voice`);
+      }
+      if (typeof provider.base_url !== 'string' || !provider.base_url) {
+        throw new Error(`provider ${name} must define base_url`);
+      }
     }
-
     const hasInlineKey = typeof provider.api_key === 'string' && provider.api_key.length > 0;
     const hasEnvKey = typeof provider.api_key_env === 'string' && provider.api_key_env.length > 0;
     if (!hasInlineKey && !hasEnvKey) {

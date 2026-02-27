@@ -1,7 +1,28 @@
-const { execFile } = require('node:child_process');
+const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
+const { execFile } = require('node:child_process');
 const { loadVoicePolicy, evaluateVoicePolicy } = require('../voice/policy');
 const { InMemoryVoiceCooldownStore, InMemoryVoiceIdempotencyStore, InMemoryVoiceActiveJobStore } = require('../voice/cooldownStore');
+const { ProviderConfigStore } = require('../../config/providerConfigStore');
+
+// TTS provider name in providers.yaml
+const TTS_PROVIDER_KEY = process.env.TTS_PROVIDER_KEY || 'qwen3_tts';
+
+function loadTtsProviderConfig() {
+  try {
+    const store = new ProviderConfigStore();
+    const config = store.load();
+    const provider = config.providers && config.providers[TTS_PROVIDER_KEY];
+    if (!provider || provider.type !== 'tts_dashscope') {
+      return null;
+    }
+    return provider;
+  } catch (_) {
+    return null;
+  }
+}
 
 const cooldownStore = new InMemoryVoiceCooldownStore();
 const idempotencyStore = new InMemoryVoiceIdempotencyStore();
@@ -33,20 +54,94 @@ function execFileAsync(cmd, args, options = {}) {
   });
 }
 
+async function callDashscopeTts({ text, model, voiceId, voiceTag }) {
+  // 优先从 providers.yaml 的 tts_dashscope provider 读配置，env 作为 fallback
+  const providerCfg = loadTtsProviderConfig();
+
+  const apiKey = (providerCfg && providerCfg.api_key)
+    || process.env.DASHSCOPE_API_KEY;
+  if (!apiKey) {
+    const err = new Error('DASHSCOPE_API_KEY is not set and no tts_dashscope provider configured');
+    err.code = 'TTS_CONFIG_MISSING';
+    throw err;
+  }
+
+  // base_url 从 providers.yaml 读取，切换区域只需改 providers.yaml 的 base_url：
+  // 北京区: https://dashscope.aliyuncs.com/api/v1
+  // 新加坡区: https://dashscope-intl.aliyuncs.com/api/v1
+  const baseUrl = (providerCfg && providerCfg.base_url)
+    || process.env.DASHSCOPE_BASE_URL
+    || 'https://dashscope.aliyuncs.com/api/v1';
+
+  // model 和 voiceId 不在 tool schema 里暴露，统一从 providers.yaml 的 qwen3_tts 读取
+  const defaultModel = (providerCfg && providerCfg.tts_model) || 'qwen3-tts-vc-2026-01-22';
+  const defaultVoice = (providerCfg && providerCfg.tts_voice) || '';
+
+  const scriptPath = path.resolve(process.cwd(), 'scripts/qwen_voice_reply.py');
+
+  const args = [
+    scriptPath,
+    '--voice-tag',
+    voiceTag,
+    '--model',
+    defaultModel,
+    '--voice',
+    defaultVoice,
+    '--emit-manifest',
+    text
+  ];
+
+  const { stdout } = await execFileAsync('python3', args, {
+    env: {
+      ...process.env,
+      DASHSCOPE_API_KEY: apiKey,
+      DASHSCOPE_BASE_URL: baseUrl
+    },
+    timeout: 60_000
+  });
+
+  const output = String(stdout || '').trim();
+  if (!output) {
+    const err = new Error('tts output is empty');
+    err.code = 'TTS_PROVIDER_DOWN';
+    throw err;
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(output);
+  } catch (e) {
+    const err = new Error('failed to parse tts manifest json');
+    err.code = 'TTS_PROVIDER_DOWN';
+    throw err;
+  }
+
+  const audioPath = manifest && typeof manifest.audio_path === 'string' ? manifest.audio_path : '';
+  if (!audioPath) {
+    const err = new Error('tts manifest missing audio_path');
+    err.code = 'TTS_PROVIDER_DOWN';
+    throw err;
+  }
+
+  return audioPath;
+}
+
 function normalizeExecError(err) {
   const raw = err?.raw || err;
-  if (raw && (raw.killed || raw.signal === 'SIGTERM' || raw.code === 'ETIMEDOUT')) {
+  if (raw && (raw.killed || raw.signal === 'SIGTERM' || raw.code === 'ETIMEDOUT') || err.code === 'TTS_TIMEOUT') {
     return makeToolError('TTS_TIMEOUT', err.message || 'tts timeout');
+  }
+  if (err.code === 'TTS_CONFIG_MISSING') {
+    return makeToolError('TTS_CONFIG_MISSING', err.message || 'tts config missing');
+  }
+  if (err.code === 'TTS_REGION_REQUIRED') {
+    return makeToolError('TTS_REGION_REQUIRED', err.message || 'tts region not selected');
   }
   return makeToolError('TTS_PROVIDER_DOWN', err?.message || String(err));
 }
 
 function shouldRetryOnce(err) {
   return err && err.code === 'TTS_PROVIDER_DOWN';
-}
-
-function resolveVoiceReplyCli() {
-  return process.env.VOICE_REPLY_CLI || path.resolve(process.cwd(), 'skills/yachiyo-qwen-voice-reply/bin/voice-reply');
 }
 
 function resolveVoiceTag(args) {
@@ -174,27 +269,23 @@ async function ttsAliyunVc(args = {}, context = {}) {
       registry: context.voiceRegistry || {}
     });
 
-    const cliPath = resolveVoiceReplyCli();
-
-    const cmdArgs = [
-      '--voice-tag',
-      voiceTag,
-      '--model',
-      String(args.model || 'qwen3-tts-vc-2026-01-22'),
-      '--voice',
-      String(args.voiceId || ''),
-      text
-    ];
-
     const timeoutMs = Math.max(1, Number(args.timeoutSec || 45)) * 1000;
 
-    let stdout = '';
+    let audioPath = '';
     let attempt = 0;
     while (attempt < 2) {
       attempt += 1;
       try {
-        const execResult = await execFileAsync(cliPath, cmdArgs, { timeout: timeoutMs });
-        stdout = execResult.stdout;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        audioPath = await callDashscopeTts({
+          text,
+          model: args.model,   // undefined 时 callDashscopeTts 内部会用 providerCfg.tts_model
+          voiceId: args.voiceId, // 同上，undefined 时用 providerCfg.tts_voice
+          voiceTag,
+          signal: controller.signal
+        });
+        clearTimeout(timer);
         break;
       } catch (err) {
         const normalizedErr = normalizeExecError(err);
@@ -214,8 +305,6 @@ async function ttsAliyunVc(args = {}, context = {}) {
       }
     }
 
-    const audioPath = String(stdout || '').trim().split('\n').filter(Boolean).pop();
-
     if (!audioPath) {
       throw makeToolError('TTS_PROVIDER_DOWN', 'tts output is empty');
     }
@@ -233,6 +322,18 @@ async function ttsAliyunVc(args = {}, context = {}) {
     }
 
     cooldownStore.addCall(sessionId, nowMs);
+
+    // autoplay: ogg → wav → afplay（本机调试用，非阻塞）
+    try {
+      const wavPath = audioPath.replace(/\.ogg$/, '.wav');
+      const { spawn } = require('node:child_process');
+      const ffmpeg = spawn('ffmpeg', ['-v', 'quiet', '-y', '-i', audioPath, wavPath]);
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          spawn('afplay', [wavPath], { detached: true, stdio: 'ignore' }).unref();
+        }
+      });
+    } catch (_) { /* autoplay failure is non-fatal */ }
 
     const payload = {
       audioRef: `file://${audioPath}`,
@@ -281,7 +382,6 @@ module.exports = {
   __internal: {
     ttsAliyunVc,
     voiceStats,
-    resolveVoiceReplyCli,
     resolveVoiceTag,
     checkModelVoiceCompatibility,
     enforceRateLimit,
@@ -289,6 +389,7 @@ module.exports = {
     idempotencyStore,
     activeJobStore,
     snapshotMetrics,
-    resetMetrics
+    resetMetrics,
+    callDashscopeTts
   }
 };

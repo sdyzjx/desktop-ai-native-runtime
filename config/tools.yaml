@@ -126,13 +126,13 @@ tools:
   - name: voice.tts_aliyun_vc
     type: local
     adapter: voice.tts_aliyun_vc
-    description: Generate speech audio by Qwen3-TTS-VC (Aliyun DashScope) with policy + cooldown control.
+    description: >
+      Generate speech audio via Qwen3-TTS-VC (Aliyun DashScope).
+      Only provide text and voiceTag. Model and voice are managed by the qwen3_tts provider config and must NOT be passed.
     input_schema:
       type: object
       properties:
         text: { type: string }
-        voiceId: { type: string }
-        model: { type: string }
         voiceTag: { type: string, enum: [zh, jp, en] }
         timeoutSec: { type: integer, minimum: 1, maximum: 120 }
         turnId: { type: string }
@@ -147,7 +147,7 @@ tools:
             containsManyLinks: { type: boolean }
             isTroubleshooting: { type: boolean }
           additionalProperties: false
-      required: [text, voiceId, model]
+      required: [text]
       additionalProperties: false
 
   - name: voice.asr_aliyun

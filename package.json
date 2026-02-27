@@ -16,14 +16,15 @@
   },
   "dependencies": {
     "ajv": "^8.17.1",
+    "dotenv": "^17.3.1",
     "express": "^4.19.2",
     "pixi-live2d-display": "^0.4.0",
     "pixi.js": "^6.5.10",
     "uuid": "^11.0.3",
-    "ws": "^8.18.0",
-    "yaml": "^2.8.2"
+    "ws": "^8.18.0"
   },
   "devDependencies": {
-    "electron": "^30.5.1"
+    "electron": "^30.5.1",
+    "yaml": "^2.8.2"
   }
 }

@@ -1,5 +1,7 @@
+require('dotenv').config({ path: require('node:path').resolve(__dirname, '../../.env') });
 const express = require('express');
 const fs = require('node:fs/promises');
+const { execFile } = require('node:child_process');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
@@ -162,6 +164,16 @@ app.get('/api/session-images/:sessionId/:fileName', async (req, res) => {
   } catch {
     res.status(404).json({ ok: false, error: 'image not found' });
   }
+});
+
+app.get('/api/git/branch', (_, res) => {
+  execFile('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: path.resolve(__dirname, '../..') }, (err, stdout) => {
+    if (err) {
+      res.json({ ok: false, branch: null });
+      return;
+    }
+    res.json({ ok: true, branch: stdout.trim() });
+  });
 });
 
 app.get('/health', async (_, res) => {
