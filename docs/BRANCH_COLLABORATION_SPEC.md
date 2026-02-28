@@ -63,6 +63,49 @@
 
 ## 4. 开发与同步 SOP
 
+### 4.0 并行开发：用 git worktree 代替 stash 切换
+
+同一台机器并行开发多个 REQ 时，**推荐使用 git worktree** 而不是 `git stash + checkout`。
+
+worktree 让每个分支拥有独立的工作目录，可以同时打开多个终端、同时运行多个开发服务器，互不干扰。
+
+**初始化并行工作区：**
+
+```bash
+# 主仓库目录保持当前分支（如 main 或正在开发的分支）
+cd ~/path/to/open-yachiyo
+
+# 为每个 REQ 分支创建独立目录
+git worktree add ../open-yachiyo-014 feature/REQ-20260227-014-lipsync
+git worktree add ../open-yachiyo-015 feature/REQ-20260227-015-observability
+git worktree add ../open-yachiyo-016 feature/REQ-20260227-016-config-v2
+```
+
+**日常使用：**
+
+```bash
+# 各自在独立目录开发，互不影响
+cd ../open-yachiyo-014  # 开发 014
+cd ../open-yachiyo-015  # 开发 015
+cd ../open-yachiyo-016  # 开发 016
+```
+
+**完成后清理 worktree：**
+
+```bash
+# 分支合并进 main 后，移除对应 worktree
+git worktree remove ../open-yachiyo-014
+git worktree remove ../open-yachiyo-015
+
+# 查看当前所有 worktree
+git worktree list
+```
+
+**注意事项：**
+- 同一个分支不能同时被两个 worktree checkout，会报错
+- 每个 worktree 目录需要单独 `npm install`（node_modules 不共享）
+- worktree 目录删除前必须先 `git worktree remove`，否则 git 会留下脏引用
+
 ### 4.1 新建功能分支
 
 ```bash
