@@ -15,3 +15,9 @@ providers:
     model: gpt-4o-mini
     api_key_env: OPENAI_API_KEY
     timeout_ms: 20000
+  qwen3_tts:
+    type: tts_dashscope
+    tts_model: qwen3-tts-vc-2026-01-22
+    tts_voice: qwen-tts-vc-yachiyo-voice-20260224022238839-5679
+    base_url: https://dashscope.aliyuncs.com/api/v1
+    api_key_env: DASHSCOPE_API_KEY
