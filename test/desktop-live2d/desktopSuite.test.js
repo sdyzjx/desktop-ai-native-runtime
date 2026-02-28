@@ -25,6 +25,7 @@ const {
   createModelBoundsListener,
   createBubbleMetricsListener,
   createChatInputListener,
+  forwardLive2dActionEvent,
   handleDesktopRpcRequest,
   isNewSessionCommand,
   computeChatWindowBounds,
@@ -463,6 +464,60 @@ test('createChatInputListener forwards normalized payload to callback', () => {
   assert.equal(received.length, 1);
   assert.equal(received[0].role, 'tool');
   assert.equal(received[0].text, 'invoke');
+});
+
+test('forwardLive2dActionEvent forwards normalized payload into renderer enqueue method', async () => {
+  const calls = [];
+  const result = await forwardLive2dActionEvent({
+    eventName: 'ui.live2d.action',
+    eventPayload: {
+      action_id: 'act-1',
+      action: {
+        type: 'expression',
+        name: 'tear_drop'
+      },
+      duration_sec: 1.8,
+      queue_policy: 'append'
+    },
+    bridge: {
+      invoke: async (payload) => {
+        calls.push(payload);
+        return { ok: true, queued: 1 };
+      }
+    },
+    rendererTimeoutMs: 2222
+  });
+
+  assert.equal(result.forwarded, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'live2d.action.enqueue');
+  assert.equal(calls[0].timeoutMs, 2222);
+  assert.equal(calls[0].params.action.type, 'expression');
+  assert.equal(calls[0].params.duration_sec, 1.8);
+});
+
+test('forwardLive2dActionEvent skips invalid payload and does not invoke bridge', async () => {
+  let called = false;
+  const result = await forwardLive2dActionEvent({
+    eventName: 'ui.live2d.action',
+    eventPayload: {
+      action: {
+        type: 'expression',
+        name: 'smile'
+      },
+      duration_sec: 0
+    },
+    bridge: {
+      invoke: async () => {
+        called = true;
+        return { ok: true };
+      }
+    }
+  });
+
+  assert.equal(result.forwarded, false);
+  assert.equal(result.reason, 'invalid_payload');
+  assert.equal(called, false);
 });
 
 test('handleDesktopRpcRequest returns tool list without touching renderer bridge', async () => {

@@ -8,6 +8,11 @@ const { Live2dRpcServer } = require('./rpcServer');
 const { IpcRpcBridge } = require('./ipcBridge');
 const { GatewayRuntimeClient, createDesktopSessionId } = require('./gatewayRuntimeClient');
 const { listDesktopTools, resolveToolInvoke } = require('./toolRegistry');
+const {
+  ACTION_EVENT_NAME,
+  ACTION_ENQUEUE_METHOD,
+  normalizeLive2dActionMessage
+} = require('../shared/live2dActionMessage');
 
 const CHANNELS = Object.freeze({
   invoke: 'live2d:rpc:invoke',
@@ -336,6 +341,65 @@ function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
       height: nextSize.height
     });
   };
+}
+
+async function forwardLive2dActionEvent({
+  eventName,
+  eventPayload,
+  bridge,
+  rendererTimeoutMs,
+  logger = console
+} = {}) {
+  if (eventName !== ACTION_EVENT_NAME) {
+    return {
+      forwarded: false,
+      reason: 'event_name_mismatch'
+    };
+  }
+
+  const normalized = normalizeLive2dActionMessage(eventPayload);
+  if (!normalized.ok) {
+    logger.warn?.('[desktop-live2d] live2d action event dropped', {
+      eventName,
+      error: normalized.error
+    });
+    return {
+      forwarded: false,
+      reason: 'invalid_payload',
+      error: normalized.error
+    };
+  }
+
+  if (!bridge || typeof bridge.invoke !== 'function') {
+    return {
+      forwarded: false,
+      reason: 'bridge_unavailable'
+    };
+  }
+
+  try {
+    const result = await bridge.invoke({
+      method: ACTION_ENQUEUE_METHOD,
+      params: normalized.value,
+      timeoutMs: rendererTimeoutMs
+    });
+    return {
+      forwarded: true,
+      result,
+      payload: normalized.value
+    };
+  } catch (err) {
+    const message = err?.message || String(err || 'unknown error');
+    logger.error?.('[desktop-live2d] live2d action forward failed', {
+      eventName,
+      error: message
+    });
+    return {
+      forwarded: false,
+      reason: 'bridge_invoke_failed',
+      error: message
+    };
+  }
 }
 
 async function startDesktopSuite({
@@ -734,16 +798,25 @@ async function startDesktopSuite({
       if (desktopEvent.type === 'runtime.event' && desktopEvent.data?.name) {
         const eventName = desktopEvent.data.name;
         console.log('[desktop-live2d] gateway_event_forward', { eventName });
-        // 一旦发现是这些前缀，无脑扔给前端
-        if (eventName.startsWith('ui.') || eventName.startsWith('client.') || eventName.startsWith('voice.')) {
-          bridge.invoke({
-            method: 'server_event_forward',  // 给前端的一个“盲盒”名字
+        const activeBridge = ipcBridgeRef;
+
+        if (eventName === ACTION_EVENT_NAME) {
+          void forwardLive2dActionEvent({
+            eventName,
+            eventPayload: desktopEvent.data.data,
+            bridge: activeBridge,
+            rendererTimeoutMs: config.rendererTimeoutMs,
+            logger
+          });
+        } else if (eventName.startsWith('ui.') || eventName.startsWith('client.') || eventName.startsWith('voice.')) {
+          activeBridge?.invoke({
+            method: 'server_event_forward',
             params: {
-              name: eventName,             // 真实的事件名字
-              data: desktopEvent.data.data // 事件装的业务数据
+              name: eventName,
+              data: desktopEvent.data.data
             },
             timeoutMs: config.rendererTimeoutMs
-          }).catch(() => { }); // 丢帧不报错
+          }).catch(() => { });
         }
       }
 
@@ -1438,6 +1511,7 @@ module.exports = {
   createModelBoundsListener,
   createBubbleMetricsListener,
   createChatInputListener,
+  forwardLive2dActionEvent,
   handleDesktopRpcRequest,
   isNewSessionCommand,
   createChatWindow,
