@@ -753,6 +753,7 @@ async function syncSessionsFromServer() {
   const latestServerId = payload.data.items[0]?.session_id || null;
 
   for (const summary of payload.data.items) {
+    if (summary.session_id === 'config-v2-agent') continue; // 隐藏 config 编辑会话
     let localSession = getSessionById(summary.session_id);
     if (!localSession) {
       localSession = sessionFromServerSummary(summary);

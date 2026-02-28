@@ -119,6 +119,13 @@ class SkillConfigStore {
     return fs.readFileSync(this.configPath, 'utf8');
   }
 
+  saveRawYaml(rawYaml) {
+    if (typeof rawYaml !== 'string') throw new Error('rawYaml must be a string');
+    const parsed = YAML.parse(rawYaml);
+    normalizeSkillsConfig(parsed); // 校验
+    fs.writeFileSync(this.configPath, rawYaml, 'utf8');
+  }
+
   load() {
     const parsed = YAML.parse(this.loadRawYaml());
     return normalizeSkillsConfig(parsed);

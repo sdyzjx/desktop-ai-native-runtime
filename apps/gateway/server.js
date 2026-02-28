@@ -31,6 +31,10 @@ const { SkillRuntimeManager } = require('../runtime/skills/skillRuntimeManager')
 const { getRuntimePaths } = require('../runtime/skills/runtimePaths');
 const { PersonaContextBuilder } = require('../runtime/persona/personaContextBuilder');
 const { PersonaProfileStore } = require('../runtime/persona/personaProfileStore');
+const { PersonaConfigStore } = require('../runtime/persona/personaConfigStore');
+const { SkillConfigStore } = require('../runtime/skills/skillConfigStore');
+const { ToolConfigStore } = require('../runtime/tooling/toolConfigStore');
+const { loadVoicePolicy } = require('../runtime/tooling/voice/policy');
 const { __internal: voiceInternal } = require('../runtime/tooling/adapters/voice');
 
 const app = express();
@@ -50,6 +54,11 @@ const longTermMemoryStore = getDefaultLongTermMemoryStore();
 const workspaceManager = getDefaultSessionWorkspaceManager();
 const skillRuntimeManager = new SkillRuntimeManager({ workspaceDir: process.cwd() });
 const personaProfileStore = new PersonaProfileStore();
+const personaConfigStore = new PersonaConfigStore();
+const skillConfigStore = new SkillConfigStore();
+const toolConfigStore = toolConfigManager.store;
+const voicePolicyPath = process.env.VOICE_POLICY_PATH || require('node:path').resolve(process.cwd(), 'config/voice-policy.yaml');
+const desktopLive2dConfigPath = process.env.DESKTOP_LIVE2D_CONFIG_PATH || require('node:path').resolve(process.cwd(), 'config/desktop-live2d.json');
 const personaContextBuilder = new PersonaContextBuilder({
   workspaceDir: process.cwd(),
   profileStore: personaProfileStore,
@@ -376,6 +385,232 @@ app.put('/api/config/providers/raw', (req, res) => {
     res.json({ ok: true, data: llmManager.getConfigSummary() });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: 专属 config git 仓库 ---
+// 使用 runtime configDir（~/yachiyo/config/）作为独立 git 仓库，与项目仓库完全隔离
+const CONFIG_GIT_DIR = getRuntimePaths().configDir;
+const CONFIG_FILES = ['providers.yaml', 'tools.yaml', 'skills.yaml', 'persona.yaml', 'voice-policy.yaml', 'desktop-live2d.json'];
+
+// 启动时确保 config 目录已 git init，并配置 user 信息
+(function ensureConfigGitRepo() {
+  const { execSync } = require('node:child_process');
+  try {
+    execSync('git rev-parse --git-dir', { cwd: CONFIG_GIT_DIR, stdio: 'ignore' });
+  } catch {
+    // 未初始化，执行 init
+    execSync('git init', { cwd: CONFIG_GIT_DIR, stdio: 'ignore' });
+    execSync('git config user.email "yachiyo@local"', { cwd: CONFIG_GIT_DIR, stdio: 'ignore' });
+    execSync('git config user.name "Yachiyo"', { cwd: CONFIG_GIT_DIR, stdio: 'ignore' });
+    // 把现有文件做一次初始 commit
+    try {
+      execSync('git add -A && git commit -m "init: initial config snapshot"', { cwd: CONFIG_GIT_DIR, stdio: 'ignore' });
+    } catch (_) {}
+    console.log(`[config-git] initialized repo at ${CONFIG_GIT_DIR}`);
+  }
+})();
+
+function commitConfigChange(filename) {
+  const { execSync } = require('node:child_process');
+  try {
+    execSync(
+      `git add "${filename}" && git commit -m "config: update ${filename} at ${new Date().toISOString()}"`,
+      { cwd: CONFIG_GIT_DIR, stdio: 'ignore' }
+    );
+  } catch (_) { /* 无变更或 git 未配置时静默跳过 */ }
+}
+
+function gitExec(args) {
+  return new Promise((resolve, reject) => {
+    execFile('git', args, { cwd: CONFIG_GIT_DIR }, (err, stdout, stderr) => {
+      if (err) { reject(new Error(stderr || err.message)); return; }
+      resolve(stdout.trim());
+    });
+  });
+}
+
+// --- Config v2: tools.yaml ---
+app.put('/api/config/tools/raw', (req, res) => {
+  const yaml = req.body?.yaml;
+  if (typeof yaml !== 'string') {
+    res.status(400).json({ ok: false, error: 'body.yaml must be a string' });
+    return;
+  }
+  try {
+    toolConfigStore.saveRawYaml(yaml);
+    commitConfigChange('tools.yaml');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: persona.yaml ---
+app.get('/api/config/persona/raw', (_, res) => {
+  try {
+    res.json({ ok: true, yaml: personaConfigStore.loadRawYaml() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.put('/api/config/persona/raw', (req, res) => {
+  const yaml = req.body?.yaml;
+  if (typeof yaml !== 'string') {
+    res.status(400).json({ ok: false, error: 'body.yaml must be a string' });
+    return;
+  }
+  try {
+    personaConfigStore.saveRawYaml(yaml);
+    commitConfigChange('persona.yaml');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: skills.yaml ---
+app.get('/api/config/skills/raw', (_, res) => {
+  try {
+    res.json({ ok: true, yaml: skillConfigStore.loadRawYaml() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.put('/api/config/skills/raw', (req, res) => {
+  const yaml = req.body?.yaml;
+  if (typeof yaml !== 'string') {
+    res.status(400).json({ ok: false, error: 'body.yaml must be a string' });
+    return;
+  }
+  try {
+    skillConfigStore.saveRawYaml(yaml);
+    commitConfigChange('skills.yaml');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: voice-policy.yaml ---
+const fsSync = require('node:fs');
+app.get('/api/config/voice-policy/raw', (_, res) => {
+  try {
+    const yaml = fsSync.existsSync(voicePolicyPath) ? fsSync.readFileSync(voicePolicyPath, 'utf8') : '';
+    res.json({ ok: true, yaml });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.put('/api/config/voice-policy/raw', (req, res) => {
+  const yaml = req.body?.yaml;
+  if (typeof yaml !== 'string') {
+    res.status(400).json({ ok: false, error: 'body.yaml must be a string' });
+    return;
+  }
+  try {
+    const YAML = require('yaml');
+    YAML.parse(yaml); // 基础语法校验
+    fsSync.writeFileSync(voicePolicyPath, yaml, 'utf8');
+    commitConfigChange('voice-policy.yaml');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: desktop-live2d.json (只读) ---
+app.get('/api/config/desktop-live2d/raw', (_, res) => {
+  try {
+    const raw = fsSync.existsSync(desktopLive2dConfigPath) ? fsSync.readFileSync(desktopLive2dConfigPath, 'utf8') : '{}';
+    res.json({ ok: true, json: raw });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: git log & revert ---
+// gitExec 和 CONFIG_FILES 已在上方 "专属 config git 仓库" 块中定义
+
+// GET /api/config/git/log?file=tools.yaml&limit=10
+app.get('/api/config/git/log', async (req, res) => {
+  const file = req.query.file;
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 15));
+
+  if (file && !CONFIG_FILES.includes(file)) {
+    res.status(400).json({ ok: false, error: 'unknown config file' });
+    return;
+  }
+
+  // cwd 已是 config 目录，直接用文件名，不加 config/ 前缀
+  const pathArg = file || '.';
+
+  try {
+    const raw = await gitExec([
+      'log', `--max-count=${limit}`,
+      '--format=%H\x1f%h\x1f%s\x1f%ai',
+      '--', pathArg
+    ]);
+
+    if (!raw) { res.json({ ok: true, commits: [] }); return; }
+
+    const commits = raw.split('\n').filter(Boolean).map(line => {
+      const [hash, short, subject, date] = line.split('\x1f');
+      return { hash, short, subject, date };
+    });
+
+    const dirty = await gitExec(['status', '--porcelain', '--', pathArg])
+      .then(out => out.length > 0)
+      .catch(() => false);
+
+    res.json({ ok: true, commits, dirty });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/config/git/show?hash=abc123&file=tools.yaml
+app.get('/api/config/git/show', async (req, res) => {
+  const { hash, file } = req.query;
+  if (!hash || !/^[0-9a-f]{4,64}$/i.test(hash)) {
+    res.status(400).json({ ok: false, error: 'invalid hash' });
+    return;
+  }
+  if (!file || !CONFIG_FILES.includes(file)) {
+    res.status(400).json({ ok: false, error: 'unknown config file' });
+    return;
+  }
+  try {
+    // 专属仓库里文件直接在根目录，用 hash:filename
+    const content = await gitExec(['show', `${hash}:${file}`]);
+    res.json({ ok: true, content });
+  } catch (err) {
+    res.status(404).json({ ok: false, error: `file not found in commit ${hash}` });
+  }
+});
+
+// POST /api/config/git/restore  { hash, file }
+app.post('/api/config/git/restore', async (req, res) => {
+  const { hash, file } = req.body || {};
+  if (!hash || !/^[0-9a-f]{4,64}$/i.test(hash)) {
+    res.status(400).json({ ok: false, error: 'invalid hash' });
+    return;
+  }
+  if (!file || !CONFIG_FILES.includes(file)) {
+    res.status(400).json({ ok: false, error: 'unknown config file' });
+    return;
+  }
+  try {
+    const content = await gitExec(['show', `${hash}:${file}`]);
+    const filePath = path.join(CONFIG_GIT_DIR, file);
+    fsSync.writeFileSync(filePath, content, 'utf8');
+    commitConfigChange(file);
+    res.json({ ok: true, message: `restored ${file} to ${hash.slice(0, 7)}` });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
