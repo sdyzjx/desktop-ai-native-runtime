@@ -5,8 +5,15 @@ providers:
     display_name: Qwen 3.5 Plus
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     model: qwen3.5-plus
-    # api_key is intentionally omitted; use DASHSCOPE_API_KEY env var
-    api_key_env: DASHSCOPE_API_KEY
+    api_key: sk-51286575c6574de695af6b3b353c7cf3
+    timeout_ms: 20000
+  qwen3_tts:
+    type: tts_dashscope
+    display_name: Qwen3 TTS VC
+    base_url: https://dashscope.aliyuncs.com/api/v1
+    tts_model: qwen3-tts-vc-2026-01-22
+    tts_voice: qwen-tts-vc-yachiyo-voice-20260224022238839-5679
+    api_key: sk-51286575c6574de695af6b3b353c7cf3
     timeout_ms: 20000
   openai:
     type: openai_compatible

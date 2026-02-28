@@ -53,6 +53,23 @@ test('DebugEventStream streams events by topic filter', () => {
   stream.dispose();
 });
 
+test('DebugEventStream supports prefix wildcard topics', () => {
+  const stream = new DebugEventStream({ heartbeatMs: 60000 });
+  const req = createMockReq({ query: { topics: 'chain.gateway.*' } });
+  const res = createMockRes();
+
+  stream.handleStream(req, res);
+  stream.pushEvent({ topic: 'chain.gateway.ws.inbound', event: 'log', msg: 'match' });
+  stream.pushEvent({ topic: 'chain.worker.runner.start', event: 'log', msg: 'skip' });
+
+  const payload = res.chunks.join('');
+  assert.match(payload, /chain\.gateway\.ws\.inbound/);
+  assert.doesNotMatch(payload, /chain\.worker\.runner\.start/);
+
+  req.emit('close');
+  stream.dispose();
+});
+
 test('DebugEventStream replays events by Last-Event-ID', () => {
   const stream = new DebugEventStream({ heartbeatMs: 60000 });
   stream.pushEvent({ topic: 'agent.runtime', msg: 'first' });

@@ -16,6 +16,23 @@ function resolveRequestedTopics(rawTopics) {
   return parseCsvTopics(rawTopics);
 }
 
+function topicMatches(topicFilters, topic) {
+  if (!topicFilters) return true;
+  const normalizedTopic = String(topic || '');
+  for (const filter of topicFilters) {
+    const token = String(filter || '').trim();
+    if (!token) continue;
+    if (token === '*') return true;
+    if (token.endsWith('*')) {
+      const prefix = token.slice(0, -1);
+      if (normalizedTopic.startsWith(prefix)) return true;
+      continue;
+    }
+    if (normalizedTopic === token) return true;
+  }
+  return false;
+}
+
 function extractBearerToken(req) {
   const auth = String(req.headers?.authorization || '');
   if (!auth.startsWith('Bearer ')) return '';
@@ -81,20 +98,6 @@ class DebugEventStream {
     };
   }
 
-  resolveTopics({ requestedTopics, allowedTopics }) {
-    if (!allowedTopics) {
-      return requestedTopics;
-    }
-    if (!requestedTopics) {
-      return new Set(allowedTopics);
-    }
-    const out = new Set();
-    for (const topic of requestedTopics) {
-      if (allowedTopics.has(topic)) out.add(topic);
-    }
-    return out;
-  }
-
   countUserConnections(userId) {
     let count = 0;
     for (const client of this.clients.values()) {
@@ -156,7 +159,10 @@ class DebugEventStream {
     }
 
     for (const client of this.clients.values()) {
-      if (client.topics && !client.topics.has(record.topic)) {
+      if (!topicMatches(client.allowedTopics, record.topic)) {
+        continue;
+      }
+      if (!topicMatches(client.requestedTopics, record.topic)) {
         continue;
       }
       this.sseWrite(client.res, record);
@@ -211,14 +217,7 @@ class DebugEventStream {
     }
 
     const requestedTopics = resolveRequestedTopics(req.query?.topics);
-    const topics = this.resolveTopics({
-      requestedTopics,
-      allowedTopics: principal.allowedTopics
-    });
-    if (topics && topics.size === 0) {
-      res.status(403).json({ ok: false, error: 'no allowed topics' });
-      return;
-    }
+    const allowedTopics = principal.allowedTopics;
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -234,7 +233,8 @@ class DebugEventStream {
     this.clients.set(clientId, {
       clientId,
       userId: principal.userId,
-      topics,
+      requestedTopics,
+      allowedTopics,
       connectedAt: Date.now(),
       hbTimer,
       res
@@ -247,7 +247,8 @@ class DebugEventStream {
     if (Number.isFinite(replayFrom)) {
       for (const evt of this.buffer) {
         if (Number(evt.id) <= replayFrom) continue;
-        if (topics && !topics.has(evt.topic)) continue;
+        if (!topicMatches(allowedTopics, evt.topic)) continue;
+        if (!topicMatches(requestedTopics, evt.topic)) continue;
         this.sseWrite(res, evt);
       }
     }
