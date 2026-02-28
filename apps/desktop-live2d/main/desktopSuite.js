@@ -730,6 +730,40 @@ async function startDesktopSuite({
         params: desktopEvent
       });
 
+      //  2. 【核心改造】：新增这块透明透传网关逻辑！
+      if (desktopEvent.type === 'runtime.event' && desktopEvent.data?.name) {
+        const eventName = desktopEvent.data.name;
+        console.log('[desktop-live2d] gateway_event_forward', { eventName });
+        // 一旦发现是这些前缀，无脑扔给前端
+        if (eventName.startsWith('ui.') || eventName.startsWith('client.') || eventName.startsWith('voice.')) {
+          bridge.invoke({
+            method: 'server_event_forward',  // 给前端的一个“盲盒”名字
+            params: {
+              name: eventName,             // 真实的事件名字
+              data: desktopEvent.data.data // 事件装的业务数据
+            },
+            timeoutMs: config.rendererTimeoutMs
+          }).catch(() => { }); // 丢帧不报错
+        }
+      }
+
+      // handle voice playback for electron mode
+      if (desktopEvent.type === 'runtime.event') {
+        const eventName = desktopEvent.data?.event || desktopEvent.data?.payload?.event;
+        if (eventName === 'voice.playback.electron') {
+          const payload = desktopEvent.data?.payload || desktopEvent.data;
+          const audioRef = payload?.audio_ref || payload?.audioRef;
+          if (audioRef && !avatarWindow.isDestroyed()) {
+            logger.info?.('[desktop-live2d] voice_playback_electron_ipc', { audioRef: audioRef.split('/').pop() });
+            avatarWindow.webContents.send('desktop:voice:play', {
+              audioRef,
+              format: payload?.format || 'ogg',
+              gatewayUrl: config.gatewayUrl
+            });
+          }
+        }
+      }
+
       if (desktopEvent.type !== 'runtime.final') {
         return;
       }
@@ -757,6 +791,9 @@ async function startDesktopSuite({
   } catch (err) {
     logger.error?.('[desktop-live2d] gateway_session_bootstrap_failed', err);
   }
+
+  gatewayRuntimeClient.startNotificationStream();
+  logger.info?.('[desktop-live2d] notification_stream_started');
 
   const chatInputListener = createChatInputListener({
     logger,
@@ -852,7 +889,8 @@ async function startDesktopSuite({
       setChatPanelVisible,
       appendChatMessage,
       clearChatMessages,
-      showBubble
+      showBubble,
+      avatarWindow
     }),
     logger
   });
@@ -920,6 +958,7 @@ async function startDesktopSuite({
     }
 
     await gatewaySupervisor.stop();
+    gatewayRuntimeClient.stopNotificationStream();
   }
 
   return {
@@ -975,8 +1014,11 @@ async function handleDesktopRpcRequest({
   setChatPanelVisible = null,
   appendChatMessage = null,
   clearChatMessages = null,
-  showBubble = null
+  showBubble = null,
+  avatarWindow = null
 }) {
+  console.log(`[Desktop RPC] Received method: ${request.method}`, request.params);
+
   if (request.method === 'tool.list') {
     return {
       tools: listDesktopTools()
@@ -998,6 +1040,17 @@ async function handleDesktopRpcRequest({
       tool: resolved.toolName,
       result
     };
+  }
+
+  if (request.method === 'voice.play.test') {
+    const audioRef = String(request.params?.audioRef || '');
+    const gatewayUrl = String(request.params?.gatewayUrl || 'http://127.0.0.1:3000');
+    if (!audioRef) return { ok: false, error: 'audioRef required' };
+    if (!avatarWindow.isDestroyed()) {
+      avatarWindow.webContents.send('desktop:voice:play', { audioRef, format: 'ogg', gatewayUrl });
+      return { ok: true, audioRef };
+    }
+    return { ok: false, error: 'avatarWindow not available' };
   }
 
   if (request.method === 'chat.show' || request.method === 'chat.bubble.show') {
@@ -1074,7 +1127,9 @@ function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windo
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      webSecurity: false,
+      autoplayPolicy: 'no-user-gesture-required'
     }
   });
 

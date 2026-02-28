@@ -20,6 +20,8 @@ class IpcRpcBridge {
   }
 
   async invoke({ method, params, timeoutMs }) {
+    console.log(`准备调用前端方法: [${method}]`);
+    console.log(`携带的参数是:`, params);
     if (!this.webContents || this.webContents.isDestroyed?.()) {
       throw buildRpcError(-32003, 'renderer unavailable');
     }
@@ -37,6 +39,7 @@ class IpcRpcBridge {
     const promise = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        console.error(`[Bridge] 超时！前端 ${effectiveTimeoutMs}ms 内没回信: ${requestId}`);
         reject(buildRpcError(-32003, `renderer timeout after ${effectiveTimeoutMs}ms`));
       }, effectiveTimeoutMs);
 
@@ -47,11 +50,13 @@ class IpcRpcBridge {
       });
     });
 
+    console.log(`[Bridge] 正在通过 IPC 发送包裹给前端:`, JSON.stringify(payload).substring(0, 150) + '...');
     this.webContents.send(this.invokeChannel, payload);
     return promise;
   }
 
   handleResult(_event, payload) {
+    console.log(`[Bridge] 接收Result内容:`, payload);
     if (!payload || typeof payload !== 'object') {
       return;
     }
@@ -65,9 +70,11 @@ class IpcRpcBridge {
     this.pending.delete(requestId);
 
     if (error) {
+      console.error(`[Bridge] 接收错误: ${JSON.stringify(error)}`);
       pending.reject(error);
       return;
     }
+    console.log(`[Bridge] 前端执行成功！`);
     pending.resolve(result);
   }
 

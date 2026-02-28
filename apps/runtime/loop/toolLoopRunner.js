@@ -184,6 +184,16 @@ class ToolLoopRunner {
       onEvent?.(envelope);
     };
 
+    // passthrough select bus topics to runtime.event stream (e.g. for Electron IPC)
+    const PASSTHROUGH_TOPICS = ['voice.playback.electron'];
+    const passthroughUnsubs = PASSTHROUGH_TOPICS.map((topic) => {
+      const handler = (payload) => {
+        if (payload?.session_id && payload.session_id !== sessionId) return;
+        emit(topic, payload);
+      };
+      return this.bus.subscribe(topic, handler);
+    });
+
     sm.transition(RuntimeState.RUNNING);
     emit('plan', {
       input,
@@ -308,6 +318,8 @@ class ToolLoopRunner {
       sm.transition(RuntimeState.ERROR);
       emit('tool.error', { error: err.message || String(err) });
       return { output: `运行错误：${err.message || String(err)}`, traceId, state: sm.state };
+    } finally {
+      passthroughUnsubs.forEach((unsub) => unsub());
     }
   }
 }

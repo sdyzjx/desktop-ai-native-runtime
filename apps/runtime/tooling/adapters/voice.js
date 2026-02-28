@@ -323,20 +323,29 @@ async function ttsAliyunVc(args = {}, context = {}) {
 
     cooldownStore.addCall(sessionId, nowMs);
 
-    // autoplay: ogg → wav → afplay（本机调试用，非阻塞）
     try {
       const wavPath = audioPath.replace(/\.ogg$/, '.wav');
-      const { spawn } = require('node:child_process');
-      const ffmpeg = spawn('ffmpeg', ['-v', 'quiet', '-y', '-i', audioPath, wavPath]);
-      ffmpeg.on('close', (code) => {
-        if (code === 0) {
-          spawn('afplay', [wavPath], { detached: true, stdio: 'ignore' }).unref();
-        }
+
+      // 核心：强制用 await 锁住当前进程，不要让工具提前执行完！
+      await new Promise((resolve) => {
+        const { spawn } = require('node:child_process');
+        const ffmpeg = spawn('ffmpeg', ['-v', 'quiet', '-y', '-i', audioPath, wavPath]);
+
+        ffmpeg.on('close', (code) => {
+          if (code === 0) {
+            if (typeof context.publishEvent === 'function') {
+              context.publishEvent('voice.play', { audioPath: wavPath });
+            }
+          }
+          // 事件发完了，我才允许这个 Promise 结束，工具这时候才可以返回！
+          resolve();
+        });
       });
+
     } catch (_) { /* autoplay failure is non-fatal */ }
 
     const payload = {
-      audioRef: `file://${audioPath}`,
+      audioRef: `${audioPath}`,
       format: 'ogg',
       voiceTag,
       model: String(args.model || 'qwen3-tts-vc-2026-01-22'),
