@@ -6,11 +6,16 @@ const YAML = require('yaml');
 
 const { ToolingError, ErrorCode } = require('../errors');
 const { getRuntimePaths } = require('../../skills/runtimePaths');
+const {
+  ACTION_EVENT_NAME,
+  normalizeLive2dActionMessage
+} = require('../../../desktop-live2d/shared/live2dActionMessage');
 
 const DEFAULT_RPC_HOST = '127.0.0.1';
 const DEFAULT_RPC_PORT = 17373;
 const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_ACTION_COOLDOWN_MS = 250;
+const DEFAULT_ACTION_DURATION_SEC = 1.4;
 
 const DEFAULT_PRESET_PATH = path.join(getRuntimePaths().configDir, 'live2d-presets.yaml');
 const TEMPLATE_PRESET_PATH = path.resolve(__dirname, '..', '..', '..', '..', 'config', 'live2d-presets.yaml');
@@ -304,6 +309,65 @@ function resolveReactPlan(args, presetConfig) {
   return def.map(toActionStep);
 }
 
+function parseActionDurationSec(args = {}) {
+  const rawDuration = Object.prototype.hasOwnProperty.call(args, 'duration_sec')
+    ? args.duration_sec
+    : args.durationSec;
+  if (rawDuration == null) {
+    return DEFAULT_ACTION_DURATION_SEC;
+  }
+  return Number(rawDuration);
+}
+
+function resolveActionQueuePolicy(args = {}) {
+  return args.queue_policy || args.queuePolicy || 'append';
+}
+
+function resolveActionId(args = {}, traceId = null) {
+  return args.action_id || args.actionId || buildRequestId(traceId);
+}
+
+function buildLive2dActionEventPayload({ method, args = {}, traceId = null } = {}) {
+  let action = null;
+
+  if (method === 'model.expression.set') {
+    action = {
+      type: 'expression',
+      name: String(args.name || ''),
+      args: {}
+    };
+  } else if (method === 'model.motion.play') {
+    const nextArgs = {
+      group: String(args.group || '')
+    };
+    if (Object.prototype.hasOwnProperty.call(args, 'index')) {
+      nextArgs.index = args.index;
+    }
+    action = {
+      type: 'motion',
+      name: String(args.group || ''),
+      args: nextArgs
+    };
+  }
+
+  if (!action) {
+    return null;
+  }
+
+  const normalized = normalizeLive2dActionMessage({
+    action_id: resolveActionId(args, traceId),
+    action,
+    duration_sec: parseActionDurationSec(args),
+    queue_policy: resolveActionQueuePolicy(args)
+  });
+
+  if (!normalized.ok) {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, normalized.error);
+  }
+
+  return normalized.value;
+}
+
 function createLive2dAdapters({
   invokeRpc = invokeLive2dRpc,
   now = () => Date.now(),
@@ -344,8 +408,21 @@ function createLive2dAdapters({
       const timeoutMs = Math.max(500, Number(args.timeoutMs || context.timeoutMs || DEFAULT_TIMEOUT_MS));
       const traceId = context.trace_id || null;
       const sessionKey = String(context.session_id || 'global');
+      const actionEventPayload = isAction
+        ? buildLive2dActionEventPayload({ method, args, traceId })
+        : null;
 
       const executeOnce = async () => {
+        if (actionEventPayload && typeof context.publishEvent === 'function') {
+          context.publishEvent(ACTION_EVENT_NAME, actionEventPayload);
+          return JSON.stringify({
+            ok: true,
+            mode: 'event',
+            topic: ACTION_EVENT_NAME,
+            action_id: actionEventPayload.action_id
+          });
+        }
+
         const result = await runRpcStep({
           method,
           params: args,
@@ -431,6 +508,7 @@ module.exports = {
     resolveEmotePlan,
     resolveGesturePlan,
     resolveReactPlan,
+    buildLive2dActionEventPayload,
     toActionStep,
     loadLive2dPresetConfig,
     normalizeLive2dPresetConfig,

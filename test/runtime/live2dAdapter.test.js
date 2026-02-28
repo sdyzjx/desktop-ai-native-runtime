@@ -184,6 +184,72 @@ test('createLive2dAdapters applies action cooldown', async () => {
   assert.ok(elapsed >= 35);
 });
 
+test('createLive2dAdapters publishes ui.live2d.action when publishEvent is available', async () => {
+  const rpcCalls = [];
+  const events = [];
+  const adapter = createLive2dAdapters({
+    invokeRpc: async ({ method, params }) => {
+      rpcCalls.push({ method, params });
+      return { ok: true };
+    },
+    actionCooldownMs: 0
+  });
+
+  const payload = await adapter['live2d.motion.play']({
+    group: 'Greet',
+    index: 0,
+    action_id: 'act-test-1',
+    duration_sec: 2.2,
+    queue_policy: 'replace'
+  }, {
+    session_id: 's-event-1',
+    trace_id: 'trace-event-1',
+    publishEvent: (topic, eventPayload) => {
+      events.push({ topic, eventPayload });
+    }
+  });
+
+  const parsed = JSON.parse(payload);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.mode, 'event');
+  assert.equal(parsed.topic, 'ui.live2d.action');
+  assert.equal(parsed.action_id, 'act-test-1');
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].topic, 'ui.live2d.action');
+  assert.deepEqual(events[0].eventPayload, {
+    action_id: 'act-test-1',
+    action: {
+      type: 'motion',
+      name: 'Greet',
+      args: { group: 'Greet', index: 0 }
+    },
+    duration_sec: 2.2,
+    queue_policy: 'replace'
+  });
+
+  assert.equal(rpcCalls.length, 0);
+});
+
+test('createLive2dAdapters validates action event payload fields', async () => {
+  const adapter = createLive2dAdapters({
+    invokeRpc: async () => ({ ok: true }),
+    actionCooldownMs: 0
+  });
+
+  await assert.rejects(
+    adapter['live2d.expression.set']({
+      name: 'smile',
+      duration_sec: 0
+    }, {
+      session_id: 's-event-2',
+      trace_id: 'trace-event-2',
+      publishEvent: () => {}
+    }),
+    (err) => err.code === 'VALIDATION_ERROR'
+  );
+});
+
 test('semantic tools map presets to rpc calls in order', async () => {
   const calls = [];
   const adapter = createLive2dAdapters({

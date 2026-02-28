@@ -225,6 +225,9 @@ tools:
       properties:
         group: { type: string, minLength: 1, maxLength: 128 }
         index: { type: integer, minimum: 0, maximum: 1024 }
+        action_id: { type: string, minLength: 1, maxLength: 160 }
+        duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
+        queue_policy: { type: string, enum: [append, replace, interrupt] }
       required: [group]
       additionalProperties: false
 
@@ -236,6 +239,9 @@ tools:
       type: object
       properties:
         name: { type: string, minLength: 1, maxLength: 128 }
+        action_id: { type: string, minLength: 1, maxLength: 160 }
+        duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
+        queue_policy: { type: string, enum: [append, replace, interrupt] }
       required: [name]
       additionalProperties: false
 
