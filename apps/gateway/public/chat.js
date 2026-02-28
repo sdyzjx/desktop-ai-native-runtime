@@ -382,15 +382,15 @@ function safeJsonStringify(value) {
 function emitClientDebug(topic, msg, extra = {}) {
   const normalizedTopic = String(topic || '').trim();
   if (!normalizedTopic) return;
+  const normalizedExtra = extra && typeof extra === 'object' && !Array.isArray(extra) ? extra : {};
   const payload = {
     event: 'log',
     topic: normalizedTopic,
     level: 'info',
     msg: String(msg || normalizedTopic),
-    meta: {
-      ...extra,
-      active_session_id: state.activeSessionId || null
-    }
+    source_file: String(normalizedExtra.source_file || 'apps/gateway/public/chat.js'),
+    ...normalizedExtra,
+    active_session_id: state.activeSessionId || null
   };
   fetch('/api/debug/emit', {
     method: 'POST',

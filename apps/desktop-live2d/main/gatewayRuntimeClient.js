@@ -69,6 +69,7 @@ class GatewayRuntimeClient {
 
   async emitDebug(topic, msg, meta = {}) {
     if (typeof this.fetchImpl !== 'function') return;
+    const normalizedMeta = meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : {};
     try {
       const url = new URL('/api/debug/emit', this.gatewayUrl);
       await this.fetchImpl(url, {
@@ -79,7 +80,8 @@ class GatewayRuntimeClient {
           topic,
           level: 'info',
           msg,
-          ...meta
+          source_file: String(normalizedMeta.source_file || 'apps/desktop-live2d/main/gatewayRuntimeClient.js'),
+          ...normalizedMeta
         })
       });
     } catch {

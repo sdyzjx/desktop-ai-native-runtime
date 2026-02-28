@@ -81,3 +81,7 @@ chain.electron.*,chain.gateway.ws.inbound,chain.gateway.enqueue.*,chain.worker.*
 1. `chain.*` 事件由后端 `debug mode` 控制，必须开启 `Debug ON` 才会持续产出。
 2. WebUI/Electron 通过 `/api/debug/emit` 上报的前端事件会携带上下文字段（如 `session_id`、`request_id`）。
 3. 面板内单行数据已做上限控制（默认 500 行），避免前端被刷爆。
+4. 所有 `chain.*` 事件默认会附带来源字段：
+   - `source_file`：事件来自哪个 JS 文件（相对仓库路径）
+   - `source_line` / `source_col`：触发位置
+5. WebUI 与 Electron 主动上报事件同样带 `source_file`，便于区分是前端还是后端触发。
