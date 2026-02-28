@@ -156,6 +156,8 @@ class ToolLoopRunner {
             'You are a runtime planner that can either return a final answer or call tools.',
             'If tools are needed, you may emit one or more tool calls and wait for results in the next turn.',
             'Long-term memory operations must go through tools (memory_write / memory_search).',
+            'For every reply turn, decide one Live2D action and a duration_sec based on the chat context.',
+            'When live2d tools are available, call exactly one live2d.* tool with valid preset/action names and explicit duration_sec before final text response.',
             'When user asks to modify persona/addressing/custom title (e.g. 修改人格/修改称呼/叫我xxx), call persona.update_profile with {custom_name}.',
             'Use persona.update_profile even in low permission sessions; this is globally allowed.',
             'Keep answers concise.'

@@ -219,12 +219,15 @@ tools:
   - name: live2d.motion.play
     type: local
     adapter: live2d.motion.play
-    description: Play one Live2D motion group/index.
+    description: >
+      Play one Live2D motion group/index.
+      Supported group/index pairs: Idle/0, Greet/0, ReactError/0.
+      Always set duration_sec to match current chat context.
     input_schema:
       type: object
       properties:
-        group: { type: string, minLength: 1, maxLength: 128 }
-        index: { type: integer, minimum: 0, maximum: 1024 }
+        group: { type: string, enum: [Idle, Greet, ReactError] }
+        index: { type: integer, enum: [0] }
         action_id: { type: string, minLength: 1, maxLength: 160 }
         duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
         queue_policy: { type: string, enum: [append, replace, interrupt] }
@@ -234,11 +237,14 @@ tools:
   - name: live2d.expression.set
     type: local
     adapter: live2d.expression.set
-    description: Set one Live2D expression by name.
+    description: >
+      Set one Live2D expression by name.
+      Supported expressions: smile, tear_drop, tears, narrow_eyes.
+      Always set duration_sec to match current chat context.
     input_schema:
       type: object
       properties:
-        name: { type: string, minLength: 1, maxLength: 128 }
+        name: { type: string, enum: [smile, tear_drop, tears, narrow_eyes] }
         action_id: { type: string, minLength: 1, maxLength: 160 }
         duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
         queue_policy: { type: string, enum: [append, replace, interrupt] }
@@ -248,27 +254,40 @@ tools:
   - name: live2d.emote
     type: local
     adapter: live2d.emote
-    description: Trigger semantic emotion preset and map to expression/parameters.
+    description: >
+      Trigger semantic emotion preset and map to expression/parameters.
+      Supported presets: happy(low|medium|high), sad(medium only).
+      Always set duration_sec to match current chat context.
     input_schema:
       type: object
       properties:
-        emotion: { type: string, minLength: 1, maxLength: 64 }
+        emotion: { type: string, enum: [happy, sad] }
         intensity: { type: string, enum: [low, medium, high] }
         action_id: { type: string, minLength: 1, maxLength: 160 }
         duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
         queue_policy: { type: string, enum: [append, replace, interrupt] }
         timeoutMs: { type: integer, minimum: 500, maximum: 120000 }
+      allOf:
+        - if:
+            properties:
+              emotion: { const: sad }
+          then:
+            properties:
+              intensity: { type: string, enum: [medium] }
       required: [emotion]
       additionalProperties: false
 
   - name: live2d.gesture
     type: local
     adapter: live2d.gesture
-    description: Trigger semantic gesture preset and map to motion/expression.
+    description: >
+      Trigger semantic gesture preset and map to motion/expression.
+      Supported gesture types: greet, think.
+      Always set duration_sec to match current chat context.
     input_schema:
       type: object
       properties:
-        type: { type: string, minLength: 1, maxLength: 64 }
+        type: { type: string, enum: [greet, think] }
         action_id: { type: string, minLength: 1, maxLength: 160 }
         duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
         queue_policy: { type: string, enum: [append, replace, interrupt] }
@@ -279,11 +298,14 @@ tools:
   - name: live2d.react
     type: local
     adapter: live2d.react
-    description: Trigger semantic reaction preset sequence.
+    description: >
+      Trigger semantic reaction preset sequence.
+      Supported intents: success, error, waiting.
+      Always set duration_sec to match current chat context.
     input_schema:
       type: object
       properties:
-        intent: { type: string, minLength: 1, maxLength: 64 }
+        intent: { type: string, enum: [success, error, waiting] }
         action_id: { type: string, minLength: 1, maxLength: 160 }
         duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
         queue_policy: { type: string, enum: [append, replace, interrupt] }
