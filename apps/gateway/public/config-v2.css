@@ -105,6 +105,7 @@
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -138,7 +139,7 @@
 
 .cv2-editor-wrap {
   flex: 1;
-  min-height: 0;
+  min-height: 120px; /* 编辑器最小高度，给 git panel 留空间 */
   display: flex;
 }
 
@@ -303,7 +304,7 @@
   flex-shrink: 0;
   border-top: 1px solid var(--line);
   padding-top: 10px;
-  max-height: 180px;
+  height: 160px;   /* 固定高度，不随编辑器伸缩 */
   display: flex;
   flex-direction: column;
   gap: 6px;
