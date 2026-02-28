@@ -94,6 +94,45 @@ function validateModelAssetDirectory({ modelDir, modelJsonName }) {
     assertFileExists(modelDir, refs.DisplayInfo, 'FileReferences.DisplayInfo');
   }
 
+  if (refs.Expressions != null) {
+    if (!Array.isArray(refs.Expressions) || refs.Expressions.length === 0) {
+      throw new Error('FileReferences.Expressions must be a non-empty array when provided');
+    }
+    for (const [index, expression] of refs.Expressions.entries()) {
+      if (!expression || typeof expression !== 'object') {
+        throw new Error(`FileReferences.Expressions[${index}] must be an object`);
+      }
+      if (typeof expression.Name !== 'string' || !expression.Name.trim()) {
+        throw new Error(`FileReferences.Expressions[${index}].Name must be a non-empty string`);
+      }
+      if (typeof expression.File !== 'string' || !expression.File.trim()) {
+        throw new Error(`FileReferences.Expressions[${index}].File must be a non-empty string`);
+      }
+      assertFileExists(modelDir, expression.File, `FileReferences.Expressions[${index}].File`);
+    }
+  }
+
+  if (refs.Motions != null) {
+    if (!refs.Motions || typeof refs.Motions !== 'object' || Array.isArray(refs.Motions)) {
+      throw new Error('FileReferences.Motions must be an object when provided');
+    }
+
+    for (const [groupName, motions] of Object.entries(refs.Motions)) {
+      if (!Array.isArray(motions) || motions.length === 0) {
+        throw new Error(`FileReferences.Motions.${groupName} must be a non-empty array`);
+      }
+      for (const [index, motion] of motions.entries()) {
+        if (!motion || typeof motion !== 'object') {
+          throw new Error(`FileReferences.Motions.${groupName}[${index}] must be an object`);
+        }
+        if (typeof motion.File !== 'string' || !motion.File.trim()) {
+          throw new Error(`FileReferences.Motions.${groupName}[${index}].File must be a non-empty string`);
+        }
+        assertFileExists(modelDir, motion.File, `FileReferences.Motions.${groupName}[${index}].File`);
+      }
+    }
+  }
+
   return {
     modelJsonPath,
     modelJson,

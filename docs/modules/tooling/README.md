@@ -14,6 +14,14 @@
   - Qwen3-TTS-VC 语音输出工具（策略、频控、模型一致性）
 - `voice-asr-aliyun-phase2.md`
   - Aliyun ASR 语音转文字工具（格式校验、结果标准化、事件上报）
+- `live2d-rpc-adapter.md`
+  - runtime 到 desktop-live2d 的 RPC 桥接（live2d 原子工具映射、连接参数、错误处理）
+- `live2d-error-trace-contract.md`
+  - live2d adapter 的错误码归一、trace 透传、参数收紧规则
+- `live2d-action-queue-and-cooldown.md`
+  - 动作队列、忙时策略与 cooldown 配置说明
+- `live2d-semantic-presets.md`
+  - emote/gesture/react 语义工具与预设配置说明
 
 ## 统一调用链（简版）
 

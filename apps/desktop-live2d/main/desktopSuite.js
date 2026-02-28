@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const YAML = require('yaml');
 
 const { resolveDesktopLive2dConfig } = require('./config');
 const { validateModelAssetDirectory } = require('./modelAssets');
@@ -8,6 +9,11 @@ const { Live2dRpcServer } = require('./rpcServer');
 const { IpcRpcBridge } = require('./ipcBridge');
 const { GatewayRuntimeClient, createDesktopSessionId } = require('./gatewayRuntimeClient');
 const { listDesktopTools, resolveToolInvoke } = require('./toolRegistry');
+const {
+  ACTION_EVENT_NAME,
+  ACTION_ENQUEUE_METHOD,
+  normalizeLive2dActionMessage
+} = require('../shared/live2dActionMessage');
 
 const CHANNELS = Object.freeze({
   invoke: 'live2d:rpc:invoke',
@@ -21,10 +27,39 @@ const CHANNELS = Object.freeze({
   bubbleStateSync: 'live2d:bubble:state-sync',
   bubbleMetricsUpdate: 'live2d:bubble:metrics-update',
   modelBoundsUpdate: 'live2d:model:bounds-update',
+  actionTelemetry: 'live2d:action:telemetry',
   windowDrag: 'live2d:window:drag',
   windowControl: 'live2d:window:control',
   chatPanelVisibility: 'live2d:chat:panel-visibility'
 });
+
+function normalizeLive2dPresetConfig(config = {}) {
+  const safe = config && typeof config === 'object' && !Array.isArray(config) ? config : {};
+  const toObject = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+  return {
+    version: Number(safe.version || 1),
+    emote: toObject(safe.emote),
+    gesture: toObject(safe.gesture),
+    react: toObject(safe.react)
+  };
+}
+
+function loadLive2dPresetConfig({ projectRoot, env = process.env, logger = console } = {}) {
+  const presetPath = path.resolve(
+    env.LIVE2D_PRESETS_PATH || path.join(projectRoot || process.cwd(), 'config', 'live2d-presets.yaml')
+  );
+
+  try {
+    const rawYaml = fs.readFileSync(presetPath, 'utf8');
+    return normalizeLive2dPresetConfig(YAML.parse(rawYaml) || {});
+  } catch (err) {
+    logger.warn?.('[desktop-live2d] failed to load live2d presets', {
+      presetPath,
+      error: err?.message || String(err || 'unknown error')
+    });
+    return normalizeLive2dPresetConfig({});
+  }
+}
 
 function isNewSessionCommand(text) {
   return String(text || '').trim().toLowerCase() === '/new';
@@ -313,6 +348,47 @@ function createBubbleMetricsListener({ window, onBubbleMetrics = null } = {}) {
   };
 }
 
+function normalizeActionTelemetryPayload(payload) {
+  const event = String(payload?.event || '').trim().toLowerCase();
+  if (!['enqueue', 'drop', 'start', 'done', 'fail', 'ack'].includes(event)) {
+    return null;
+  }
+  const actionId = String(payload?.action_id || payload?.actionId || '').trim();
+  const actionType = String(payload?.action_type || payload?.actionType || '').trim();
+  const queueSize = Number(payload?.queue_size);
+  const timestamp = Number(payload?.timestamp);
+  const normalized = {
+    event,
+    action_id: actionId,
+    action_type: actionType || null,
+    queue_size: Number.isFinite(queueSize) ? Math.max(0, Math.floor(queueSize)) : null,
+    timestamp: Number.isFinite(timestamp) ? Math.max(0, Math.floor(timestamp)) : Date.now()
+  };
+  if (payload?.reason != null) {
+    normalized.reason = String(payload.reason);
+  }
+  if (payload?.error != null) {
+    normalized.error = String(payload.error);
+  }
+  if (payload?.dropped != null && Number.isFinite(Number(payload.dropped))) {
+    normalized.dropped = Math.max(0, Math.floor(Number(payload.dropped)));
+  }
+  return normalized;
+}
+
+function createActionTelemetryListener({ window, onTelemetry = null } = {}) {
+  return (event, payload) => {
+    if (!window || window.isDestroyed() || event?.sender !== window.webContents) {
+      return;
+    }
+    const normalized = normalizeActionTelemetryPayload(payload);
+    if (!normalized) {
+      return;
+    }
+    onTelemetry?.(normalized);
+  };
+}
+
 function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
   let lastVisible = null;
   return (event, payload) => {
@@ -338,6 +414,73 @@ function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
   };
 }
 
+async function forwardLive2dActionEvent({
+  eventName,
+  eventPayload,
+  bridge,
+  rendererTimeoutMs,
+  onTelemetry = null,
+  logger = console
+} = {}) {
+  if (eventName !== ACTION_EVENT_NAME) {
+    return {
+      forwarded: false,
+      reason: 'event_name_mismatch'
+    };
+  }
+
+  const normalized = normalizeLive2dActionMessage(eventPayload);
+  if (!normalized.ok) {
+    logger.warn?.('[desktop-live2d] live2d action event dropped', {
+      eventName,
+      error: normalized.error
+    });
+    return {
+      forwarded: false,
+      reason: 'invalid_payload',
+      error: normalized.error
+    };
+  }
+
+  if (!bridge || typeof bridge.invoke !== 'function') {
+    return {
+      forwarded: false,
+      reason: 'bridge_unavailable'
+    };
+  }
+
+  try {
+    const result = await bridge.invoke({
+      method: ACTION_ENQUEUE_METHOD,
+      params: normalized.value,
+      timeoutMs: rendererTimeoutMs
+    });
+    onTelemetry?.({
+      event: 'ack',
+      action_id: normalized.value.action_id,
+      action_type: normalized.value.action?.type || null,
+      queue_size: Number.isFinite(Number(result?.queue_size)) ? Number(result.queue_size) : null,
+      timestamp: Date.now()
+    });
+    return {
+      forwarded: true,
+      result,
+      payload: normalized.value
+    };
+  } catch (err) {
+    const message = err?.message || String(err || 'unknown error');
+    logger.error?.('[desktop-live2d] live2d action forward failed', {
+      eventName,
+      error: message
+    });
+    return {
+      forwarded: false,
+      reason: 'bridge_invoke_failed',
+      error: message
+    };
+  }
+}
+
 async function startDesktopSuite({
   app,
   BrowserWindow,
@@ -354,6 +497,11 @@ async function startDesktopSuite({
   const modelValidation = validateModelAssetDirectory({
     modelDir: config.modelDir,
     modelJsonName: config.modelJsonName
+  });
+  const live2dPresetConfig = loadLive2dPresetConfig({
+    projectRoot: config.projectRoot,
+    env: process.env,
+    logger
   });
   const display = screen?.getPrimaryDisplay?.();
 
@@ -642,6 +790,22 @@ async function startDesktopSuite({
     updateBubbleWindowBounds();
   }
 
+  function publishLive2dActionTelemetry(payload = {}) {
+    const normalized = normalizeActionTelemetryPayload(payload);
+    if (!normalized) {
+      return;
+    }
+    logger.info?.('[desktop-live2d] live2d action telemetry', normalized);
+    rpcServerRef?.notify({
+      method: 'desktop.event',
+      params: {
+        type: 'live2d.action.telemetry',
+        timestamp: Date.now(),
+        data: normalized
+      }
+    });
+  }
+
   avatarWindow.on('move', () => {
     updateChatWindowBounds();
     updateBubbleWindowBounds();
@@ -678,6 +842,7 @@ async function startDesktopSuite({
     modelRelativePath: config.modelRelativePath,
     modelName: modelValidation.modelName,
     gatewayUrl: config.gatewayUrl,
+    live2dPresets: live2dPresetConfig,
     uiConfig: event?.sender === avatarWindow.webContents ? avatarUiConfig : config.uiConfig
   }));
   const windowDragListener = createWindowDragListener({ BrowserWindow });
@@ -712,6 +877,11 @@ async function startDesktopSuite({
     }
   });
   ipcMain.on(CHANNELS.bubbleMetricsUpdate, bubbleMetricsListener);
+  const actionTelemetryListener = createActionTelemetryListener({
+    window: avatarWindow,
+    onTelemetry: publishLive2dActionTelemetry
+  });
+  ipcMain.on(CHANNELS.actionTelemetry, actionTelemetryListener);
 
   const windowControlListener = createWindowControlListener({
     windows: [avatarWindow, chatWindow],
@@ -739,16 +909,26 @@ async function startDesktopSuite({
       if (desktopEvent.type === 'runtime.event' && desktopEvent.data?.name) {
         const eventName = desktopEvent.data.name;
         console.log('[desktop-live2d] gateway_event_forward', { eventName });
-        // 一旦发现是这些前缀，无脑扔给前端
-        if (eventName.startsWith('ui.') || eventName.startsWith('client.') || eventName.startsWith('voice.')) {
-          bridge.invoke({
-            method: 'server_event_forward',  // 给前端的一个“盲盒”名字
+        const activeBridge = ipcBridgeRef;
+
+        if (eventName === ACTION_EVENT_NAME) {
+          void forwardLive2dActionEvent({
+            eventName,
+            eventPayload: desktopEvent.data.data,
+            bridge: activeBridge,
+            rendererTimeoutMs: config.rendererTimeoutMs,
+            onTelemetry: publishLive2dActionTelemetry,
+            logger
+          });
+        } else if (eventName.startsWith('ui.') || eventName.startsWith('client.') || eventName.startsWith('voice.')) {
+          activeBridge?.invoke({
+            method: 'server_event_forward',
             params: {
-              name: eventName,             // 真实的事件名字
-              data: desktopEvent.data.data // 事件装的业务数据
+              name: eventName,
+              data: desktopEvent.data.data
             },
             timeoutMs: config.rendererTimeoutMs
-          }).catch(() => { }); // 丢帧不报错
+          }).catch(() => { });
         }
       }
 
@@ -989,6 +1169,7 @@ async function startDesktopSuite({
     ipcMain.off(CHANNELS.chatPanelToggle, chatPanelToggleListener);
     ipcMain.off(CHANNELS.modelBoundsUpdate, modelBoundsListener);
     ipcMain.off(CHANNELS.bubbleMetricsUpdate, bubbleMetricsListener);
+    ipcMain.off(CHANNELS.actionTelemetry, actionTelemetryListener);
     ipcMain.off(CHANNELS.windowControl, windowControlListener);
     ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
 
@@ -1470,6 +1651,8 @@ function writeRuntimeSummary(summaryPath, payload) {
 
 module.exports = {
   CHANNELS,
+  normalizeLive2dPresetConfig,
+  loadLive2dPresetConfig,
   startDesktopSuite,
   waitForRendererReady,
   createMainWindow,
@@ -1486,13 +1669,16 @@ module.exports = {
   normalizeChatPanelTogglePayload,
   normalizeModelBoundsPayload,
   normalizeBubbleMetricsPayload,
+  normalizeActionTelemetryPayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
   createChatPanelToggleListener,
   createModelBoundsListener,
   createBubbleMetricsListener,
+  createActionTelemetryListener,
   createChatInputListener,
+  forwardLive2dActionEvent,
   handleDesktopRpcRequest,
   isNewSessionCommand,
   createChatWindow,

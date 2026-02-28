@@ -131,6 +131,27 @@ async function startMockLlmServer(port) {
         message = { role: 'assistant', content: 'low permission memory bootstrap disabled' };
       } else if (lastUserText === 'describe this uploaded image') {
         message = { role: 'assistant', content: 'image analyzed: success' };
+      } else if (lastUserText === 'trigger live2d action event') {
+        if (last.role === 'tool' && last.name === 'live2d.expression.set') {
+          message = { role: 'assistant', content: 'live2d action queued' };
+        } else {
+          message = {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: 'call_live2d_expr_1',
+                type: 'function',
+                function: {
+                  name: 'live2d.expression.set',
+                  arguments: JSON.stringify({
+                    name: 'smile'
+                  })
+                }
+              }
+            ]
+          };
+        }
       } else if (last.role === 'tool') {
         message = { role: 'assistant', content: `final:${last.content}` };
       } else {
@@ -340,6 +361,28 @@ test('gateway end-to-end covers health, config api, legacy ws and json-rpc ws', 
     assert.ok(rpc.result);
     assert.equal(rpc.result.result.state, 'DONE');
     assert.equal(rpc.result.result.output, 'final:42');
+
+    const rpcLive2d = await wsRequest(`ws://127.0.0.1:${gatewayPort}/ws`, {
+      jsonrpc: '2.0',
+      id: 'rpc-live2d-evt-1',
+      method: 'runtime.run',
+      params: { input: 'trigger live2d action event', session_id: 'rpc-live2d-s1' }
+    }, { expectRpcId: 'rpc-live2d-evt-1' });
+
+    assert.ok(rpcLive2d.result);
+    assert.equal(rpcLive2d.result.result.state, 'DONE', JSON.stringify(rpcLive2d.result, null, 2));
+    assert.match(rpcLive2d.result.result.output, /queued/i);
+    const live2dActionEvent = rpcLive2d.messages.find(
+      (msg) => msg.method === 'runtime.event' && msg.params?.name === 'ui.live2d.action'
+    );
+    assert.ok(live2dActionEvent, JSON.stringify(rpcLive2d.messages, null, 2));
+    assert.equal(live2dActionEvent.params.data.action.type, 'expression');
+    assert.equal(live2dActionEvent.params.data.action.name, 'smile');
+    assert.equal(live2dActionEvent.params.data.action.args && typeof live2dActionEvent.params.data.action.args, 'object');
+    assert.equal(typeof live2dActionEvent.params.data.action_id, 'string');
+    assert.ok(live2dActionEvent.params.data.action_id.length > 0);
+    assert.equal(live2dActionEvent.params.data.queue_policy, 'append');
+    assert.ok(Number(live2dActionEvent.params.data.duration_sec) > 0);
 
     const sessions = await fetch(`http://127.0.0.1:${gatewayPort}/api/sessions`).then((r) => r.json());
     assert.equal(sessions.ok, true);

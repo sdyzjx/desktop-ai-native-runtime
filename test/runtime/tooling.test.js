@@ -21,6 +21,8 @@ test('ToolConfigStore loads yaml and validates structure', () => {
   const cfg = store.load();
   assert.equal(Array.isArray(cfg.tools), true);
   assert.ok(cfg.tools.some((t) => t.name === 'workspace.write_file'));
+  assert.ok(cfg.tools.some((t) => t.name === 'live2d.motion.play'));
+  assert.ok(cfg.tools.some((t) => t.name === 'live2d.react'));
 });
 
 test('ToolExecutor rejects invalid args by schema', async () => {
@@ -28,6 +30,98 @@ test('ToolExecutor rejects invalid args by schema', async () => {
   const result = await executor.execute({ name: 'add', args: { a: 'x', b: 1 } });
   assert.equal(result.ok, false);
   assert.equal(result.code, 'VALIDATION_ERROR');
+});
+
+test('ToolExecutor rejects unsupported live2d semantic args by schema', async () => {
+  const executor = buildExecutor();
+
+  const invalidEmoteEmotion = await executor.execute({
+    name: 'live2d.emote',
+    args: { emotion: 'smile', intensity: 'medium', duration_sec: 1.2 }
+  });
+  assert.equal(invalidEmoteEmotion.ok, false);
+  assert.equal(invalidEmoteEmotion.code, 'VALIDATION_ERROR');
+
+  const invalidEmoteIntensity = await executor.execute({
+    name: 'live2d.emote',
+    args: { emotion: 'sad', intensity: 'high', duration_sec: 1.2 }
+  });
+  assert.equal(invalidEmoteIntensity.ok, false);
+  assert.equal(invalidEmoteIntensity.code, 'VALIDATION_ERROR');
+
+  const invalidGesture = await executor.execute({
+    name: 'live2d.gesture',
+    args: { type: 'wave', duration_sec: 1.2 }
+  });
+  assert.equal(invalidGesture.ok, false);
+  assert.equal(invalidGesture.code, 'VALIDATION_ERROR');
+
+  const invalidReact = await executor.execute({
+    name: 'live2d.react',
+    args: { intent: 'meltdown', duration_sec: 1.2 }
+  });
+  assert.equal(invalidReact.ok, false);
+  assert.equal(invalidReact.code, 'VALIDATION_ERROR');
+
+  const invalidExpression = await executor.execute({
+    name: 'live2d.expression.set',
+    args: { name: 'laugh', duration_sec: 1.2 }
+  });
+  assert.equal(invalidExpression.ok, false);
+  assert.equal(invalidExpression.code, 'VALIDATION_ERROR');
+
+  const invalidMotion = await executor.execute({
+    name: 'live2d.motion.play',
+    args: { group: 'Walk', index: 0, duration_sec: 1.2 }
+  });
+  assert.equal(invalidMotion.ok, false);
+  assert.equal(invalidMotion.code, 'VALIDATION_ERROR');
+});
+
+test('ToolExecutor accepts extended live2d semantic presets in event mode', async () => {
+  const executor = buildExecutor();
+  const published = [];
+  const context = {
+    session_id: 's-live2d-extended',
+    trace_id: 'trace-live2d-extended',
+    publishEvent: (topic, payload) => {
+      published.push({ topic, payload });
+    }
+  };
+
+  const emoteResult = await executor.execute({
+    name: 'live2d.emote',
+    args: {
+      emotion: 'shy',
+      intensity: 'medium',
+      duration_sec: 2.1,
+      queue_policy: 'replace'
+    }
+  }, context);
+  assert.equal(emoteResult.ok, true);
+
+  const gestureResult = await executor.execute({
+    name: 'live2d.gesture',
+    args: {
+      type: 'apologize',
+      duration_sec: 2.4,
+      queue_policy: 'append'
+    }
+  }, context);
+  assert.equal(gestureResult.ok, true);
+
+  const reactResult = await executor.execute({
+    name: 'live2d.react',
+    args: {
+      intent: 'panic',
+      duration_sec: 2.6,
+      queue_policy: 'append'
+    }
+  }, context);
+  assert.equal(reactResult.ok, true);
+
+  const topics = published.map((item) => item.topic);
+  assert.ok(topics.includes('ui.live2d.action'));
 });
 
 test('workspace.write_file writes under workspace', async () => {

@@ -6,6 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+  normalizeLive2dPresetConfig,
+  loadLive2dPresetConfig,
   waitForRendererReady,
   writeRuntimeSummary,
   computeWindowBounds,
@@ -19,12 +21,15 @@ const {
   normalizeChatPanelVisibilityPayload,
   normalizeModelBoundsPayload,
   normalizeBubbleMetricsPayload,
+  normalizeActionTelemetryPayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
   createModelBoundsListener,
   createBubbleMetricsListener,
+  createActionTelemetryListener,
   createChatInputListener,
+  forwardLive2dActionEvent,
   handleDesktopRpcRequest,
   isNewSessionCommand,
   computeChatWindowBounds,
@@ -63,6 +68,45 @@ test('writeRuntimeSummary persists JSON payload', () => {
 
   assert.equal(content.ok, true);
   assert.equal(content.rpcUrl, 'ws://127.0.0.1:17373');
+});
+
+test('normalizeLive2dPresetConfig keeps emote/gesture/react object shape', () => {
+  const normalized = normalizeLive2dPresetConfig({
+    version: 2,
+    emote: { happy: { medium: { expression: 'smile' } } },
+    gesture: ['invalid'],
+    react: { waiting: [{ type: 'wait', ms: 120 }] }
+  });
+
+  assert.equal(normalized.version, 2);
+  assert.equal(typeof normalized.emote, 'object');
+  assert.deepEqual(normalized.gesture, {});
+  assert.equal(typeof normalized.react, 'object');
+});
+
+test('loadLive2dPresetConfig parses yaml file and returns normalized config', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-presets-'));
+  const projectRoot = path.join(tmpDir, 'project');
+  fs.mkdirSync(path.join(projectRoot, 'config'), { recursive: true });
+  fs.writeFileSync(
+    path.join(projectRoot, 'config', 'live2d-presets.yaml'),
+    [
+      'version: 1',
+      'gesture:',
+      '  greet:',
+      '    expression: smile'
+    ].join('\n'),
+    'utf8'
+  );
+
+  const loaded = loadLive2dPresetConfig({
+    projectRoot,
+    env: {},
+    logger: { warn: () => {} }
+  });
+
+  assert.equal(loaded.version, 1);
+  assert.equal(loaded.gesture.greet.expression, 'smile');
 });
 
 test('computeRightBottomWindowBounds places window at display corner', () => {
@@ -448,6 +492,53 @@ test('createBubbleMetricsListener forwards normalized bubble metrics for bubble 
   assert.deepEqual(received[0], { width: 320, height: 168 });
 });
 
+test('normalizeActionTelemetryPayload validates telemetry shape', () => {
+  const normalized = normalizeActionTelemetryPayload({
+    event: ' done ',
+    action_id: 'act-1',
+    action_type: 'expression',
+    queue_size: 3,
+    timestamp: 1000
+  });
+
+  assert.deepEqual(normalized, {
+    event: 'done',
+    action_id: 'act-1',
+    action_type: 'expression',
+    queue_size: 3,
+    timestamp: 1000
+  });
+  assert.equal(normalizeActionTelemetryPayload({ event: 'invalid' }), null);
+});
+
+test('createActionTelemetryListener forwards normalized payload for avatar sender only', () => {
+  const webContents = { id: 28 };
+  const window = {
+    webContents,
+    isDestroyed() {
+      return false;
+    }
+  };
+  const received = [];
+  const listener = createActionTelemetryListener({
+    window,
+    onTelemetry: (payload) => received.push(payload)
+  });
+
+  listener({ sender: webContents }, {
+    event: 'start',
+    action_id: 'act-2',
+    action_type: 'motion',
+    queue_size: 1
+  });
+  listener({ sender: { id: 999 } }, { event: 'done', action_id: 'act-2' });
+  listener({ sender: webContents }, { event: 'bad' });
+
+  assert.equal(received.length, 1);
+  assert.equal(received[0].event, 'start');
+  assert.equal(received[0].action_id, 'act-2');
+});
+
 test('createChatInputListener forwards normalized payload to callback', () => {
   const logs = [];
   const received = [];
@@ -463,6 +554,65 @@ test('createChatInputListener forwards normalized payload to callback', () => {
   assert.equal(received.length, 1);
   assert.equal(received[0].role, 'tool');
   assert.equal(received[0].text, 'invoke');
+});
+
+test('forwardLive2dActionEvent forwards normalized payload into renderer enqueue method', async () => {
+  const calls = [];
+  const telemetry = [];
+  const result = await forwardLive2dActionEvent({
+    eventName: 'ui.live2d.action',
+    eventPayload: {
+      action_id: 'act-1',
+      action: {
+        type: 'expression',
+        name: 'tear_drop'
+      },
+      duration_sec: 1.8,
+      queue_policy: 'append'
+    },
+    bridge: {
+      invoke: async (payload) => {
+        calls.push(payload);
+        return { ok: true, queued: 1, queue_size: 1 };
+      }
+    },
+    onTelemetry: (payload) => telemetry.push(payload),
+    rendererTimeoutMs: 2222
+  });
+
+  assert.equal(result.forwarded, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'live2d.action.enqueue');
+  assert.equal(calls[0].timeoutMs, 2222);
+  assert.equal(calls[0].params.action.type, 'expression');
+  assert.equal(calls[0].params.duration_sec, 1.8);
+  assert.equal(telemetry.length, 1);
+  assert.equal(telemetry[0].event, 'ack');
+  assert.equal(telemetry[0].action_id, 'act-1');
+});
+
+test('forwardLive2dActionEvent skips invalid payload and does not invoke bridge', async () => {
+  let called = false;
+  const result = await forwardLive2dActionEvent({
+    eventName: 'ui.live2d.action',
+    eventPayload: {
+      action: {
+        type: 'expression',
+        name: 'smile'
+      },
+      duration_sec: 0
+    },
+    bridge: {
+      invoke: async () => {
+        called = true;
+        return { ok: true };
+      }
+    }
+  });
+
+  assert.equal(result.forwarded, false);
+  assert.equal(result.reason, 'invalid_payload');
+  assert.equal(called, false);
 });
 
 test('handleDesktopRpcRequest returns tool list without touching renderer bridge', async () => {

@@ -48,5 +48,18 @@
     "bubble": {
       "mirrorToPanel": false
     }
+  },
+  "actionQueue": {
+    "maxQueueSize": 120,
+    "overflowPolicy": "drop_oldest",
+    "idleFallbackEnabled": true,
+    "idleAction": {
+      "type": "motion",
+      "name": "Idle",
+      "args": {
+        "group": "Idle",
+        "index": 0
+      }
+    }
   }
 }

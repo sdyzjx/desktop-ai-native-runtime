@@ -13,6 +13,13 @@ policy:
     - voice.tts_aliyun_vc
     - voice.asr_aliyun
     - voice.stats
+    - live2d.param.set
+    - live2d.param.batch_set
+    - live2d.motion.play
+    - live2d.expression.set
+    - live2d.emote
+    - live2d.gesture
+    - live2d.react
   deny: []
   byProvider: {}
 
@@ -174,4 +181,135 @@ tools:
     input_schema:
       type: object
       properties: {}
+      additionalProperties: false
+
+  - name: live2d.param.set
+    type: local
+    adapter: live2d.param.set
+    description: Set one Live2D model parameter by name.
+    input_schema:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128 }
+        value: { type: number }
+      required: [name, value]
+      additionalProperties: false
+
+  - name: live2d.param.batch_set
+    type: local
+    adapter: live2d.param.batch_set
+    description: Set multiple Live2D model parameters in one call.
+    input_schema:
+      type: object
+      properties:
+        updates:
+          type: array
+          minItems: 1
+          maxItems: 60
+          items:
+            type: object
+            properties:
+              name: { type: string, minLength: 1, maxLength: 128 }
+              value: { type: number }
+            required: [name, value]
+            additionalProperties: false
+      required: [updates]
+      additionalProperties: false
+
+  - name: live2d.motion.play
+    type: local
+    adapter: live2d.motion.play
+    description: >
+      Play one Live2D motion group/index.
+      Supported group/index pairs: Idle/0, Greet/0, ReactError/0.
+      Always set duration_sec to match current chat context.
+    input_schema:
+      type: object
+      properties:
+        group: { type: string, enum: [Idle, Greet, ReactError] }
+        index: { type: integer, enum: [0] }
+        action_id: { type: string, minLength: 1, maxLength: 160 }
+        duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
+        queue_policy: { type: string, enum: [append, replace, interrupt] }
+      required: [group]
+      additionalProperties: false
+
+  - name: live2d.expression.set
+    type: local
+    adapter: live2d.expression.set
+    description: >
+      Set one Live2D expression by name.
+      Supported expressions: smile, tear_drop, tears, narrow_eyes.
+      Always set duration_sec to match current chat context.
+    input_schema:
+      type: object
+      properties:
+        name: { type: string, enum: [smile, tear_drop, tears, narrow_eyes] }
+        action_id: { type: string, minLength: 1, maxLength: 160 }
+        duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
+        queue_policy: { type: string, enum: [append, replace, interrupt] }
+      required: [name]
+      additionalProperties: false
+
+  - name: live2d.emote
+    type: local
+    adapter: live2d.emote
+    description: >
+      Trigger semantic emotion preset and map to expression/parameters.
+      Supported presets: happy(low|medium|high), sad(medium only), happy_soft(low|medium|high),
+      happy_bright(low|medium|high), sad_soft(low|medium|high), cry(low|medium|high), shy(low|medium|high).
+      Always set duration_sec to match current chat context.
+    input_schema:
+      type: object
+      properties:
+        emotion: { type: string, enum: [happy, sad, happy_soft, happy_bright, sad_soft, cry, shy] }
+        intensity: { type: string, enum: [low, medium, high] }
+        action_id: { type: string, minLength: 1, maxLength: 160 }
+        duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
+        queue_policy: { type: string, enum: [append, replace, interrupt] }
+        timeoutMs: { type: integer, minimum: 500, maximum: 120000 }
+      allOf:
+        - if:
+            properties:
+              emotion: { const: sad }
+          then:
+            properties:
+              intensity: { type: string, enum: [medium] }
+      required: [emotion]
+      additionalProperties: false
+
+  - name: live2d.gesture
+    type: local
+    adapter: live2d.gesture
+    description: >
+      Trigger semantic gesture preset and map to motion/expression.
+      Supported gesture types: greet, think, greet_fast, think_focus, apologize, panic, calm_down.
+      Always set duration_sec to match current chat context.
+    input_schema:
+      type: object
+      properties:
+        type: { type: string, enum: [greet, think, greet_fast, think_focus, apologize, panic, calm_down] }
+        action_id: { type: string, minLength: 1, maxLength: 160 }
+        duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
+        queue_policy: { type: string, enum: [append, replace, interrupt] }
+        timeoutMs: { type: integer, minimum: 500, maximum: 120000 }
+      required: [type]
+      additionalProperties: false
+
+  - name: live2d.react
+    type: local
+    adapter: live2d.react
+    description: >
+      Trigger semantic reaction preset sequence.
+      Supported intents: success, error, waiting, apologize, panic, calm_down.
+      Always set duration_sec to match current chat context.
+    input_schema:
+      type: object
+      properties:
+        intent: { type: string, enum: [success, error, waiting, apologize, panic, calm_down] }
+        action_id: { type: string, minLength: 1, maxLength: 160 }
+        duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
+        queue_policy: { type: string, enum: [append, replace, interrupt] }
+        timeoutMs: { type: integer, minimum: 500, maximum: 120000 }
+      required: [intent]
       additionalProperties: false

@@ -1,6 +1,10 @@
 (function bootstrap() {
   const bridge = window.desktopLive2dBridge;
   const interactionApi = window.Live2DInteraction || null;
+  const actionMessageApi = window.Live2DActionMessage || null;
+  const actionMutexApi = window.Live2DActionMutex || null;
+  const actionQueueApi = window.Live2DActionQueuePlayer || null;
+  const actionExecutorApi = window.Live2DActionExecutor || null;
   const state = {
     modelLoaded: false,
     modelName: null,
@@ -21,6 +25,9 @@
   let stableModelScale = null;
   let stableModelPose = null;
   let modelBaseBounds = null;
+  let actionQueuePlayer = null;
+  let actionExecutionMutex = null;
+  let actionExecutor = null;
 
   const stageContainer = document.getElementById('stage');
   const bubbleLayerElement = document.getElementById('bubble-layer');
@@ -35,6 +42,7 @@
 
   const chatStateApi = window.ChatPanelState;
   let runtimeUiConfig = null;
+  let runtimeLive2dPresets = null;
   let chatPanelState = null;
   let chatInputComposing = false;
   let chatPanelEnabled = false;
@@ -339,7 +347,31 @@
     };
   }
 
-  function playModelMotion(params) {
+  function ensureActionExecutionMutex() {
+    if (actionExecutionMutex) {
+      return actionExecutionMutex;
+    }
+
+    if (typeof actionMutexApi?.createLive2dActionMutex === 'function') {
+      actionExecutionMutex = actionMutexApi.createLive2dActionMutex();
+      return actionExecutionMutex;
+    }
+
+    actionExecutionMutex = {
+      runExclusive: async (task) => task()
+    };
+    return actionExecutionMutex;
+  }
+
+  async function runActionWithMutex(task) {
+    const mutex = ensureActionExecutionMutex();
+    if (!mutex || typeof mutex.runExclusive !== 'function') {
+      return task();
+    }
+    return mutex.runExclusive(task);
+  }
+
+  function playModelMotionRaw(params) {
     if (!live2dModel || !state.modelLoaded) {
       throw createRpcError(-32004, 'model not loaded');
     }
@@ -372,7 +404,7 @@
     };
   }
 
-  function setModelExpression(params) {
+  function setModelExpressionRaw(params) {
     if (!live2dModel || !state.modelLoaded) {
       throw createRpcError(-32004, 'model not loaded');
     }
@@ -394,6 +426,77 @@
     }
 
     throw createRpcError(-32005, 'expression() is unavailable on this model runtime');
+  }
+
+  function resetModelExpressionRaw() {
+    if (!live2dModel || !state.modelLoaded) {
+      return { ok: false, skipped: true, reason: 'model_not_loaded' };
+    }
+
+    if (typeof live2dModel.resetExpression === 'function') {
+      live2dModel.resetExpression();
+      return { ok: true };
+    }
+
+    const expressionManager = live2dModel.internalModel?.motionManager?.expressionManager;
+    if (expressionManager && typeof expressionManager.resetExpression === 'function') {
+      expressionManager.resetExpression();
+      return { ok: true };
+    }
+
+    return { ok: false, skipped: true, reason: 'reset_expression_unavailable' };
+  }
+
+  async function playModelMotion(params) {
+    return runActionWithMutex(() => playModelMotionRaw(params));
+  }
+
+  async function setModelExpression(params) {
+    return runActionWithMutex(() => setModelExpressionRaw(params));
+  }
+
+  function ensureActionQueuePlayer() {
+    if (actionQueuePlayer) {
+      return actionQueuePlayer;
+    }
+    const Player = actionQueueApi?.Live2dActionQueuePlayer;
+    if (typeof Player !== 'function') {
+      throw createRpcError(-32005, 'Live2dActionQueuePlayer runtime is unavailable');
+    }
+    if (!actionExecutor) {
+      if (typeof actionExecutorApi?.createLive2dActionExecutor !== 'function') {
+        throw createRpcError(-32005, 'Live2dActionExecutor runtime is unavailable');
+      }
+      const runtimeActionQueueConfig = runtimeUiConfig?.actionQueue || {};
+      const idleAction = runtimeActionQueueConfig.idleFallbackEnabled === false
+        ? null
+        : (runtimeActionQueueConfig.idleAction || null);
+      actionExecutor = actionExecutorApi.createLive2dActionExecutor({
+        setExpression: setModelExpressionRaw,
+        playMotion: playModelMotionRaw,
+        setParamBatch: setModelParamsBatch,
+        presetConfig: runtimeLive2dPresets || {},
+        createError: createRpcError
+      });
+      actionQueuePlayer = new Player({
+        executeAction: async (action) => {
+          await actionExecutor(action);
+        },
+        afterIdleAction: async () => {
+          resetModelExpressionRaw();
+        },
+        maxQueueSize: Number(runtimeActionQueueConfig.maxQueueSize) || 120,
+        overflowPolicy: runtimeActionQueueConfig.overflowPolicy || 'drop_oldest',
+        idleAction,
+        mutex: ensureActionExecutionMutex(),
+        onTelemetry: (payload) => {
+          bridge?.sendActionTelemetry?.(payload);
+        },
+        logger: console
+      });
+      return actionQueuePlayer;
+    }
+    throw createRpcError(-32005, 'live2d action subsystem init failed');
   }
 
   function getState() {
@@ -861,9 +964,9 @@
       } else if (method === 'model.param.batchSet') {
         result = setModelParamsBatch(params);
       } else if (method === 'model.motion.play') {
-        result = playModelMotion(params);
+        result = await playModelMotion(params);
       } else if (method === 'model.expression.set') {
-        result = setModelExpression(params);
+        result = await setModelExpression(params);
       } else if (method === 'chat.show' || method === 'chat.bubble.show') {
         result = showBubble(params);
       } else if (method === 'chat.panel.show') {
@@ -874,6 +977,16 @@
         result = appendChatMessage(params, 'assistant');
       } else if (method === 'chat.panel.clear') {
         result = clearChatMessages();
+      } else if (method === 'live2d.action.enqueue') {
+        if (!actionMessageApi || typeof actionMessageApi.normalizeLive2dActionMessage !== 'function') {
+          throw createRpcError(-32005, 'Live2DActionMessage runtime is unavailable');
+        }
+        const normalized = actionMessageApi.normalizeLive2dActionMessage(params);
+        if (!normalized.ok) {
+          throw createRpcError(-32602, normalized.error);
+        }
+        const player = ensureActionQueuePlayer();
+        result = player.enqueue(normalized.value);
       } else if (method === 'server_event_forward') {
         const { name, data } = params || {};
         console.log('[Renderer] Received RPC invoke:', name);
@@ -919,9 +1032,11 @@
 
       const runtimeConfig = await bridge.getRuntimeConfig();
       runtimeUiConfig = runtimeConfig.uiConfig || null;
+      runtimeLive2dPresets = runtimeConfig.live2dPresets || null;
       initChatPanel(runtimeUiConfig?.chat || {});
       await initPixi();
       await loadModel(runtimeConfig.modelRelativePath, runtimeConfig.modelName);
+      ensureActionQueuePlayer();
 
       bridge.onInvoke((payload) => {
         void handleInvoke(payload);

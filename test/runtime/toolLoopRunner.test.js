@@ -360,3 +360,32 @@ test('ToolLoopRunner injects persona tool hint on persona-modification keywords'
 
   dispatcher.stop();
 });
+
+test('ToolLoopRunner injects live2d action planning guidance into system prompt', async () => {
+  const bus = new RuntimeEventBus();
+  const executor = new ToolExecutor(localTools);
+  const dispatcher = new ToolCallDispatcher({ bus, executor });
+  dispatcher.start();
+
+  let seenMessages = [];
+  const runner = new ToolLoopRunner({
+    bus,
+    getReasoner: () => ({
+      async decide({ messages }) {
+        seenMessages = messages;
+        return { type: 'final', output: 'ok-live2d-guidance' };
+      }
+    }),
+    listTools: () => executor.listTools(),
+    maxStep: 1,
+    toolResultTimeoutMs: 500
+  });
+
+  const result = await runner.run({ sessionId: 's7', input: 'hello' });
+  assert.equal(result.state, 'DONE');
+  assert.equal(result.output, 'ok-live2d-guidance');
+  assert.match(String(seenMessages[0]?.content || ''), /Live2D action/);
+  assert.match(String(seenMessages[0]?.content || ''), /duration_sec/);
+
+  dispatcher.stop();
+});

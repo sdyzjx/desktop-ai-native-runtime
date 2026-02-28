@@ -59,6 +59,19 @@ const DEFAULT_UI_CONFIG = Object.freeze({
     bubble: {
       mirrorToPanel: false
     }
+  },
+  actionQueue: {
+    maxQueueSize: 120,
+    overflowPolicy: 'drop_oldest',
+    idleFallbackEnabled: true,
+    idleAction: {
+      type: 'motion',
+      name: 'Idle',
+      args: {
+        group: 'Idle',
+        index: 0
+      }
+    }
   }
 });
 
@@ -73,7 +86,12 @@ function resolveDesktopLive2dConfig({ env = process.env, projectRoot = PROJECT_R
   const gatewayPort = toPositiveInt(env.PORT, 3000);
   const gatewayUrl = env.DESKTOP_GATEWAY_URL || `http://127.0.0.1:${gatewayPort}`;
   const rpcPort = toPositiveInt(env.DESKTOP_LIVE2D_RPC_PORT, DEFAULT_RPC_PORT);
-  const rpcToken = env.DESKTOP_LIVE2D_RPC_TOKEN || randomUUID();
+  const hasRpcToken = typeof env.DESKTOP_LIVE2D_RPC_TOKEN === 'string' && env.DESKTOP_LIVE2D_RPC_TOKEN.trim().length > 0;
+  const rpcToken = hasRpcToken ? env.DESKTOP_LIVE2D_RPC_TOKEN : randomUUID();
+  if (!hasRpcToken && env === process.env) {
+    // Keep runtime live2d adapter and desktop rpc server on the same token when token is auto-generated.
+    process.env.DESKTOP_LIVE2D_RPC_TOKEN = rpcToken;
+  }
   const rendererTimeoutMs = toPositiveInt(env.DESKTOP_LIVE2D_RENDERER_TIMEOUT_MS, DEFAULT_RENDERER_TIMEOUT_MS);
   const uiConfigPath = path.resolve(
     env.DESKTOP_LIVE2D_CONFIG_PATH || path.join(runtimePaths.configDir, 'desktop-live2d.json')
@@ -149,6 +167,18 @@ function normalizeUiConfig(raw) {
         ...DEFAULT_UI_CONFIG.chat.bubble,
         ...(raw?.chat?.bubble || {})
       }
+    },
+    actionQueue: {
+      ...DEFAULT_UI_CONFIG.actionQueue,
+      ...(raw?.actionQueue || {}),
+      idleAction: {
+        ...DEFAULT_UI_CONFIG.actionQueue.idleAction,
+        ...(raw?.actionQueue?.idleAction || {}),
+        args: {
+          ...DEFAULT_UI_CONFIG.actionQueue.idleAction.args,
+          ...(raw?.actionQueue?.idleAction?.args || {})
+        }
+      }
     }
   };
 
@@ -187,6 +217,39 @@ function normalizeUiConfig(raw) {
   merged.chat.panel.maxMessages = toPositiveInt(merged.chat.panel.maxMessages, DEFAULT_UI_CONFIG.chat.panel.maxMessages);
   merged.chat.panel.inputEnabled = Boolean(merged.chat.panel.inputEnabled);
   merged.chat.bubble.mirrorToPanel = Boolean(merged.chat.bubble.mirrorToPanel);
+
+  merged.actionQueue.maxQueueSize = toPositiveInt(
+    merged.actionQueue.maxQueueSize,
+    DEFAULT_UI_CONFIG.actionQueue.maxQueueSize
+  );
+  const overflowPolicy = String(merged.actionQueue.overflowPolicy || '').trim().toLowerCase();
+  merged.actionQueue.overflowPolicy = ['drop_oldest', 'drop_newest', 'reject'].includes(overflowPolicy)
+    ? overflowPolicy
+    : DEFAULT_UI_CONFIG.actionQueue.overflowPolicy;
+  merged.actionQueue.idleFallbackEnabled = merged.actionQueue.idleFallbackEnabled !== false;
+  merged.actionQueue.idleAction.type = String(merged.actionQueue.idleAction.type || 'motion').trim().toLowerCase() || 'motion';
+  merged.actionQueue.idleAction.name = String(merged.actionQueue.idleAction.name || '').trim()
+    || DEFAULT_UI_CONFIG.actionQueue.idleAction.name;
+  merged.actionQueue.idleAction.args = (
+    merged.actionQueue.idleAction.args && typeof merged.actionQueue.idleAction.args === 'object' && !Array.isArray(merged.actionQueue.idleAction.args)
+      ? merged.actionQueue.idleAction.args
+      : {}
+  );
+  if (merged.actionQueue.idleAction.type === 'motion') {
+    merged.actionQueue.idleAction.args.group = String(
+      merged.actionQueue.idleAction.args.group || merged.actionQueue.idleAction.name || 'Idle'
+    ).trim() || 'Idle';
+    if (Object.prototype.hasOwnProperty.call(merged.actionQueue.idleAction.args, 'index')) {
+      const parsed = Number(merged.actionQueue.idleAction.args.index);
+      if (Number.isInteger(parsed) && parsed >= 0) {
+        merged.actionQueue.idleAction.args.index = parsed;
+      } else {
+        delete merged.actionQueue.idleAction.args.index;
+      }
+    }
+  } else if (merged.actionQueue.idleAction.type === 'expression') {
+    merged.actionQueue.idleAction.args = {};
+  }
 
   return merged;
 }
