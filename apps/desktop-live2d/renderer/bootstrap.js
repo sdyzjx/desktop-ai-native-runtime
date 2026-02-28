@@ -3,6 +3,7 @@
   const interactionApi = window.Live2DInteraction || null;
   const actionMessageApi = window.Live2DActionMessage || null;
   const actionQueueApi = window.Live2DActionQueuePlayer || null;
+  const actionExecutorApi = window.Live2DActionExecutor || null;
   const state = {
     modelLoaded: false,
     modelName: null,
@@ -24,6 +25,7 @@
   let stableModelPose = null;
   let modelBaseBounds = null;
   let actionQueuePlayer = null;
+  let actionExecutor = null;
 
   const stageContainer = document.getElementById('stage');
   const bubbleLayerElement = document.getElementById('bubble-layer');
@@ -399,27 +401,6 @@
     throw createRpcError(-32005, 'expression() is unavailable on this model runtime');
   }
 
-  function executeLive2dAction(action) {
-    if (!action || typeof action !== 'object') {
-      throw createRpcError(-32602, 'live2d action must be an object');
-    }
-
-    if (action.type === 'expression') {
-      return setModelExpression({
-        name: action.name || action.args?.name
-      });
-    }
-
-    if (action.type === 'motion') {
-      return playModelMotion({
-        group: action.args?.group || action.name,
-        index: action.args?.index
-      });
-    }
-
-    throw createRpcError(-32602, `unsupported live2d action type: ${action.type}`);
-  }
-
   function ensureActionQueuePlayer() {
     if (actionQueuePlayer) {
       return actionQueuePlayer;
@@ -428,9 +409,19 @@
     if (typeof Player !== 'function') {
       throw createRpcError(-32005, 'Live2dActionQueuePlayer runtime is unavailable');
     }
+    if (!actionExecutor) {
+      if (typeof actionExecutorApi?.createLive2dActionExecutor !== 'function') {
+        throw createRpcError(-32005, 'Live2dActionExecutor runtime is unavailable');
+      }
+      actionExecutor = actionExecutorApi.createLive2dActionExecutor({
+        setExpression: setModelExpression,
+        playMotion: playModelMotion,
+        createError: createRpcError
+      });
+    }
     actionQueuePlayer = new Player({
       executeAction: async (action) => {
-        executeLive2dAction(action);
+        actionExecutor(action);
       },
       logger: console
     });

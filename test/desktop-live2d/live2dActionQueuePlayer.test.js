@@ -112,3 +112,23 @@ test('Live2dActionQueuePlayer interrupt policy short-circuits current wait', asy
   assert.ok(sleepCalls.length < 11);
 });
 
+test('Live2dActionQueuePlayer isolates execute errors and continues next action', async () => {
+  const executed = [];
+  const player = new Live2dActionQueuePlayer({
+    executeAction: async (action) => {
+      executed.push(action.name);
+      if (action.name === 'bad-action') {
+        throw new Error('mock action failure');
+      }
+    },
+    sleep: async () => {},
+    tickMs: 20
+  });
+
+  player.enqueue(createExpressionAction({ id: 'a1', name: 'bad-action', durationSec: 0.01 }));
+  player.enqueue(createExpressionAction({ id: 'a2', name: 'good-action', durationSec: 0.01 }));
+
+  await player.waitForIdle(800);
+
+  assert.deepEqual(executed, ['bad-action', 'good-action']);
+});
