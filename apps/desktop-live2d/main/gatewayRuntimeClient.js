@@ -67,6 +67,28 @@ class GatewayRuntimeClient {
     this.logger = logger;
   }
 
+  async emitDebug(topic, msg, meta = {}) {
+    if (typeof this.fetchImpl !== 'function') return;
+    const normalizedMeta = meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : {};
+    try {
+      const url = new URL('/api/debug/emit', this.gatewayUrl);
+      await this.fetchImpl(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          event: 'log',
+          topic,
+          level: 'info',
+          msg,
+          source_file: String(normalizedMeta.source_file || 'apps/desktop-live2d/main/gatewayRuntimeClient.js'),
+          ...normalizedMeta
+        })
+      });
+    } catch {
+      // best-effort telemetry
+    }
+  }
+
   getSessionId() {
     return this.sessionId;
   }
@@ -93,6 +115,10 @@ class GatewayRuntimeClient {
     }
 
     const url = new URL(`/api/sessions/${encodeURIComponent(sessionId)}/settings`, this.gatewayUrl);
+    void this.emitDebug('chain.electron.ensure_session.start', 'electron ensure session start', {
+      session_id: sessionId,
+      permission_level: permissionLevel
+    });
     const response = await this.fetchImpl(url, {
       method: 'PUT',
       headers: {
@@ -114,6 +140,11 @@ class GatewayRuntimeClient {
       }
       throw new Error(`failed to ensure gateway session ${sessionId}: status=${response.status} body=${bodyText}`);
     }
+
+    void this.emitDebug('chain.electron.ensure_session.completed', 'electron ensure session completed', {
+      session_id: sessionId,
+      permission_level: permissionLevel
+    });
 
     try {
       return await response.json();
@@ -141,6 +172,12 @@ class GatewayRuntimeClient {
     if (permissionLevel) {
       payload.params.permission_level = permissionLevel;
     }
+    void this.emitDebug('chain.electron.run.start', 'electron runInput start', {
+      session_id: this.sessionId,
+      request_id: requestId,
+      input_chars: content.length,
+      permission_level: permissionLevel || null
+    });
 
     return new Promise((resolve, reject) => {
       const ws = new this.WebSocketImpl(this.gatewayWsUrl);
@@ -149,6 +186,11 @@ class GatewayRuntimeClient {
       const timer = setTimeout(() => {
         settled = true;
         ws.terminate();
+        void this.emitDebug('chain.electron.run.timeout', 'electron runInput timeout', {
+          session_id: this.sessionId,
+          request_id: requestId,
+          timeout_ms: this.requestTimeoutMs
+        });
         reject(new Error(`gateway runtime timeout after ${this.requestTimeoutMs}ms`));
       }, this.requestTimeoutMs);
 
@@ -167,7 +209,15 @@ class GatewayRuntimeClient {
       };
 
       ws.on('open', () => {
+        void this.emitDebug('chain.electron.ws.connected', 'electron gateway ws connected', {
+          session_id: this.sessionId,
+          request_id: requestId
+        });
         ws.send(JSON.stringify(payload));
+        void this.emitDebug('chain.electron.ws.sent', 'electron gateway ws sent runtime.run', {
+          session_id: this.sessionId,
+          request_id: requestId
+        });
       });
 
       ws.on('message', (raw) => {
@@ -192,18 +242,37 @@ class GatewayRuntimeClient {
         }
 
         if (message.error) {
+          void this.emitDebug('chain.electron.run.error', 'electron runInput rpc error', {
+            session_id: this.sessionId,
+            request_id: requestId,
+            error: message.error.message || 'gateway runtime call failed'
+          });
           finish(reject, new Error(message.error.message || 'gateway runtime call failed'));
           return;
         }
 
+        void this.emitDebug('chain.electron.run.completed', 'electron runInput completed', {
+          session_id: this.sessionId,
+          request_id: requestId,
+          trace_id: message.result?.trace_id || null
+        });
         finish(resolve, message.result || null);
       });
 
       ws.on('error', (err) => {
+        void this.emitDebug('chain.electron.ws.error', 'electron gateway ws error', {
+          session_id: this.sessionId,
+          request_id: requestId,
+          error: err?.message || String(err)
+        });
         finish(reject, err);
       });
 
       ws.on('close', () => {
+        void this.emitDebug('chain.electron.ws.closed', 'electron gateway ws closed', {
+          session_id: this.sessionId,
+          request_id: requestId
+        });
         if (!settled) {
           finish(reject, new Error('gateway connection closed before runtime result'));
         }

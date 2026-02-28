@@ -1,3 +1,5 @@
+const { publishChainEvent } = require('../bus/chainDebug');
+
 class ToolCallDispatcher {
   constructor({ bus, executor }) {
     this.bus = bus;
@@ -26,6 +28,13 @@ class ToolCallDispatcher {
         call_id: callId,
         name: tool.name
       };
+      publishChainEvent(this.bus, 'dispatch.received', {
+        trace_id: traceId,
+        session_id: sessionId,
+        step_index: stepIndex,
+        call_id: callId,
+        tool_name: tool.name
+      });
 
       this.bus.publish('tool.call.dispatched', { ...base, args: tool.args });
 
@@ -42,6 +51,7 @@ class ToolCallDispatcher {
           workspace_root: workspaceRoot || null
         },
         workspaceRoot: workspaceRoot || process.cwd(),
+        bus: this.bus,
         publishEvent: (topic, eventPayload = {}) => {
           this.bus.publish(topic, {
             trace_id: traceId,
@@ -54,6 +64,15 @@ class ToolCallDispatcher {
         }
       });
       if (!result.ok) {
+        publishChainEvent(this.bus, 'dispatch.completed', {
+          trace_id: traceId,
+          session_id: sessionId,
+          step_index: stepIndex,
+          call_id: callId,
+          tool_name: tool.name,
+          ok: false,
+          code: result.code || null
+        });
         this.bus.publish('tool.call.result', {
           ...base,
           ok: false,
@@ -65,6 +84,14 @@ class ToolCallDispatcher {
         return;
       }
 
+      publishChainEvent(this.bus, 'dispatch.completed', {
+        trace_id: traceId,
+        session_id: sessionId,
+        step_index: stepIndex,
+        call_id: callId,
+        tool_name: tool.name,
+        ok: true
+      });
       this.bus.publish('tool.call.result', {
         ...base,
         ok: true,

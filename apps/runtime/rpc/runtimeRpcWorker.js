@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const { RpcErrorCode, createRpcError, createRpcResult, toRpcEvent } = require('./jsonRpc');
+const { publishChainEvent } = require('../bus/chainDebug');
 
 function normalizeInputImages(value) {
   if (value === undefined || value === null) return [];
@@ -70,8 +71,18 @@ class RuntimeRpcWorker {
 
   async processEnvelope(envelope) {
     const { request, context } = envelope;
+    publishChainEvent(this.bus, 'worker.envelope.start', {
+      request_id: request?.id ?? null,
+      method: request?.method || null,
+      queue_wait_ms: Math.max(0, Date.now() - Number(envelope?.accepted_at || Date.now()))
+    });
 
     if (request.method !== 'runtime.run') {
+      publishChainEvent(this.bus, 'worker.envelope.rejected', {
+        request_id: request?.id ?? null,
+        reason: 'method_not_found',
+        method: request?.method || null
+      });
       if (request.id !== undefined) {
         context.send?.(createRpcError(request.id, RpcErrorCode.METHOD_NOT_FOUND, `method not found: ${request.method}`));
       }
@@ -84,6 +95,10 @@ class RuntimeRpcWorker {
     const inputAudio = normalizeInputAudio(params.input_audio);
 
     if (inputImages === null) {
+      publishChainEvent(this.bus, 'worker.envelope.rejected', {
+        request_id: request?.id ?? null,
+        reason: 'invalid_input_images'
+      });
       if (request.id !== undefined) {
         context.send?.(createRpcError(request.id, RpcErrorCode.INVALID_PARAMS, 'params.input_images must be an array of image objects'));
       }
@@ -91,6 +106,10 @@ class RuntimeRpcWorker {
     }
 
     if (params.input_audio !== undefined && inputAudio === null) {
+      publishChainEvent(this.bus, 'worker.envelope.rejected', {
+        request_id: request?.id ?? null,
+        reason: 'invalid_input_audio'
+      });
       if (request.id !== undefined) {
         context.send?.(createRpcError(request.id, RpcErrorCode.INVALID_PARAMS, 'params.input_audio must include audio_ref, format(wav|mp3|ogg|webm|m4a), optional lang/hints'));
       }
@@ -114,11 +133,26 @@ class RuntimeRpcWorker {
       if (prepared && typeof prepared === 'object' && !Array.isArray(prepared)) {
         runtimeContext = prepared;
       }
+      publishChainEvent(this.bus, 'worker.context.ready', {
+        request_id: request?.id ?? null,
+        session_id: sessionId,
+        permission_level: runtimeContext?.permission_level || null,
+        workspace_root: runtimeContext?.workspace_root || null
+      });
     } catch {
       // Context hooks should not break runtime execution.
+      publishChainEvent(this.bus, 'worker.context.error', {
+        request_id: request?.id ?? null,
+        session_id: sessionId
+      });
     }
 
     if (!input.trim() && inputAudio && typeof context.transcribeAudio === 'function') {
+      publishChainEvent(this.bus, 'worker.asr.start', {
+        request_id: request?.id ?? null,
+        session_id: sessionId,
+        format: inputAudio?.format || null
+      });
       try {
         const transcribed = await context.transcribeAudio({
           request,
@@ -138,12 +172,27 @@ class RuntimeRpcWorker {
             }
           };
         }
+        publishChainEvent(this.bus, 'worker.asr.completed', {
+          request_id: request?.id ?? null,
+          session_id: sessionId,
+          transcribed_chars: input.length,
+          confidence: runtimeContext?.input_audio?.confidence ?? null
+        });
       } catch {
         // ASR failure should not crash worker; validation below handles empty input.
+        publishChainEvent(this.bus, 'worker.asr.failed', {
+          request_id: request?.id ?? null,
+          session_id: sessionId
+        });
       }
     }
 
     if (!input.trim() && inputImages.length === 0) {
+      publishChainEvent(this.bus, 'worker.envelope.rejected', {
+        request_id: request?.id ?? null,
+        reason: 'empty_input_after_processing',
+        session_id: sessionId
+      });
       if (request.id !== undefined) {
         context.send?.(createRpcError(request.id, RpcErrorCode.INVALID_PARAMS, 'params.input must be non-empty string when params.input_images and params.input_audio are empty/invalid'));
       }
@@ -180,7 +229,17 @@ class RuntimeRpcWorker {
     }
 
     context.sendEvent?.(toRpcEvent('runtime.start', { session_id: sessionId, request_id: request.id ?? null }));
+    publishChainEvent(this.bus, 'worker.runtime.start_sent', {
+      request_id: request?.id ?? null,
+      session_id: sessionId
+    });
 
+    publishChainEvent(this.bus, 'worker.runner.start', {
+      request_id: request?.id ?? null,
+      session_id: sessionId,
+      input_chars: input.length,
+      input_images: inputImages.length
+    });
     const result = await this.runner.run({
       sessionId,
       input,
@@ -200,8 +259,20 @@ class RuntimeRpcWorker {
       trace_id: result.traceId,
       state: result.state
     };
+    publishChainEvent(this.bus, 'worker.runner.completed', {
+      request_id: request?.id ?? null,
+      session_id: sessionId,
+      trace_id: result.traceId,
+      state: result.state,
+      output_chars: String(result.output || '').length
+    });
 
     context.sendEvent?.(toRpcEvent('runtime.final', payload));
+    publishChainEvent(this.bus, 'worker.runtime.final_sent', {
+      request_id: request?.id ?? null,
+      session_id: sessionId,
+      trace_id: result.traceId
+    });
 
     try {
       await context.onRunFinal?.({
@@ -219,6 +290,11 @@ class RuntimeRpcWorker {
 
     if (request.id !== undefined) {
       context.send?.(createRpcResult(request.id, payload));
+      publishChainEvent(this.bus, 'worker.rpc.result_sent', {
+        request_id: request?.id ?? null,
+        session_id: sessionId,
+        trace_id: result.traceId
+      });
     }
   }
 }

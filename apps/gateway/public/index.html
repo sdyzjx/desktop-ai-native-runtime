@@ -48,9 +48,29 @@
             <option value="dark">dark</option>
           </select>
         </div>
+        <button id="debugPanelToggleBtn" class="btn" type="button">Debug Panel</button>
       </header>
 
       <section id="messageList" class="message-list"></section>
+      <section id="debugPanel" class="debug-panel">
+        <div class="debug-toolbar">
+          <div class="debug-status-wrap">
+            <span class="debug-label">Debug Stream</span>
+            <span id="debugStreamStatus" class="debug-stream-status">Disconnected</span>
+          </div>
+          <div class="debug-actions">
+            <button id="debugConnectBtn" class="btn" type="button">Connect</button>
+            <button id="debugDisconnectBtn" class="btn" type="button">Disconnect</button>
+            <button id="debugModeBtn" class="btn" type="button">Debug OFF</button>
+            <button id="debugClearBtn" class="btn" type="button">Clear</button>
+          </div>
+        </div>
+        <div class="debug-filter-row">
+          <input id="debugTopicsInput" class="debug-input" type="text" placeholder="topics: runtime.event,shell.exec.stdout,tool.call.result" />
+          <input id="debugTokenInput" class="debug-input" type="password" placeholder="optional token (if DEBUG_STREAM_BEARER_TOKEN is set)" />
+        </div>
+        <div id="debugStreamList" class="debug-stream-list"></div>
+      </section>
 
       <footer class="composer-wrap">
         <div class="composer-inner">

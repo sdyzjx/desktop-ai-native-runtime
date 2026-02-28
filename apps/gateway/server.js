@@ -5,6 +5,7 @@ const { execFile } = require('node:child_process');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { DebugEventStream } = require('./debugEventStream');
 
 const { ToolExecutor } = require('../runtime/executor/toolExecutor');
 const { ToolLoopRunner } = require('../runtime/loop/toolLoopRunner');
@@ -36,6 +37,7 @@ const { SkillConfigStore } = require('../runtime/skills/skillConfigStore');
 const { ToolConfigStore } = require('../runtime/tooling/toolConfigStore');
 const { loadVoicePolicy } = require('../runtime/tooling/voice/policy');
 const { __internal: voiceInternal } = require('../runtime/tooling/adapters/voice');
+const { publishChainEvent } = require('../runtime/bus/chainDebug');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -43,7 +45,19 @@ app.use('/assets', express.static(path.join(__dirname, '..', '..', 'assets')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const bus = new RuntimeEventBus();
-const queue = new RpcInputQueue({ maxSize: 2000 });
+let debugMode = String(process.env.DEBUG_MODE || '').trim().toLowerCase() === 'true';
+bus.isDebugMode = () => debugMode;
+
+const debugEventStream = new DebugEventStream({
+  bus,
+  authToken: process.env.DEBUG_STREAM_BEARER_TOKEN || '',
+  allowedTopics: process.env.DEBUG_STREAM_ALLOWED_TOPICS || '*',
+  heartbeatMs: Number(process.env.DEBUG_STREAM_HEARTBEAT_MS) || 15000,
+  bufferSize: Number(process.env.DEBUG_STREAM_BUFFER_SIZE) || 2000,
+  globalMaxConnections: Number(process.env.DEBUG_STREAM_MAX_CONNECTIONS) || 200,
+  perUserMaxConnections: Number(process.env.DEBUG_STREAM_PER_USER_MAX_CONNECTIONS) || 3
+});
+const queue = new RpcInputQueue({ maxSize: 2000, bus });
 const toolConfigManager = new ToolConfigManager();
 const toolRuntime = toolConfigManager.buildRegistry();
 const executor = new ToolExecutor(toolRuntime.registry, { policy: toolRuntime.policy, exec: toolRuntime.exec });
@@ -201,10 +215,45 @@ app.get('/health', async (_, res) => {
     session_store: sessionStats,
     memory_store: memoryStats,
     voice: voiceStats,
+    debug_stream: {
+      enabled: true,
+      debug_mode: debugMode,
+      ...debugEventStream.stats()
+    },
     workspace_store: {
       root_dir: workspaceManager.rootDir
     }
   });
+});
+
+app.get('/api/debug/mode', (_, res) => {
+  res.json({ ok: true, data: { debug: debugMode } });
+});
+
+app.put('/api/debug/mode', (req, res) => {
+  const raw = req.body?.debug;
+  if (typeof raw !== 'boolean') {
+    res.status(400).json({ ok: false, error: 'body.debug must be boolean' });
+    return;
+  }
+  debugMode = raw;
+  res.json({ ok: true, data: { debug: debugMode } });
+});
+
+app.get('/api/debug/events', (req, res) => {
+  debugEventStream.handleStream(req, res);
+});
+
+app.get('/debug/stream', (req, res) => {
+  debugEventStream.handleStream(req, res);
+});
+
+app.post('/api/debug/emit', (req, res) => {
+  debugEventStream.handleEmit(req, res);
+});
+
+app.post('/debug/emit', (req, res) => {
+  debugEventStream.handleEmit(req, res);
 });
 
 app.get('/api/sessions', async (req, res) => {
@@ -627,6 +676,12 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 
 function sendSafe(ws, payload) {
   if (ws.readyState !== 1) return;
+  publishChainEvent(bus, 'gateway.ws.outbound', {
+    channel: '/ws',
+    payload_type: payload?.type || payload?.method || 'rpc',
+    rpc_id: payload?.id ?? null,
+    session_id: payload?.session_id || payload?.params?.session_id || null
+  });
   ws.send(JSON.stringify(payload));
 }
 
@@ -728,8 +783,23 @@ async function enqueueRpc(ws, rpcPayload, mode) {
   const normalizedAudio = normalizeInputAudio(rpcPayload.params?.input_audio);
   const requestId = rpcPayload.id ?? null;
   const requestedPermissionLevel = rpcPayload.params?.permission_level;
+  publishChainEvent(bus, 'gateway.enqueue.start', {
+    mode,
+    request_id: requestId,
+    method: rpcPayload?.method || 'runtime.run',
+    session_id: rpcPayload?.params?.session_id || null,
+    input_chars: requestInput.length,
+    input_images: Array.isArray(rpcPayload?.params?.input_images) ? rpcPayload.params.input_images.length : 0,
+    has_input_audio: Boolean(rpcPayload?.params?.input_audio)
+  });
 
   if (!normalizedImages.ok) {
+    publishChainEvent(bus, 'gateway.enqueue.rejected', {
+      mode,
+      request_id: requestId,
+      reason: 'invalid_input_images',
+      error: normalizedImages.error
+    });
     if (mode === 'legacy') {
       sendSafe(ws, { type: 'error', message: normalizedImages.error });
       return;
@@ -739,6 +809,12 @@ async function enqueueRpc(ws, rpcPayload, mode) {
   }
 
   if (!normalizedAudio.ok) {
+    publishChainEvent(bus, 'gateway.enqueue.rejected', {
+      mode,
+      request_id: requestId,
+      reason: 'invalid_input_audio',
+      error: normalizedAudio.error
+    });
     if (mode === 'legacy') {
       sendSafe(ws, { type: 'error', message: normalizedAudio.error });
       return;
@@ -750,6 +826,11 @@ async function enqueueRpc(ws, rpcPayload, mode) {
   const inputImages = normalizedImages.images;
   const inputAudio = normalizedAudio.audio;
   if (!requestInput.trim() && inputImages.length === 0 && !inputAudio) {
+    publishChainEvent(bus, 'gateway.enqueue.rejected', {
+      mode,
+      request_id: requestId,
+      reason: 'empty_input'
+    });
     if (mode === 'legacy') {
       sendSafe(ws, { type: 'error', message: 'input text or input_images or input_audio is required' });
       return;
@@ -759,6 +840,12 @@ async function enqueueRpc(ws, rpcPayload, mode) {
   }
 
   if (requestedPermissionLevel !== undefined && !isSessionPermissionLevel(requestedPermissionLevel)) {
+    publishChainEvent(bus, 'gateway.enqueue.rejected', {
+      mode,
+      request_id: requestId,
+      reason: 'invalid_permission_level',
+      permission_level: requestedPermissionLevel
+    });
     if (mode === 'legacy') {
       sendSafe(ws, { type: 'error', message: 'permission_level must be low|medium|high' });
       return;
@@ -805,6 +892,7 @@ async function enqueueRpc(ws, rpcPayload, mode) {
         permission_level: runtimeContext?.permission_level || null,
         workspace_root: runtimeContext?.workspace_root || null,
         workspaceRoot: runtimeContext?.workspace_root || process.cwd(),
+        bus,
         meta: {
           session_id: sessionId,
           permission_level: runtimeContext?.permission_level || null,
@@ -988,7 +1076,22 @@ async function enqueueRpc(ws, rpcPayload, mode) {
   };
 
   const result = await queue.submit(rpcPayload, context);
-  if (result.accepted) return;
+  if (result.accepted) {
+    publishChainEvent(bus, 'gateway.enqueue.accepted', {
+      mode,
+      request_id: requestId,
+      queue_size: queue.size()
+    });
+    return;
+  }
+
+  publishChainEvent(bus, 'gateway.enqueue.rejected', {
+    mode,
+    request_id: requestId,
+    reason: 'queue_submit_rejected',
+    code: result?.response?.error?.code ?? null,
+    error: result?.response?.error?.message || null
+  });
 
   if (mode === 'legacy') {
     sendSafe(ws, { type: 'error', message: result.response.error?.message || 'request rejected' });
@@ -999,16 +1102,28 @@ async function enqueueRpc(ws, rpcPayload, mode) {
 }
 
 wss.on('connection', (ws) => {
-  console.log("ws connection！");
+  publishChainEvent(bus, 'gateway.ws.connected', {
+    channel: '/ws'
+  });
   ws.on('message', async (raw) => {
     let msg;
-    console.log("ws message！", raw.toString());
     try {
       msg = JSON.parse(raw.toString());
     } catch {
+      publishChainEvent(bus, 'gateway.ws.parse_error', {
+        channel: '/ws'
+      });
       sendSafe(ws, createRpcError(null, RpcErrorCode.PARSE_ERROR, 'Invalid JSON'));
       return;
     }
+
+    publishChainEvent(bus, 'gateway.ws.inbound', {
+      channel: '/ws',
+      raw_type: msg?.type || null,
+      method: msg?.method || null,
+      jsonrpc: msg?.jsonrpc || null,
+      id: msg?.id ?? null
+    });
 
     if (msg && msg.jsonrpc === '2.0') {
       console.log(`[GW RPC] [${msg.id || 'notify'}] ${msg.method}`, JSON.stringify(msg.params).substring(0, 200));
@@ -1032,6 +1147,9 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    publishChainEvent(bus, 'gateway.ws.invalid_request', {
+      channel: '/ws'
+    });
     sendSafe(ws, createRpcError(null, RpcErrorCode.INVALID_REQUEST, 'Unsupported message format'));
   });
 
@@ -1049,10 +1167,12 @@ wss.on('connection', (ws) => {
     }
   };
 
-  // Subscribe to the wildcard topic we just added
   const unsubscribe = bus.subscribe('*', onGlobalEvent);
 
   ws.on('close', () => {
     unsubscribe();
+    publishChainEvent(bus, 'gateway.ws.closed', {
+      channel: '/ws'
+    });
   });
 });

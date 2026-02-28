@@ -25,3 +25,19 @@ test('RuntimeEventBus waitFor resolves matching payload', async () => {
   const result = await wait;
   assert.equal(result.value, 42);
 });
+
+test('RuntimeEventBus subscribeAll receives topic and payload', () => {
+  const bus = new RuntimeEventBus();
+  const seen = [];
+  const off = bus.subscribeAll((evt) => seen.push(evt));
+
+  bus.publish('topic.x', { n: 1 });
+  bus.publish('topic.y', { n: 2 });
+  off();
+  bus.publish('topic.z', { n: 3 });
+
+  assert.deepEqual(seen, [
+    { topic: 'topic.x', payload: { n: 1 } },
+    { topic: 'topic.y', payload: { n: 2 } }
+  ]);
+});
