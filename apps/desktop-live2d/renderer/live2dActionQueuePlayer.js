@@ -11,28 +11,38 @@
       sleep = sleepMs,
       tickMs = 50,
       maxQueueSize = 120,
+      overflowPolicy = 'drop_oldest',
+      mutex = null,
       logger = console
     } = {}) {
       if (typeof executeAction !== 'function') {
         throw new Error('Live2dActionQueuePlayer requires executeAction function');
       }
+      const normalizedOverflowPolicy = String(overflowPolicy || 'drop_oldest').trim().toLowerCase();
+      if (!['drop_oldest', 'drop_newest', 'reject'].includes(normalizedOverflowPolicy)) {
+        throw new Error('Live2dActionQueuePlayer overflowPolicy must be drop_oldest|drop_newest|reject');
+      }
       this.executeAction = executeAction;
       this.sleep = sleep;
       this.tickMs = Math.max(5, Math.floor(Number(tickMs) || 50));
       this.maxQueueSize = Math.max(1, Math.floor(Number(maxQueueSize) || 120));
+      this.overflowPolicy = normalizedOverflowPolicy;
+      this.mutex = mutex;
       this.logger = logger;
       this.queue = [];
       this.loopRunning = false;
       this.activeStep = null;
       this.sequence = 0;
       this.idleWaiters = [];
+      this.droppedCount = 0;
     }
 
     snapshot() {
       return {
         queueSize: this.queue.length,
         loopRunning: this.loopRunning,
-        activeActionId: this.activeStep?.action?.action_id || null
+        activeActionId: this.activeStep?.action?.action_id || null,
+        droppedCount: this.droppedCount
       };
     }
 
@@ -55,10 +65,37 @@
         action_id: actionId
       };
 
-      this.queue.push(nextAction);
-      if (this.queue.length > this.maxQueueSize) {
-        this.queue.splice(0, this.queue.length - this.maxQueueSize);
+      if (this.queue.length >= this.maxQueueSize) {
+        if (this.overflowPolicy === 'reject') {
+          throw new Error(`live2d action queue overflow (max=${this.maxQueueSize})`);
+        }
+        if (this.overflowPolicy === 'drop_newest') {
+          this.droppedCount += 1;
+          this.logger.warn?.('[live2d-action-player] queue overflow drop_newest', {
+            action_id: actionId,
+            queue_size: this.queue.length,
+            max_queue_size: this.maxQueueSize
+          });
+          return {
+            ok: false,
+            dropped: true,
+            reason: 'queue_overflow_drop_newest',
+            action_id: actionId,
+            queue_size: this.queue.length
+          };
+        }
+
+        const dropCount = Math.max(1, this.queue.length - this.maxQueueSize + 1);
+        this.queue.splice(0, dropCount);
+        this.droppedCount += dropCount;
+        this.logger.warn?.('[live2d-action-player] queue overflow drop_oldest', {
+          dropped: dropCount,
+          queue_size: this.queue.length,
+          max_queue_size: this.maxQueueSize
+        });
       }
+
+      this.queue.push(nextAction);
 
       void this.startLoop();
 
@@ -141,17 +178,24 @@
           };
           this.activeStep = activeStep;
 
-          try {
-            await this.executeAction(actionMessage.action);
-          } catch (err) {
-            this.logger.error?.('[live2d-action-player] execute failed', {
-              action_id: actionMessage.action_id,
-              error: err?.message || String(err || 'unknown error')
-            });
-          }
+          const runAction = async () => {
+            try {
+              await this.executeAction(actionMessage.action);
+            } catch (err) {
+              this.logger.error?.('[live2d-action-player] execute failed', {
+                action_id: actionMessage.action_id,
+                error: err?.message || String(err || 'unknown error')
+              });
+            }
+            await this.waitDuration(actionMessage.duration_sec, activeStep);
+          };
 
           try {
-            await this.waitDuration(actionMessage.duration_sec, activeStep);
+            if (this.mutex && typeof this.mutex.runExclusive === 'function') {
+              await this.mutex.runExclusive(runAction);
+            } else {
+              await runAction();
+            }
           } finally {
             this.activeStep = null;
           }
@@ -182,4 +226,3 @@
   }
   globalScope.Live2DActionQueuePlayer = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
-

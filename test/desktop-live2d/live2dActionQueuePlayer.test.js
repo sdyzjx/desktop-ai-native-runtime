@@ -132,3 +132,105 @@ test('Live2dActionQueuePlayer isolates execute errors and continues next action'
 
   assert.deepEqual(executed, ['bad-action', 'good-action']);
 });
+
+test('Live2dActionQueuePlayer honors maxQueueSize with drop_oldest overflow policy', async () => {
+  const executed = [];
+  let firstStarted = false;
+  let releaseFirst;
+  const firstGate = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  const player = new Live2dActionQueuePlayer({
+    executeAction: async (action) => {
+      executed.push(action.name);
+      if (action.name === 'first') {
+        firstStarted = true;
+        await firstGate;
+      }
+    },
+    sleep: async () => {},
+    tickMs: 20,
+    maxQueueSize: 1,
+    overflowPolicy: 'drop_oldest'
+  });
+
+  player.enqueue(createExpressionAction({ id: 'a1', name: 'first', durationSec: 0.01 }));
+  while (!firstStarted) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+
+  player.enqueue(createExpressionAction({ id: 'a2', name: 'second', durationSec: 0.01 }));
+  player.enqueue(createExpressionAction({ id: 'a3', name: 'third', durationSec: 0.01 }));
+
+  releaseFirst();
+  await player.waitForIdle(1000);
+
+  assert.deepEqual(executed, ['first', 'third']);
+  assert.equal(player.snapshot().droppedCount, 1);
+});
+
+test('Live2dActionQueuePlayer can drop newest action on overflow', async () => {
+  const executed = [];
+  let firstStarted = false;
+  let releaseFirst;
+  const firstGate = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  const player = new Live2dActionQueuePlayer({
+    executeAction: async (action) => {
+      executed.push(action.name);
+      if (action.name === 'first') {
+        firstStarted = true;
+        await firstGate;
+      }
+    },
+    sleep: async () => {},
+    tickMs: 20,
+    maxQueueSize: 1,
+    overflowPolicy: 'drop_newest'
+  });
+
+  player.enqueue(createExpressionAction({ id: 'a1', name: 'first', durationSec: 0.01 }));
+  while (!firstStarted) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+
+  const keepSecond = player.enqueue(createExpressionAction({ id: 'a2', name: 'second', durationSec: 0.01 }));
+  const dropThird = player.enqueue(createExpressionAction({ id: 'a3', name: 'third', durationSec: 0.01 }));
+
+  releaseFirst();
+  await player.waitForIdle(1000);
+
+  assert.equal(keepSecond.ok, true);
+  assert.equal(dropThird.ok, false);
+  assert.equal(dropThird.reason, 'queue_overflow_drop_newest');
+  assert.deepEqual(executed, ['first', 'second']);
+});
+
+test('Live2dActionQueuePlayer executes actions through provided mutex', async () => {
+  const executed = [];
+  const lockCalls = [];
+  const mutex = {
+    runExclusive: async (task) => {
+      lockCalls.push('lock');
+      return task();
+    }
+  };
+
+  const player = new Live2dActionQueuePlayer({
+    executeAction: async (action) => {
+      executed.push(action.name);
+    },
+    sleep: async () => {},
+    tickMs: 20,
+    mutex
+  });
+
+  player.enqueue(createExpressionAction({ id: 'a1', name: 'smile', durationSec: 0.01 }));
+  await player.waitForIdle(800);
+
+  assert.deepEqual(executed, ['smile']);
+  assert.equal(lockCalls.length, 1);
+});

@@ -2,6 +2,7 @@
   const bridge = window.desktopLive2dBridge;
   const interactionApi = window.Live2DInteraction || null;
   const actionMessageApi = window.Live2DActionMessage || null;
+  const actionMutexApi = window.Live2DActionMutex || null;
   const actionQueueApi = window.Live2DActionQueuePlayer || null;
   const actionExecutorApi = window.Live2DActionExecutor || null;
   const state = {
@@ -25,6 +26,7 @@
   let stableModelPose = null;
   let modelBaseBounds = null;
   let actionQueuePlayer = null;
+  let actionExecutionMutex = null;
   let actionExecutor = null;
 
   const stageContainer = document.getElementById('stage');
@@ -344,7 +346,31 @@
     };
   }
 
-  function playModelMotion(params) {
+  function ensureActionExecutionMutex() {
+    if (actionExecutionMutex) {
+      return actionExecutionMutex;
+    }
+
+    if (typeof actionMutexApi?.createLive2dActionMutex === 'function') {
+      actionExecutionMutex = actionMutexApi.createLive2dActionMutex();
+      return actionExecutionMutex;
+    }
+
+    actionExecutionMutex = {
+      runExclusive: async (task) => task()
+    };
+    return actionExecutionMutex;
+  }
+
+  async function runActionWithMutex(task) {
+    const mutex = ensureActionExecutionMutex();
+    if (!mutex || typeof mutex.runExclusive !== 'function') {
+      return task();
+    }
+    return mutex.runExclusive(task);
+  }
+
+  function playModelMotionRaw(params) {
     if (!live2dModel || !state.modelLoaded) {
       throw createRpcError(-32004, 'model not loaded');
     }
@@ -377,7 +403,7 @@
     };
   }
 
-  function setModelExpression(params) {
+  function setModelExpressionRaw(params) {
     if (!live2dModel || !state.modelLoaded) {
       throw createRpcError(-32004, 'model not loaded');
     }
@@ -401,6 +427,14 @@
     throw createRpcError(-32005, 'expression() is unavailable on this model runtime');
   }
 
+  async function playModelMotion(params) {
+    return runActionWithMutex(() => playModelMotionRaw(params));
+  }
+
+  async function setModelExpression(params) {
+    return runActionWithMutex(() => setModelExpressionRaw(params));
+  }
+
   function ensureActionQueuePlayer() {
     if (actionQueuePlayer) {
       return actionQueuePlayer;
@@ -413,19 +447,25 @@
       if (typeof actionExecutorApi?.createLive2dActionExecutor !== 'function') {
         throw createRpcError(-32005, 'Live2dActionExecutor runtime is unavailable');
       }
+      const runtimeActionQueueConfig = runtimeUiConfig?.actionQueue || {};
       actionExecutor = actionExecutorApi.createLive2dActionExecutor({
-        setExpression: setModelExpression,
-        playMotion: playModelMotion,
+        setExpression: setModelExpressionRaw,
+        playMotion: playModelMotionRaw,
+        setParamBatch: setModelParamsBatch,
         createError: createRpcError
       });
+      actionQueuePlayer = new Player({
+        executeAction: async (action) => {
+          await actionExecutor(action);
+        },
+        maxQueueSize: Number(runtimeActionQueueConfig.maxQueueSize) || 120,
+        overflowPolicy: runtimeActionQueueConfig.overflowPolicy || 'drop_oldest',
+        mutex: ensureActionExecutionMutex(),
+        logger: console
+      });
+      return actionQueuePlayer;
     }
-    actionQueuePlayer = new Player({
-      executeAction: async (action) => {
-        actionExecutor(action);
-      },
-      logger: console
-    });
-    return actionQueuePlayer;
+    throw createRpcError(-32005, 'live2d action subsystem init failed');
   }
 
   function getState() {
@@ -893,9 +933,9 @@
       } else if (method === 'model.param.batchSet') {
         result = setModelParamsBatch(params);
       } else if (method === 'model.motion.play') {
-        result = playModelMotion(params);
+        result = await playModelMotion(params);
       } else if (method === 'model.expression.set') {
-        result = setModelExpression(params);
+        result = await setModelExpression(params);
       } else if (method === 'chat.show' || method === 'chat.bubble.show') {
         result = showBubble(params);
       } else if (method === 'chat.panel.show') {
