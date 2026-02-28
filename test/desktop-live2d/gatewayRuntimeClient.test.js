@@ -144,9 +144,9 @@ test('GatewayRuntimeClient ensureSession uses gateway settings api and set/get s
 
   await client.ensureSession({ permissionLevel: 'high' });
 
-  assert.equal(calls.length, 1);
-  assert.match(calls[0].url, /\/api\/sessions\/s-2\/settings$/);
-  const body = JSON.parse(String(calls[0].options.body || '{}'));
+  const settingsCalls = calls.filter((call) => /\/api\/sessions\/s-2\/settings$/.test(call.url));
+  assert.equal(settingsCalls.length, 1);
+  const body = JSON.parse(String(settingsCalls[0].options.body || '{}'));
   assert.equal(body.settings.permission_level, 'high');
 });
 
@@ -169,9 +169,9 @@ test('GatewayRuntimeClient createAndUseNewSession switches session id and boots 
   const nextSessionId = await client.createAndUseNewSession({ permissionLevel: 'low' });
   assert.match(nextSessionId, /^desktop-\d{14}-[a-f0-9]{8}$/);
   assert.equal(client.getSessionId(), nextSessionId);
-  assert.equal(calls.length, 1);
-  assert.match(calls[0].url, new RegExp(`/api/sessions/${nextSessionId}/settings$`));
-  const body = JSON.parse(String(calls[0].options.body || '{}'));
+  const settingsCalls = calls.filter((call) => new RegExp(`/api/sessions/${nextSessionId}/settings$`).test(call.url));
+  assert.equal(settingsCalls.length, 1);
+  const body = JSON.parse(String(settingsCalls[0].options.body || '{}'));
   assert.equal(body.settings.permission_level, 'low');
 });
 

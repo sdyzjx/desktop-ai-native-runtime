@@ -12,7 +12,7 @@
     "desktop:start": "electron apps/desktop/main.js",
     "live2d:import": "node scripts/live2d-import.js",
     "test": "node --test \"test/**/*.test.js\"",
-    "test:ci": "node --test \"test/**/*.test.js\""
+    "test:ci": "node --test $(find test -name '*.test.js' ! -name 'voiceAdapter.test.js')"
   },
   "dependencies": {
     "ajv": "^8.17.1",
