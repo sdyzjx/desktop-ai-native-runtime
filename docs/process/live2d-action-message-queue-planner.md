@@ -192,15 +192,14 @@
 
 > 每次 commit 后在此追加 hash，形成追踪链。
 
-- [ ] `<hash>` Phase A / A1
+- [x] `1c0cae7` Phase A / A1
 - [ ] `<hash>` Phase A / A2
-- [ ] `<hash>` Phase A / A3
-- [ ] `<hash>` Phase B / B1
-- [ ] `<hash>` Phase B / B2
-- [ ] `<hash>` Phase B / B3
+- [x] `1c0cae7` Phase A / A3
+- [x] `45222ed` Phase B / B1
+- [x] `45222ed` Phase B / B2
+- [x] `45222ed` Phase B / B3
 - [ ] `<hash>` Phase C / C1
 - [ ] `<hash>` Phase C / C2
 - [ ] `<hash>` Phase D / D1
 - [ ] `<hash>` Phase D / D2
 - [ ] `<hash>` Phase E / E1
-
