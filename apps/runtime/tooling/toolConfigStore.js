@@ -62,6 +62,13 @@ class ToolConfigStore {
     return fs.readFileSync(this.configPath, 'utf8');
   }
 
+  saveRawYaml(rawYaml) {
+    if (typeof rawYaml !== 'string') throw new ToolingError(ErrorCode.CONFIG_ERROR, 'rawYaml must be a string');
+    const parsed = YAML.parse(rawYaml);
+    validateToolsConfig(parsed); // 校验通过才写盘，防止 policy.deny 被改坏
+    fs.writeFileSync(this.configPath, rawYaml, 'utf8');
+  }
+
   load() {
     const parsed = YAML.parse(this.loadRawYaml());
     return validateToolsConfig(parsed);
