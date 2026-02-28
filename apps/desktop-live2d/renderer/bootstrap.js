@@ -428,6 +428,25 @@
     throw createRpcError(-32005, 'expression() is unavailable on this model runtime');
   }
 
+  function resetModelExpressionRaw() {
+    if (!live2dModel || !state.modelLoaded) {
+      return { ok: false, skipped: true, reason: 'model_not_loaded' };
+    }
+
+    if (typeof live2dModel.resetExpression === 'function') {
+      live2dModel.resetExpression();
+      return { ok: true };
+    }
+
+    const expressionManager = live2dModel.internalModel?.motionManager?.expressionManager;
+    if (expressionManager && typeof expressionManager.resetExpression === 'function') {
+      expressionManager.resetExpression();
+      return { ok: true };
+    }
+
+    return { ok: false, skipped: true, reason: 'reset_expression_unavailable' };
+  }
+
   async function playModelMotion(params) {
     return runActionWithMutex(() => playModelMotionRaw(params));
   }
@@ -462,6 +481,9 @@
       actionQueuePlayer = new Player({
         executeAction: async (action) => {
           await actionExecutor(action);
+        },
+        afterIdleAction: async () => {
+          resetModelExpressionRaw();
         },
         maxQueueSize: Number(runtimeActionQueueConfig.maxQueueSize) || 120,
         overflowPolicy: runtimeActionQueueConfig.overflowPolicy || 'drop_oldest',

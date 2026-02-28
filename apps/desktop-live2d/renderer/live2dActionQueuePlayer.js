@@ -13,6 +13,7 @@
       maxQueueSize = 120,
       overflowPolicy = 'drop_oldest',
       idleAction = null,
+      afterIdleAction = null,
       mutex = null,
       onTelemetry = null,
       logger = console
@@ -31,6 +32,9 @@
       this.overflowPolicy = normalizedOverflowPolicy;
       this.idleAction = idleAction && typeof idleAction === 'object' && !Array.isArray(idleAction)
         ? { ...idleAction }
+        : null;
+      this.afterIdleAction = typeof afterIdleAction === 'function'
+        ? afterIdleAction
         : null;
       this.mutex = mutex;
       this.onTelemetry = onTelemetry;
@@ -205,6 +209,7 @@
       }
       this.idleActionApplied = true;
       const runIdle = async () => {
+        let idleError = null;
         try {
           this.logger.info?.('[live2d-action-player] idle fallback', {
             action_type: this.idleAction?.type || null,
@@ -212,9 +217,22 @@
           });
           await this.executeAction(this.idleAction);
         } catch (err) {
+          idleError = err;
           this.logger.warn?.('[live2d-action-player] idle fallback failed', {
             error: err?.message || String(err || 'unknown error')
           });
+        }
+        if (this.afterIdleAction) {
+          try {
+            await this.afterIdleAction({
+              idleAction: this.idleAction,
+              idleError
+            });
+          } catch (err) {
+            this.logger.warn?.('[live2d-action-player] idle post-action failed', {
+              error: err?.message || String(err || 'unknown error')
+            });
+          }
         }
       };
 

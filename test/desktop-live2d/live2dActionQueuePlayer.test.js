@@ -282,6 +282,30 @@ test('Live2dActionQueuePlayer falls back to idle action when queue drains', asyn
   assert.equal(player.snapshot().idleActionApplied, true);
 });
 
+test('Live2dActionQueuePlayer runs post-idle hook after idle fallback', async () => {
+  const executed = [];
+  const player = new Live2dActionQueuePlayer({
+    executeAction: async (action) => {
+      executed.push(action.name);
+    },
+    afterIdleAction: async () => {
+      executed.push('reset_expression');
+    },
+    sleep: async () => {},
+    tickMs: 20,
+    idleAction: {
+      type: 'motion',
+      name: 'Idle',
+      args: { group: 'Idle', index: 0 }
+    }
+  });
+
+  player.enqueue(createExpressionAction({ id: 'a1', name: 'smile', durationSec: 0.01 }));
+  await player.waitForIdle(800);
+
+  assert.deepEqual(executed, ['smile', 'Idle', 'reset_expression']);
+});
+
 test('Live2dActionQueuePlayer re-applies idle fallback after next action batch', async () => {
   const executed = [];
   const player = new Live2dActionQueuePlayer({
@@ -303,4 +327,28 @@ test('Live2dActionQueuePlayer re-applies idle fallback after next action batch',
   await player.waitForIdle(800);
 
   assert.deepEqual(executed, ['smile', 'Idle', 'tear_drop', 'Idle']);
+});
+
+test('Live2dActionQueuePlayer re-runs post-idle hook for each drained batch', async () => {
+  const hooks = [];
+  const player = new Live2dActionQueuePlayer({
+    executeAction: async () => {},
+    afterIdleAction: async () => {
+      hooks.push('idle');
+    },
+    sleep: async () => {},
+    tickMs: 20,
+    idleAction: {
+      type: 'motion',
+      name: 'Idle',
+      args: { group: 'Idle', index: 0 }
+    }
+  });
+
+  player.enqueue(createExpressionAction({ id: 'a1', name: 'smile', durationSec: 0.01 }));
+  await player.waitForIdle(800);
+  player.enqueue(createExpressionAction({ id: 'a2', name: 'tear_drop', durationSec: 0.01 }));
+  await player.waitForIdle(800);
+
+  assert.deepEqual(hooks, ['idle', 'idle']);
 });
