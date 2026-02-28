@@ -31,6 +31,10 @@ const { SkillRuntimeManager } = require('../runtime/skills/skillRuntimeManager')
 const { getRuntimePaths } = require('../runtime/skills/runtimePaths');
 const { PersonaContextBuilder } = require('../runtime/persona/personaContextBuilder');
 const { PersonaProfileStore } = require('../runtime/persona/personaProfileStore');
+const { PersonaConfigStore } = require('../runtime/persona/personaConfigStore');
+const { SkillConfigStore } = require('../runtime/skills/skillConfigStore');
+const { ToolConfigStore } = require('../runtime/tooling/toolConfigStore');
+const { loadVoicePolicy } = require('../runtime/tooling/voice/policy');
 const { __internal: voiceInternal } = require('../runtime/tooling/adapters/voice');
 
 const app = express();
@@ -50,6 +54,11 @@ const longTermMemoryStore = getDefaultLongTermMemoryStore();
 const workspaceManager = getDefaultSessionWorkspaceManager();
 const skillRuntimeManager = new SkillRuntimeManager({ workspaceDir: process.cwd() });
 const personaProfileStore = new PersonaProfileStore();
+const personaConfigStore = new PersonaConfigStore();
+const skillConfigStore = new SkillConfigStore();
+const toolConfigStore = toolConfigManager.store;
+const voicePolicyPath = process.env.VOICE_POLICY_PATH || require('node:path').resolve(process.cwd(), 'config/voice-policy.yaml');
+const desktopLive2dConfigPath = process.env.DESKTOP_LIVE2D_CONFIG_PATH || require('node:path').resolve(process.cwd(), 'config/desktop-live2d.json');
 const personaContextBuilder = new PersonaContextBuilder({
   workspaceDir: process.cwd(),
   profileStore: personaProfileStore,
@@ -376,6 +385,120 @@ app.put('/api/config/providers/raw', (req, res) => {
     res.json({ ok: true, data: llmManager.getConfigSummary() });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: git commit helper ---
+function commitConfigChange(filename) {
+  const { execSync } = require('node:child_process');
+  const configDir = require('node:path').resolve(process.cwd(), 'config');
+  try {
+    execSync(
+      `git -C "${configDir}/.." add "config/${filename}" && git -C "${configDir}/.." commit -m "config: update ${filename} at ${new Date().toISOString()}"`,
+      { stdio: 'ignore' }
+    );
+  } catch (_) { /* git 未配置或无变更时静默跳过 */ }
+}
+
+// --- Config v2: tools.yaml ---
+app.put('/api/config/tools/raw', (req, res) => {
+  const yaml = req.body?.yaml;
+  if (typeof yaml !== 'string') {
+    res.status(400).json({ ok: false, error: 'body.yaml must be a string' });
+    return;
+  }
+  try {
+    toolConfigStore.saveRawYaml(yaml);
+    commitConfigChange('tools.yaml');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: persona.yaml ---
+app.get('/api/config/persona/raw', (_, res) => {
+  try {
+    res.json({ ok: true, yaml: personaConfigStore.loadRawYaml() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.put('/api/config/persona/raw', (req, res) => {
+  const yaml = req.body?.yaml;
+  if (typeof yaml !== 'string') {
+    res.status(400).json({ ok: false, error: 'body.yaml must be a string' });
+    return;
+  }
+  try {
+    personaConfigStore.saveRawYaml(yaml);
+    commitConfigChange('persona.yaml');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: skills.yaml ---
+app.get('/api/config/skills/raw', (_, res) => {
+  try {
+    res.json({ ok: true, yaml: skillConfigStore.loadRawYaml() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.put('/api/config/skills/raw', (req, res) => {
+  const yaml = req.body?.yaml;
+  if (typeof yaml !== 'string') {
+    res.status(400).json({ ok: false, error: 'body.yaml must be a string' });
+    return;
+  }
+  try {
+    skillConfigStore.saveRawYaml(yaml);
+    commitConfigChange('skills.yaml');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: voice-policy.yaml ---
+const fsSync = require('node:fs');
+app.get('/api/config/voice-policy/raw', (_, res) => {
+  try {
+    const yaml = fsSync.existsSync(voicePolicyPath) ? fsSync.readFileSync(voicePolicyPath, 'utf8') : '';
+    res.json({ ok: true, yaml });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+app.put('/api/config/voice-policy/raw', (req, res) => {
+  const yaml = req.body?.yaml;
+  if (typeof yaml !== 'string') {
+    res.status(400).json({ ok: false, error: 'body.yaml must be a string' });
+    return;
+  }
+  try {
+    const YAML = require('yaml');
+    YAML.parse(yaml); // 基础语法校验
+    fsSync.writeFileSync(voicePolicyPath, yaml, 'utf8');
+    commitConfigChange('voice-policy.yaml');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// --- Config v2: desktop-live2d.json (只读) ---
+app.get('/api/config/desktop-live2d/raw', (_, res) => {
+  try {
+    const raw = fsSync.existsSync(desktopLive2dConfigPath) ? fsSync.readFileSync(desktopLive2dConfigPath, 'utf8') : '{}';
+    res.json({ ok: true, json: raw });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || String(err) });
   }
 });
 

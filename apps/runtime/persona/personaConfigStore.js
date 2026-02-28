@@ -79,6 +79,18 @@ class PersonaConfigStore {
     fs.writeFileSync(this.configPath, YAML.stringify(DEFAULT_CONFIG), 'utf8');
   }
 
+  loadRawYaml() {
+    this.ensureExists();
+    return fs.readFileSync(this.configPath, 'utf8');
+  }
+
+  saveRawYaml(rawYaml) {
+    if (typeof rawYaml !== 'string') throw new Error('rawYaml must be a string');
+    const parsed = YAML.parse(rawYaml);
+    normalizeConfig(parsed); // 校验
+    fs.writeFileSync(this.configPath, rawYaml, 'utf8');
+  }
+
   load() {
     this.ensureExists();
     const raw = fs.readFileSync(this.configPath, 'utf8');
