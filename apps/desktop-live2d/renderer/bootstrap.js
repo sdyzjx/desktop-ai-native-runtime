@@ -1,6 +1,8 @@
 (function bootstrap() {
   const bridge = window.desktopLive2dBridge;
   const interactionApi = window.Live2DInteraction || null;
+  const actionMessageApi = window.Live2DActionMessage || null;
+  const actionQueueApi = window.Live2DActionQueuePlayer || null;
   const state = {
     modelLoaded: false,
     modelName: null,
@@ -21,6 +23,7 @@
   let stableModelScale = null;
   let stableModelPose = null;
   let modelBaseBounds = null;
+  let actionQueuePlayer = null;
 
   const stageContainer = document.getElementById('stage');
   const bubbleLayerElement = document.getElementById('bubble-layer');
@@ -394,6 +397,44 @@
     }
 
     throw createRpcError(-32005, 'expression() is unavailable on this model runtime');
+  }
+
+  function executeLive2dAction(action) {
+    if (!action || typeof action !== 'object') {
+      throw createRpcError(-32602, 'live2d action must be an object');
+    }
+
+    if (action.type === 'expression') {
+      return setModelExpression({
+        name: action.name || action.args?.name
+      });
+    }
+
+    if (action.type === 'motion') {
+      return playModelMotion({
+        group: action.args?.group || action.name,
+        index: action.args?.index
+      });
+    }
+
+    throw createRpcError(-32602, `unsupported live2d action type: ${action.type}`);
+  }
+
+  function ensureActionQueuePlayer() {
+    if (actionQueuePlayer) {
+      return actionQueuePlayer;
+    }
+    const Player = actionQueueApi?.Live2dActionQueuePlayer;
+    if (typeof Player !== 'function') {
+      throw createRpcError(-32005, 'Live2dActionQueuePlayer runtime is unavailable');
+    }
+    actionQueuePlayer = new Player({
+      executeAction: async (action) => {
+        executeLive2dAction(action);
+      },
+      logger: console
+    });
+    return actionQueuePlayer;
   }
 
   function getState() {
@@ -874,6 +915,16 @@
         result = appendChatMessage(params, 'assistant');
       } else if (method === 'chat.panel.clear') {
         result = clearChatMessages();
+      } else if (method === 'live2d.action.enqueue') {
+        if (!actionMessageApi || typeof actionMessageApi.normalizeLive2dActionMessage !== 'function') {
+          throw createRpcError(-32005, 'Live2DActionMessage runtime is unavailable');
+        }
+        const normalized = actionMessageApi.normalizeLive2dActionMessage(params);
+        if (!normalized.ok) {
+          throw createRpcError(-32602, normalized.error);
+        }
+        const player = ensureActionQueuePlayer();
+        result = player.enqueue(normalized.value);
       } else if (method === 'server_event_forward') {
         const { name, data } = params || {};
         console.log('[Renderer] Received RPC invoke:', name);
@@ -922,6 +973,7 @@
       initChatPanel(runtimeUiConfig?.chat || {});
       await initPixi();
       await loadModel(runtimeConfig.modelRelativePath, runtimeConfig.modelName);
+      ensureActionQueuePlayer();
 
       bridge.onInvoke((payload) => {
         void handleInvoke(payload);
