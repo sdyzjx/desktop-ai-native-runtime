@@ -159,6 +159,7 @@ async function saveTab() {
 // ── Git log ────────────────────────────────────────────────────────────────
 function formatDate(iso) {
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso || '—';
   const pad = n => String(n).padStart(2, '0');
   return `${d.getMonth() + 1}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

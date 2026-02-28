@@ -532,14 +532,14 @@ app.get('/api/config/git/log', async (req, res) => {
   try {
     const raw = await gitExec([
       'log', `--max-count=${limit}`,
-      '--format=%H|%h|%s|%ai',
+      '--format=%H\x1f%h\x1f%s\x1f%ai',
       '--', pathArg
     ]);
 
     if (!raw) { res.json({ ok: true, commits: [] }); return; }
 
-    const commits = raw.split('\n').map(line => {
-      const [hash, short, subject, date] = line.split('|');
+    const commits = raw.split('\n').filter(Boolean).map(line => {
+      const [hash, short, subject, date] = line.split('\x1f');
       return { hash, short, subject, date };
     });
 
