@@ -715,9 +715,10 @@ Do not add free-form items outside this format.
 - Created At: 2026-02-27 18:30
 - Source: user
 - Priority: P2
-- Status: TODO
+- Status: DONE
 - Owner: runtime
-- Branch: TDB
+- Branch: feature/REQ-20260227-016-config-v2
+- PR: https://github.com/sdyzjx/open-yachiyo/pull/27
 - Description:
   - 将现有仅覆盖 `providers.yaml` 的图形化 config UI 升级为：覆盖所有配置文件的纯 raw YAML 编辑器、内嵌 Agent 对话框（可直接让 agent 读改 config）、以及每次保存自动 git commit 的变更历史管理。
 - Acceptance Criteria:
