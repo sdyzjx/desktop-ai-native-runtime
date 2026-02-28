@@ -5,7 +5,6 @@ const WebSocket = require('ws');
 const YAML = require('yaml');
 
 const { ToolingError, ErrorCode } = require('../errors');
-const { getRuntimePaths } = require('../../skills/runtimePaths');
 const {
   ACTION_EVENT_NAME,
   normalizeLive2dActionMessage
@@ -23,8 +22,8 @@ const DEFAULT_ACTION_DURATION_SEC_BY_TYPE = Object.freeze({
   react: 2.4
 });
 
-const DEFAULT_PRESET_PATH = path.join(getRuntimePaths().configDir, 'live2d-presets.yaml');
-const TEMPLATE_PRESET_PATH = path.resolve(__dirname, '..', '..', '..', '..', 'config', 'live2d-presets.yaml');
+const DEFAULT_PRESET_PATH = path.resolve(__dirname, '..', '..', '..', '..', 'config', 'live2d-presets.yaml');
+const TEMPLATE_PRESET_PATH = DEFAULT_PRESET_PATH;
 
 function normalizeRpcUrl({ host = DEFAULT_RPC_HOST, port = DEFAULT_RPC_PORT, token = '' } = {}) {
   const safeHost = String(host || DEFAULT_RPC_HOST).trim() || DEFAULT_RPC_HOST;

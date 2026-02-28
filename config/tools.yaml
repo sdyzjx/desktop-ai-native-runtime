@@ -256,12 +256,13 @@ tools:
     adapter: live2d.emote
     description: >
       Trigger semantic emotion preset and map to expression/parameters.
-      Supported presets: happy(low|medium|high), sad(medium only).
+      Supported presets: happy(low|medium|high), sad(medium only), happy_soft(low|medium|high),
+      happy_bright(low|medium|high), sad_soft(low|medium|high), cry(low|medium|high), shy(low|medium|high).
       Always set duration_sec to match current chat context.
     input_schema:
       type: object
       properties:
-        emotion: { type: string, enum: [happy, sad] }
+        emotion: { type: string, enum: [happy, sad, happy_soft, happy_bright, sad_soft, cry, shy] }
         intensity: { type: string, enum: [low, medium, high] }
         action_id: { type: string, minLength: 1, maxLength: 160 }
         duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
@@ -282,12 +283,12 @@ tools:
     adapter: live2d.gesture
     description: >
       Trigger semantic gesture preset and map to motion/expression.
-      Supported gesture types: greet, think.
+      Supported gesture types: greet, think, greet_fast, think_focus, apologize, panic, calm_down.
       Always set duration_sec to match current chat context.
     input_schema:
       type: object
       properties:
-        type: { type: string, enum: [greet, think] }
+        type: { type: string, enum: [greet, think, greet_fast, think_focus, apologize, panic, calm_down] }
         action_id: { type: string, minLength: 1, maxLength: 160 }
         duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
         queue_policy: { type: string, enum: [append, replace, interrupt] }
@@ -300,12 +301,12 @@ tools:
     adapter: live2d.react
     description: >
       Trigger semantic reaction preset sequence.
-      Supported intents: success, error, waiting.
+      Supported intents: success, error, waiting, apologize, panic, calm_down.
       Always set duration_sec to match current chat context.
     input_schema:
       type: object
       properties:
-        intent: { type: string, enum: [success, error, waiting] }
+        intent: { type: string, enum: [success, error, waiting, apologize, panic, calm_down] }
         action_id: { type: string, minLength: 1, maxLength: 160 }
         duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
         queue_policy: { type: string, enum: [append, replace, interrupt] }

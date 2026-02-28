@@ -35,6 +35,26 @@
     - `type: param_batch`
     - `type: wait`
 
+### 2.1 当前推荐预设（低成本扩展）
+
+新增 5 个语义“动作”：
+
+- `gesture.greet_fast`
+- `gesture.think_focus`
+- `gesture.apologize`
+- `gesture.panic`
+- `gesture.calm_down`
+
+新增 5 个语义“表情”：
+
+- `emote.happy_soft`
+- `emote.happy_bright`
+- `emote.sad_soft`
+- `emote.cry`
+- `emote.shy`
+
+以上预设均复用现有模型资产（`Idle/Greet/ReactError` + `smile/tear_drop/tears/narrow_eyes`），不依赖新增 `.motion3.json/.exp3.json`。
+
 ---
 
 ## 3. 调用示例
@@ -51,10 +71,18 @@
 { "name": "live2d.gesture", "args": { "type": "greet" } }
 ```
 
+```json
+{ "name": "live2d.gesture", "args": { "type": "apologize", "duration_sec": 2.2 } }
+```
+
 ### 3.3 React
 
 ```json
 { "name": "live2d.react", "args": { "intent": "error" } }
+```
+
+```json
+{ "name": "live2d.react", "args": { "intent": "panic", "duration_sec": 2.6 } }
 ```
 
 ---

@@ -386,6 +386,60 @@ test('semantic tools map presets to rpc calls in order', async () => {
   ]);
 });
 
+test('extended semantic presets map to expected rpc sequence', async () => {
+  const calls = [];
+  const adapter = createLive2dAdapters({
+    invokeRpc: async ({ method, params }) => {
+      calls.push({ method, params });
+      return { ok: true };
+    },
+    actionCooldownMs: 0,
+    presetConfig: {
+      version: 1,
+      emote: {
+        shy: {
+          medium: {
+            expression: 'narrow_eyes',
+            params: [
+              { name: 'ParamMouthForm', value: 0.14 },
+              { name: 'ParamCheek', value: 0.35 }
+            ]
+          }
+        }
+      },
+      gesture: {
+        apologize: {
+          expression: 'tear_drop',
+          motion: { group: 'ReactError', index: 0 }
+        }
+      },
+      react: {
+        panic: [
+          { type: 'expression', name: 'tears' },
+          { type: 'motion', group: 'ReactError', index: 0 },
+          { type: 'wait', ms: 120 },
+          { type: 'expression', name: 'tear_drop' }
+        ]
+      }
+    }
+  });
+
+  await adapter['live2d.emote']({ emotion: 'shy', intensity: 'medium' }, { session_id: 's4' });
+  await adapter['live2d.gesture']({ type: 'apologize' }, { session_id: 's4' });
+  await adapter['live2d.react']({ intent: 'panic' }, { session_id: 's4' });
+
+  const methods = calls.map((c) => c.method);
+  assert.deepEqual(methods, [
+    'model.expression.set',
+    'model.param.batchSet',
+    'model.expression.set',
+    'model.motion.play',
+    'model.expression.set',
+    'model.motion.play',
+    'model.expression.set'
+  ]);
+});
+
 test('semantic tool throws validation error when preset missing', async () => {
   const adapter = createLive2dAdapters({
     invokeRpc: async () => ({ ok: true }),

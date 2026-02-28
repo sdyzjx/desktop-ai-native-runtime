@@ -20,6 +20,80 @@ emote:
       params:
         - { name: ParamBrowLY, value: -0.5 }
         - { name: ParamBrowRY, value: -0.5 }
+  happy_soft:
+    low:
+      expression: smile
+      params:
+        - { name: ParamMouthForm, value: 0.25 }
+    medium:
+      expression: smile
+      params:
+        - { name: ParamMouthForm, value: 0.35 }
+    high:
+      expression: smile
+      params:
+        - { name: ParamMouthForm, value: 0.45 }
+  happy_bright:
+    low:
+      expression: smile
+      params:
+        - { name: ParamMouthForm, value: 0.55 }
+    medium:
+      expression: smile
+      params:
+        - { name: ParamMouthForm, value: 0.7 }
+    high:
+      expression: smile
+      params:
+        - { name: ParamMouthForm, value: 0.85 }
+  sad_soft:
+    low:
+      expression: tear_drop
+      params:
+        - { name: ParamBrowLY, value: -0.25 }
+        - { name: ParamBrowRY, value: -0.25 }
+    medium:
+      expression: tear_drop
+      params:
+        - { name: ParamBrowLY, value: -0.4 }
+        - { name: ParamBrowRY, value: -0.4 }
+    high:
+      expression: tear_drop
+      params:
+        - { name: ParamBrowLY, value: -0.55 }
+        - { name: ParamBrowRY, value: -0.55 }
+  cry:
+    low:
+      expression: tears
+      params:
+        - { name: ParamBrowLY, value: -0.45 }
+        - { name: ParamBrowRY, value: -0.45 }
+    medium:
+      expression: tears
+      params:
+        - { name: ParamBrowLY, value: -0.6 }
+        - { name: ParamBrowRY, value: -0.6 }
+    high:
+      expression: tears
+      params:
+        - { name: ParamBrowLY, value: -0.75 }
+        - { name: ParamBrowRY, value: -0.75 }
+  shy:
+    low:
+      expression: narrow_eyes
+      params:
+        - { name: ParamMouthForm, value: 0.08 }
+        - { name: ParamCheek, value: 0.2 }
+    medium:
+      expression: narrow_eyes
+      params:
+        - { name: ParamMouthForm, value: 0.14 }
+        - { name: ParamCheek, value: 0.35 }
+    high:
+      expression: narrow_eyes
+      params:
+        - { name: ParamMouthForm, value: 0.2 }
+        - { name: ParamCheek, value: 0.5 }
 
 gesture:
   greet:
@@ -28,6 +102,31 @@ gesture:
       group: Greet
       index: 0
   think:
+    expression: narrow_eyes
+    motion:
+      group: Idle
+      index: 0
+  greet_fast:
+    expression: smile
+    motion:
+      group: Greet
+      index: 0
+  think_focus:
+    expression: narrow_eyes
+    motion:
+      group: Idle
+      index: 0
+  apologize:
+    expression: tear_drop
+    motion:
+      group: ReactError
+      index: 0
+  panic:
+    expression: tears
+    motion:
+      group: ReactError
+      index: 0
+  calm_down:
     expression: narrow_eyes
     motion:
       group: Idle
@@ -43,4 +142,18 @@ react:
   waiting:
     - { type: expression, name: narrow_eyes }
     - { type: wait, ms: 220 }
+    - { type: motion, group: Idle, index: 0 }
+  apologize:
+    - { type: expression, name: tear_drop }
+    - { type: motion, group: ReactError, index: 0 }
+    - { type: wait, ms: 260 }
+    - { type: motion, group: Idle, index: 0 }
+  panic:
+    - { type: expression, name: tears }
+    - { type: motion, group: ReactError, index: 0 }
+    - { type: wait, ms: 240 }
+    - { type: expression, name: tear_drop }
+  calm_down:
+    - { type: expression, name: narrow_eyes }
+    - { type: wait, ms: 260 }
     - { type: motion, group: Idle, index: 0 }
