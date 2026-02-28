@@ -11,6 +11,7 @@ const TABS = [
 
 const THEME_KEY = 'yachiyo_theme_v1';
 const AGENT_SESSION_ID = 'config-v2-agent';
+const GIT_PAGE_SIZE = 3;
 
 const el = {
   tabBar:        document.querySelector('.cv2-tabbar'),
@@ -27,6 +28,9 @@ const el = {
   gitLog:        document.getElementById('cv2-git-log'),
   dirtyBadge:    document.getElementById('cv2-dirty-badge'),
   gitRefreshBtn: document.getElementById('gitRefreshBtn'),
+  gitPrevBtn:    document.getElementById('gitPrevBtn'),
+  gitNextBtn:    document.getElementById('gitNextBtn'),
+  gitPageInfo:   document.getElementById('gitPageInfo'),
 };
 
 let activeTabId = TABS[0].id;
@@ -34,6 +38,11 @@ let ws = null;
 let wsReady = false;
 let streamingEl = null;
 let streamingText = '';
+
+// git 翻页状态
+let gitPage = 0;
+let gitCommitsCache = [];
+let gitCurrentFile = '';
 
 // ── Theme ──────────────────────────────────────────────────────────────────
 function applyTheme(pref) {
@@ -83,7 +92,6 @@ function buildTabs() {
     btn.id = `cv2-tab-${tab.id}`;
     btn.dataset.tabId = tab.id;
 
-    // Keyboard nav: arrow keys between tabs (WCAG 2.1 §4.1.2 / ARIA pattern)
     btn.addEventListener('keydown', (e) => {
       const tabs = [...el.tabBar.querySelectorAll('.cv2-tab')];
       const idx = tabs.indexOf(e.currentTarget);
@@ -103,8 +111,7 @@ function switchTab(id) {
   const tab = TABS.find(t => t.id === id);
 
   el.tabBar.querySelectorAll('.cv2-tab').forEach(b => {
-    const selected = b.dataset.tabId === id;
-    b.setAttribute('aria-selected', selected ? 'true' : 'false');
+    b.setAttribute('aria-selected', b.dataset.tabId === id ? 'true' : 'false');
   });
 
   el.fileLabel.textContent = `${tab.label}.${tab.bodyKey === 'json' ? 'json' : 'yaml'}`;
@@ -150,7 +157,7 @@ async function saveTab() {
       body: JSON.stringify({ [tab.bodyKey]: el.editor.value }),
     });
     setStatus('已保存 ✓');
-    loadGitLog(); // 保存后刷新版本历史
+    loadGitLog();
   } catch (err) {
     setStatus(err.message, true);
   }
@@ -164,103 +171,120 @@ function formatDate(iso) {
   return `${d.getMonth() + 1}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-async function loadGitLog() {
-  const tab = TABS.find(t => t.id === activeTabId);
-  // desktop-live2d 是 json，文件名不同
-  const fileName = tab.id === 'desktop-live2d' ? 'desktop-live2d.json' : `${tab.id}.yaml`;
+function updatePagination() {
+  const totalPages = Math.max(1, Math.ceil(gitCommitsCache.length / GIT_PAGE_SIZE));
+  el.gitPageInfo.textContent = `${gitPage + 1} / ${totalPages}`;
+  el.gitPrevBtn.disabled = gitPage === 0;
+  el.gitNextBtn.disabled = gitPage >= totalPages - 1;
+}
 
-  try {
-    const data = await fetchJson(`/api/config/git/log?file=${encodeURIComponent(fileName)}&limit=12`);
+function renderGitPage() {
+  el.gitLog.innerHTML = '';
 
-    // 未提交标记
-    el.dirtyBadge.hidden = !data.dirty;
+  if (gitCommitsCache.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'cv2-git-empty';
+    empty.textContent = '暂无提交记录';
+    el.gitLog.appendChild(empty);
+    updatePagination();
+    return;
+  }
 
-    el.gitLog.innerHTML = '';
+  const fileName = gitCurrentFile;
+  const start = gitPage * GIT_PAGE_SIZE;
+  const pageCommits = gitCommitsCache.slice(start, start + GIT_PAGE_SIZE);
 
-    if (!data.commits || data.commits.length === 0) {
-      const empty = document.createElement('li');
-      empty.className = 'cv2-git-empty';
-      empty.textContent = '暂无提交记录';
-      el.gitLog.appendChild(empty);
-      return;
-    }
+  pageCommits.forEach((commit, localIdx) => {
+    const globalIdx = start + localIdx;
+    const li = document.createElement('li');
+    li.className = 'cv2-git-entry';
 
-    data.commits.forEach((commit, idx) => {
-      const li = document.createElement('li');
-      li.className = 'cv2-git-entry';
+    const dot = document.createElement('span');
+    dot.className = 'cv2-git-dot';
+    dot.setAttribute('aria-hidden', 'true');
 
-      // 绿点
-      const dot = document.createElement('span');
-      dot.className = 'cv2-git-dot';
-      dot.setAttribute('aria-hidden', 'true');
+    const shortEl = document.createElement('span');
+    shortEl.className = 'cv2-git-short';
+    shortEl.textContent = commit.short;
 
-      // short hash
-      const shortEl = document.createElement('span');
-      shortEl.className = 'cv2-git-short';
-      shortEl.textContent = commit.short;
+    const subjectEl = document.createElement('span');
+    subjectEl.className = 'cv2-git-subject';
+    subjectEl.textContent = commit.subject;
+    subjectEl.title = commit.subject;
 
-      // subject
-      const subjectEl = document.createElement('span');
-      subjectEl.className = 'cv2-git-subject';
-      subjectEl.textContent = commit.subject;
-      subjectEl.title = commit.subject;
+    const dateEl = document.createElement('span');
+    dateEl.className = 'cv2-git-date';
+    dateEl.textContent = formatDate(commit.date);
 
-      // date
-      const dateEl = document.createElement('span');
-      dateEl.className = 'cv2-git-date';
-      dateEl.textContent = formatDate(commit.date);
+    const actions = document.createElement('div');
+    actions.className = 'cv2-git-actions';
 
-      // actions
-      const actions = document.createElement('div');
-      actions.className = 'cv2-git-actions';
-
-      // 预览按钮
-      const previewBtn = document.createElement('button');
-      previewBtn.type = 'button';
-      previewBtn.className = 'cv2-git-btn';
-      previewBtn.textContent = '预览';
-      previewBtn.setAttribute('aria-label', `预览 ${commit.short} 版本的 ${fileName}`);
-      previewBtn.addEventListener('click', async () => {
+    // 恢复按钮（全局第 0 条 = 最新，不显示）
+    if (globalIdx > 0) {
+      const restoreBtn = document.createElement('button');
+      restoreBtn.type = 'button';
+      restoreBtn.className = 'cv2-git-btn cv2-git-btn--restore';
+      restoreBtn.textContent = '恢复';
+      restoreBtn.setAttribute('aria-label', `恢复 ${fileName} 到 ${commit.short} 版本`);
+      restoreBtn.addEventListener('click', async () => {
+        if (!confirm(`确认将 ${fileName} 恢复到 ${commit.short}？\n${commit.subject}`)) return;
         try {
-          const d = await fetchJson(`/api/config/git/show?hash=${commit.hash}&file=${encodeURIComponent(fileName)}`);
-          el.editor.value = d.content;
-          setStatus(`预览 ${commit.short} — 未保存`);
+          await fetchJson('/api/config/git/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hash: commit.hash, file: fileName }),
+          });
+          setStatus(`已恢复到 ${commit.short} ✓`);
+          loadTab();
+          loadGitLog();
         } catch (e) {
           setStatus(e.message, true);
         }
       });
+      actions.appendChild(restoreBtn);
+    }
 
-      // 恢复按钮（最新 commit 不显示）
-      if (idx > 0) {
-        const restoreBtn = document.createElement('button');
-        restoreBtn.type = 'button';
-        restoreBtn.className = 'cv2-git-btn cv2-git-btn--restore';
-        restoreBtn.textContent = '恢复';
-        restoreBtn.setAttribute('aria-label', `恢复 ${fileName} 到 ${commit.short} 版本`);
-        restoreBtn.addEventListener('click', async () => {
-          if (!confirm(`确认将 ${fileName} 恢复到 ${commit.short}？\n${commit.subject}`)) return;
-          try {
-            await fetchJson('/api/config/git/restore', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ hash: commit.hash, file: fileName }),
-            });
-            setStatus(`已恢复到 ${commit.short} ✓`);
-            loadTab();
-            loadGitLog();
-          } catch (e) {
-            setStatus(e.message, true);
-          }
-        });
-        actions.appendChild(restoreBtn);
+    const previewBtn = document.createElement('button');
+    previewBtn.type = 'button';
+    previewBtn.className = 'cv2-git-btn';
+    previewBtn.textContent = '预览';
+    previewBtn.setAttribute('aria-label', `预览 ${commit.short} 版本的 ${fileName}`);
+    previewBtn.addEventListener('click', async () => {
+      try {
+        const d = await fetchJson(`/api/config/git/show?hash=${commit.hash}&file=${encodeURIComponent(fileName)}`);
+        el.editor.value = d.content;
+        setStatus(`预览 ${commit.short} — 未保存`);
+      } catch (e) {
+        setStatus(e.message, true);
       }
-
-      actions.appendChild(previewBtn);
-      li.append(dot, shortEl, subjectEl, dateEl, actions);
-      el.gitLog.appendChild(li);
     });
+    actions.appendChild(previewBtn);
+
+    li.append(dot, shortEl, subjectEl, dateEl, actions);
+    el.gitLog.appendChild(li);
+  });
+
+  updatePagination();
+}
+
+async function loadGitLog() {
+  const tab = TABS.find(t => t.id === activeTabId);
+  const fileName = tab.id === 'desktop-live2d' ? 'desktop-live2d.json' : `${tab.id}.yaml`;
+
+  // tab 切换时重置到第一页
+  if (fileName !== gitCurrentFile) {
+    gitPage = 0;
+    gitCurrentFile = fileName;
+  }
+
+  try {
+    const data = await fetchJson(`/api/config/git/log?file=${encodeURIComponent(fileName)}&limit=50`);
+    el.dirtyBadge.hidden = !data.dirty;
+    gitCommitsCache = data.commits || [];
+    renderGitPage();
   } catch (err) {
     el.gitLog.innerHTML = `<li class="cv2-git-empty">加载失败: ${err.message}</li>`;
+    updatePagination();
   }
 }
 
@@ -275,35 +299,26 @@ function initWs() {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
 
-    // 只处理属于 config-v2-agent session 的消息
     const msgSessionId = msg.session_id || msg.data?.session_id || msg.params?.session_id;
     if (msgSessionId && msgSessionId !== AGENT_SESSION_ID) return;
 
-    // 运行中状态提示（legacy: type='start'）
     if (msg.type === 'start') {
-      if (streamingEl) {
-        streamingEl.querySelector('.cv2-msg-text').textContent = '思考中…';
-      }
+      if (streamingEl) streamingEl.querySelector('.cv2-msg-text').textContent = '思考中…';
       return;
     }
 
-    // 工具调用中间事件（legacy: type='event'）
     if (msg.type === 'event') {
       if (streamingEl && msg.data?.event === 'tool.call') {
-        streamingEl.querySelector('.cv2-msg-text').textContent =
-          `调用工具: ${msg.data.payload?.name || '…'}`;
+        streamingEl.querySelector('.cv2-msg-text').textContent = `调用工具: ${msg.data.payload?.name || '…'}`;
       }
       return;
     }
 
-    // 完成（legacy: type='final'，含 output 字段）
     if (msg.type === 'final') {
-      const output = msg.output || streamingText || '（无回复）';
-      finishAgentMessage(output);
+      finishAgentMessage(msg.output || streamingText || '（无回复）');
       return;
     }
 
-    // 错误
     if (msg.type === 'error') {
       finishAgentMessage(`错误：${msg.message || 'unknown error'}`, true);
       return;
@@ -317,12 +332,10 @@ function initWs() {
 function appendMsg(role, text) {
   const div = document.createElement('div');
   div.className = `cv2-msg cv2-msg--${role}`;
-
   const span = document.createElement('span');
   span.className = 'cv2-msg-text';
   span.textContent = text;
   div.appendChild(span);
-
   el.agentMessages.appendChild(div);
   el.agentMessages.scrollTop = el.agentMessages.scrollHeight;
   return div;
@@ -331,11 +344,9 @@ function appendMsg(role, text) {
 function finishAgentMessage(output, isErr = false) {
   if (streamingEl) {
     streamingEl.classList.remove('is-streaming');
-    const textEl = streamingEl.querySelector('.cv2-msg-text');
-    textEl.textContent = output;
+    streamingEl.querySelector('.cv2-msg-text').textContent = output;
 
     if (!isErr) {
-      // 检测代码块，注入 Apply 按钮
       const codeMatch = output.match(/```(?:yaml|json)?\n([\s\S]*?)```/);
       if (codeMatch) {
         const applyBtn = document.createElement('button');
@@ -384,13 +395,16 @@ function sendAgentMessage() {
 function init() {
   initTheme();
   buildTabs();
-
-  // 初始化第一个 tab 状态
   switchTab(TABS[0].id);
 
   el.loadBtn.addEventListener('click', loadTab);
   el.saveBtn.addEventListener('click', saveTab);
-  el.gitRefreshBtn.addEventListener('click', loadGitLog);
+  el.gitRefreshBtn.addEventListener('click', () => { gitPage = 0; loadGitLog(); });
+  el.gitPrevBtn.addEventListener('click', () => { if (gitPage > 0) { gitPage--; renderGitPage(); } });
+  el.gitNextBtn.addEventListener('click', () => {
+    const totalPages = Math.ceil(gitCommitsCache.length / GIT_PAGE_SIZE);
+    if (gitPage < totalPages - 1) { gitPage++; renderGitPage(); }
+  });
   el.agentSendBtn.addEventListener('click', sendAgentMessage);
   el.agentInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {

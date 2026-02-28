@@ -72,6 +72,11 @@
           <div class="cv2-git-header">
             <span class="cv2-git-title">版本历史</span>
             <span id="cv2-dirty-badge" class="cv2-dirty-badge" hidden aria-label="有未提交的改动">● 未提交</span>
+            <div class="cv2-git-pagination" role="group" aria-label="版本历史翻页">
+              <button class="btn cv2-git-page-btn" id="gitPrevBtn" type="button" aria-label="上一页" disabled>‹</button>
+              <span id="gitPageInfo" class="cv2-git-page-info" aria-live="polite">1 / 1</span>
+              <button class="btn cv2-git-page-btn" id="gitNextBtn" type="button" aria-label="下一页" disabled>›</button>
+            </div>
             <button class="btn cv2-git-refresh" id="gitRefreshBtn" type="button" aria-label="刷新版本历史">↻</button>
           </div>
           <ol id="cv2-git-log" class="cv2-git-log" aria-label="提交记录列表"></ol>

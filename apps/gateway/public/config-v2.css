@@ -313,7 +313,7 @@
 .cv2-git-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
@@ -324,6 +324,32 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   flex: 1;
+}
+
+.cv2-git-pagination {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cv2-git-page-btn {
+  padding: 1px 7px;
+  font-size: 14px;
+  line-height: 1.2;
+  min-width: 24px;
+}
+
+.cv2-git-page-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+.cv2-git-page-info {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 32px;
+  text-align: center;
 }
 
 .cv2-dirty-badge {
