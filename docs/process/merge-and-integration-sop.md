@@ -2,6 +2,51 @@
 
 > 目标：在并行开发（tool-call + memory-system）下，稳定集成并降低冲突率。
 
+## 0. 并行 REQ 开发快速参考
+
+当多个 REQ 同时开发时，先做文件重叠分析，再决定策略：
+
+### 0.1 判断是否真的会冲突
+
+```bash
+# 查看两个分支各自改了哪些文件
+git diff main...feature/REQ-A --name-only
+git diff main...feature/REQ-B --name-only
+```
+
+- **无重叠文件** → 两个分支完全独立，谁先完成谁先合并，另一个 rebase 即可
+- **有重叠文件** → 需要协调合并顺序，或拆分改动避免交叉
+
+### 0.2 无冲突并行流程（推荐）
+
+```bash
+# 两个分支同时从最新 main 切出
+git checkout main && git pull --ff-only origin main
+git checkout -b feature/REQ-20260227-014-lipsync
+# ... 开发 014 ...
+
+git checkout main
+git checkout -b feature/REQ-20260227-015-observability
+# ... 开发 015 ...
+
+# 014 先完成，直接合并
+git checkout main
+git merge feature/REQ-20260227-014-lipsync --no-ff
+
+# 015 完成后，先 rebase 到最新 main，再合并
+git checkout feature/REQ-20260227-015-observability
+git rebase main          # 把 015 的 commits 接在 014 合并后的 main 之后
+git checkout main
+git merge feature/REQ-20260227-015-observability --no-ff
+git push origin main
+```
+
+### 0.3 有冲突时的协调策略
+
+1. **拆分改动**：将共享文件的修改提取为独立的 `chore/` 分支先合并，两个 REQ 分支再 rebase
+2. **指定合并顺序**：在 PROGRESS_TODO.md 的 REQ 描述中注明 `Depends-On: REQ-XXX`，被依赖的先合并
+3. **功能分支特性优先**：冲突时以后合并的分支为准（`git checkout --theirs`），但需人工确认逻辑正确
+
 ## 1. 分支模型
 
 - `main`：稳定主线，禁止直接提交

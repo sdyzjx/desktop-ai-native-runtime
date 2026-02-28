@@ -28,6 +28,16 @@
   - `feature/tool-call`
   - `feature/memory-system`
 
+### 2.2.1 REQ 级功能分支（并行开发）
+
+当多个 REQ 并行开发时，分支名直接对应 REQ 编号，便于追踪：
+
+- `feature/REQ-<YYYYMMDD>-<NNN>-<short-desc>`
+- 示例：
+  - `feature/REQ-20260227-014-lipsync`
+  - `feature/REQ-20260227-015-observability`
+  - `feature/REQ-20260227-016-config-v2`
+
 ### 2.3 集成分支（可选）
 
 - `integration/<scope>`
@@ -173,5 +183,18 @@ git push -u origin integration/runtime-core
 
 ---
 
+## 11. 热点文件约定（并行开发防冲突）
+
+以下文件被多个 REQ 频繁修改，是冲突高发区，需遵守额外约定：
+
+| 文件 | 风险 | 约定 |
+|------|------|------|
+| `apps/gateway/server.js` | 几乎每个 REQ 都会新增路由/中间件 | 每个 PR 改完立即合并，不允许两个分支同时长期持有该文件的修改 |
+| `PROGRESS_TODO.md` | 多人同时更新 REQ 状态会冲突 | 开发中不修改状态字段，**仅在合并进 main 时**将对应 REQ 状态改为 DONE |
+| `apps/runtime/orchestrator/toolCallDispatcher.js` | 多个 REQ 可能同时注入 context 字段 | 修改前先 rebase main，确认无并发修改 |
+| `package.json` / `package-lock.json` | 依赖变更易冲突 | 新增依赖的 REQ 优先合并，其他分支 rebase 后重新 `npm install` |
+
+---
+
 维护人：Runtime Team  
-最后更新：2026-02-25
+最后更新：2026-02-28
