@@ -47,6 +47,24 @@ git push origin main
 2. **指定合并顺序**：在 PROGRESS_TODO.md 的 REQ 描述中注明 `Depends-On: REQ-XXX`，被依赖的先合并
 3. **功能分支特性优先**：冲突时以后合并的分支为准（`git checkout --theirs`），但需人工确认逻辑正确
 
+### 0.4 本地并行开发：git worktree 快速上手
+
+> ⚠️ 不要用 `git stash + checkout` 在分支间来回切换，容易 stash 错乱、无法同时运行服务。
+
+```bash
+# 1. 在主仓库目录下，为每个 REQ 开一个独立工作目录
+git worktree add ../open-yachiyo-014 feature/REQ-20260227-014-lipsync
+git worktree add ../open-yachiyo-015 feature/REQ-20260227-015-observability
+git worktree add ../open-yachiyo-016 feature/REQ-20260227-016-config-v2
+
+# 2. 各目录独立安装依赖
+cd ../open-yachiyo-014 && npm install
+cd ../open-yachiyo-015 && npm install
+
+# 3. 开发完成，分支合并进 main 后清理
+git worktree remove ../open-yachiyo-014
+```
+
 ## 1. 分支模型
 
 - `main`：稳定主线，禁止直接提交
