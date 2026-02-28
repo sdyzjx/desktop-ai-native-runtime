@@ -116,22 +116,22 @@
 
 ### 功能点
 
-- [ ] C1. 支持 `queue_policy=append|replace|interrupt`。
-- [ ] C2. 增加播放器互斥锁，避免与现有 RPC 动作调用竞争。
-- [ ] C3. 增加队列长度上限与丢弃策略（防积压）。
+- [x] C1. 支持 `queue_policy=append|replace|interrupt`。
+- [x] C2. 增加播放器互斥锁，避免与现有 RPC 动作调用竞争。
+- [x] C3. 增加队列长度上限与丢弃策略（防积压）。
 
 ### 测试节点
 
-- [ ] C-T1. `append` 追加策略测试。
-- [ ] C-T2. `replace` 清队列策略测试。
-- [ ] C-T3. `interrupt` 中断当前动作测试。
-- [ ] C-T4. 队列上限与降级策略测试。
+- [x] C-T1. `append` 追加策略测试。
+- [x] C-T2. `replace` 清队列策略测试。
+- [x] C-T3. `interrupt` 中断当前动作测试。
+- [x] C-T4. 队列上限与降级策略测试。
 
 ### 提交节点
 
-- [ ] C-C1. `feat(live2d-action): add queue policies append replace interrupt`
-- [ ] C-C2. `feat(live2d-action): add player mutex and queue capacity control`
-- [ ] C-C3. `test(live2d-action): cover queue policies and capacity`
+- [x] C-C1. `feat(live2d-action): add queue policies append replace interrupt`
+- [x] C-C2. `feat(live2d-action): add player mutex and queue capacity control`
+- [x] C-C3. `test(live2d-action): cover queue policies and capacity`
 
 ---
 
@@ -139,20 +139,20 @@
 
 ### 功能点
 
-- [ ] D1. 在播放器层支持 `gesture/emote/react`。
-- [ ] D2. 语义动作降解为原子动作序列（必要时复用现有 preset 配置）。
-- [ ] D3. 为语义动作配置默认 `duration_sec` 与覆盖规则。
+- [x] D1. 在播放器层支持 `gesture/emote/react`。
+- [x] D2. 语义动作降解为原子动作序列（必要时复用现有 preset 配置）。
+- [x] D3. 为语义动作配置默认 `duration_sec` 与覆盖规则。
 
 ### 测试节点
 
-- [ ] D-T1. 语义动作到原子动作映射测试。
-- [ ] D-T2. 不存在 preset 的错误处理测试。
-- [ ] D-T3. duration 覆盖优先级测试（消息值 > 默认值）。
+- [x] D-T1. 语义动作到原子动作映射测试。
+- [x] D-T2. 不存在 preset 的错误处理测试。
+- [x] D-T3. duration 覆盖优先级测试（消息值 > 默认值）。
 
 ### 提交节点
 
-- [ ] D-C1. `feat(live2d-action): support semantic action types in queue player`
-- [ ] D-C2. `test(live2d-action): cover semantic mapping and preset fallback`
+- [x] D-C1. `feat(live2d-action): support semantic action types in queue player`
+- [x] D-C2. `test(live2d-action): cover semantic mapping and preset fallback`
 
 ---
 
@@ -160,21 +160,21 @@
 
 ### 功能点
 
-- [ ] E1. 增加动作队列日志（enqueue/start/done/fail）。
-- [ ] E2. 可选上报动作 ACK/DONE 事件到调试流。
-- [ ] E3. 文档补全（调用样例、故障排查、回滚项）。
+- [x] E1. 增加动作队列日志（enqueue/start/done/fail）。
+- [x] E2. 可选上报动作 ACK/DONE 事件到调试流。
+- [x] E3. 文档补全（调用样例、故障排查、回滚项）。
 
 ### 测试节点
 
-- [ ] E-T1. 日志字段完整性测试。
-- [ ] E-T2. ACK/DONE 事件上报测试。
-- [ ] E-T3. 端到端回归测试（动作链路 + 队列消费 + UI 可见性）。
+- [x] E-T1. 日志字段完整性测试。
+- [x] E-T2. ACK/DONE 事件上报测试。
+- [x] E-T3. 端到端回归测试（动作链路 + 队列消费 + UI 可见性）。
 
 ### 提交节点
 
-- [ ] E-C1. `feat(live2d-action): add action playback telemetry events`
-- [ ] E-C2. `test(live2d-action): add e2e regression for action queue pipeline`
-- [ ] E-C3. `docs(live2d-action): add operation and rollback guide`
+- [x] E-C1. `feat(live2d-action): add action playback telemetry events`
+- [x] E-C2. `test(live2d-action): add e2e regression for action queue pipeline`
+- [x] E-C3. `docs(live2d-action): add operation and rollback guide`
 
 ---
 
@@ -199,8 +199,12 @@
 - [x] `45222ed` Phase B / B2
 - [x] `63e454c` Phase B / B3
 - [x] `63e454c` Phase B / B4
-- [ ] `<hash>` Phase C / C1
-- [ ] `<hash>` Phase C / C2
-- [ ] `<hash>` Phase D / D1
-- [ ] `<hash>` Phase D / D2
-- [ ] `<hash>` Phase E / E1
+- [x] `135d3b7` Phase C / C1
+- [x] `135d3b7` Phase C / C2
+- [x] `135d3b7` Phase C / C3
+- [x] `68a7451` Phase D / D1
+- [x] `68a7451` Phase D / D2
+- [x] `68a7451` Phase D / D3
+- [x] `effc8bb` Phase E / E1
+- [x] `effc8bb` Phase E / E2
+- [x] `effc8bb` Phase E / E3
