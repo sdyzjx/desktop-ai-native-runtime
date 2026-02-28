@@ -388,16 +388,46 @@ app.put('/api/config/providers/raw', (req, res) => {
   }
 });
 
-// --- Config v2: git commit helper ---
+// --- Config v2: 专属 config git 仓库 ---
+// 使用 runtime configDir（~/yachiyo/config/）作为独立 git 仓库，与项目仓库完全隔离
+const CONFIG_GIT_DIR = getRuntimePaths().configDir;
+const CONFIG_FILES = ['providers.yaml', 'tools.yaml', 'skills.yaml', 'persona.yaml', 'voice-policy.yaml', 'desktop-live2d.json'];
+
+// 启动时确保 config 目录已 git init，并配置 user 信息
+(function ensureConfigGitRepo() {
+  const { execSync } = require('node:child_process');
+  try {
+    execSync('git rev-parse --git-dir', { cwd: CONFIG_GIT_DIR, stdio: 'ignore' });
+  } catch {
+    // 未初始化，执行 init
+    execSync('git init', { cwd: CONFIG_GIT_DIR, stdio: 'ignore' });
+    execSync('git config user.email "yachiyo@local"', { cwd: CONFIG_GIT_DIR, stdio: 'ignore' });
+    execSync('git config user.name "Yachiyo"', { cwd: CONFIG_GIT_DIR, stdio: 'ignore' });
+    // 把现有文件做一次初始 commit
+    try {
+      execSync('git add -A && git commit -m "init: initial config snapshot"', { cwd: CONFIG_GIT_DIR, stdio: 'ignore' });
+    } catch (_) {}
+    console.log(`[config-git] initialized repo at ${CONFIG_GIT_DIR}`);
+  }
+})();
+
 function commitConfigChange(filename) {
   const { execSync } = require('node:child_process');
-  const configDir = require('node:path').resolve(process.cwd(), 'config');
   try {
     execSync(
-      `git -C "${configDir}/.." add "config/${filename}" && git -C "${configDir}/.." commit -m "config: update ${filename} at ${new Date().toISOString()}"`,
-      { stdio: 'ignore' }
+      `git add "${filename}" && git commit -m "config: update ${filename} at ${new Date().toISOString()}"`,
+      { cwd: CONFIG_GIT_DIR, stdio: 'ignore' }
     );
-  } catch (_) { /* git 未配置或无变更时静默跳过 */ }
+  } catch (_) { /* 无变更或 git 未配置时静默跳过 */ }
+}
+
+function gitExec(args) {
+  return new Promise((resolve, reject) => {
+    execFile('git', args, { cwd: CONFIG_GIT_DIR }, (err, stdout, stderr) => {
+      if (err) { reject(new Error(stderr || err.message)); return; }
+      resolve(stdout.trim());
+    });
+  });
 }
 
 // --- Config v2: tools.yaml ---
@@ -503,31 +533,20 @@ app.get('/api/config/desktop-live2d/raw', (_, res) => {
 });
 
 // --- Config v2: git log & revert ---
-const GIT_REPO_ROOT = path.resolve(__dirname, '../..');
-const CONFIG_FILES = ['providers.yaml', 'tools.yaml', 'skills.yaml', 'persona.yaml', 'voice-policy.yaml', 'desktop-live2d.json'];
-
-function gitExec(args) {
-  return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd: GIT_REPO_ROOT }, (err, stdout, stderr) => {
-      if (err) { reject(new Error(stderr || err.message)); return; }
-      resolve(stdout.trim());
-    });
-  });
-}
+// gitExec 和 CONFIG_FILES 已在上方 "专属 config git 仓库" 块中定义
 
 // GET /api/config/git/log?file=tools.yaml&limit=10
-// GET /api/config/git/log?limit=10  (all config files)
 app.get('/api/config/git/log', async (req, res) => {
   const file = req.query.file;
   const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 15));
 
-  // validate file param
   if (file && !CONFIG_FILES.includes(file)) {
     res.status(400).json({ ok: false, error: 'unknown config file' });
     return;
   }
 
-  const pathArg = file ? `config/${file}` : 'config/';
+  // cwd 已是 config 目录，直接用文件名，不加 config/ 前缀
+  const pathArg = file || '.';
 
   try {
     const raw = await gitExec([
@@ -543,7 +562,6 @@ app.get('/api/config/git/log', async (req, res) => {
       return { hash, short, subject, date };
     });
 
-    // 检查工作区是否有未提交的改动
     const dirty = await gitExec(['status', '--porcelain', '--', pathArg])
       .then(out => out.length > 0)
       .catch(() => false);
@@ -566,7 +584,8 @@ app.get('/api/config/git/show', async (req, res) => {
     return;
   }
   try {
-    const content = await gitExec(['show', `${hash}:config/${file}`]);
+    // 专属仓库里文件直接在根目录，用 hash:filename
+    const content = await gitExec(['show', `${hash}:${file}`]);
     res.json({ ok: true, content });
   } catch (err) {
     res.status(404).json({ ok: false, error: `file not found in commit ${hash}` });
@@ -585,8 +604,8 @@ app.post('/api/config/git/restore', async (req, res) => {
     return;
   }
   try {
-    const content = await gitExec(['show', `${hash}:config/${file}`]);
-    const filePath = path.join(GIT_REPO_ROOT, 'config', file);
+    const content = await gitExec(['show', `${hash}:${file}`]);
+    const filePath = path.join(CONFIG_GIT_DIR, file);
     fsSync.writeFileSync(filePath, content, 'utf8');
     commitConfigChange(file);
     res.json({ ok: true, message: `restored ${file} to ${hash.slice(0, 7)}` });
