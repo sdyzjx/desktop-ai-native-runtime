@@ -303,11 +303,11 @@
 .cv2-git-panel {
   flex-shrink: 0;
   border-top: 1px solid var(--line);
-  padding-top: 10px;
-  height: 160px;   /* 固定高度，不随编辑器伸缩 */
+  padding-top: 8px;
+  height: 112px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .cv2-git-header {
@@ -384,8 +384,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
-  border-radius: 8px;
+  padding: 3px 8px;
+  border-radius: 6px;
   font-size: 12px;
   transition: background 0.12s ease;
 }
