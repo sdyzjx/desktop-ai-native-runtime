@@ -104,6 +104,23 @@ Current baseline (already done):
 Desktop chat commands:
 - `/new`: create and switch desktop runtime session (chat panel clears and starts new thread)
 
+Live2D semantic action surface:
+- tool names: `live2d.motion.play`, `live2d.expression.set`, `live2d.param.set`, `live2d.param.batch_set`, `live2d.emote`, `live2d.gesture`, `live2d.react`
+- semantic presets live in `config/live2d-presets.yaml`
+- tool-call schema is enforced by `config/tools.yaml` (invalid preset names are rejected before runtime execution)
+- renderer-side action player consumes queued action messages and falls back to `Idle` when queue drains
+
+Live2D action message shape:
+
+```json
+{
+  "action_id": "optional-id",
+  "action": { "type": "emote", "args": { "emotion": "happy", "intensity": "high" } },
+  "duration_sec": 2.5,
+  "queue_policy": "append"
+}
+```
+
 Current gaps under active development:
 - Phase E stabilization: observability hardening, stress regression, and release checklist
 
@@ -181,6 +198,16 @@ CI-equivalent command:
 
 ```bash
 npm run test:ci
+```
+
+CI note:
+- `npm run test:ci` intentionally excludes `test/runtime/voiceAdapter.test.js` to avoid hard dependency on `ffmpeg` in hosted CI environments.
+
+Voice adapter tests (local):
+- install `ffmpeg` first, then run:
+
+```bash
+node --test test/runtime/voiceAdapter.test.js
 ```
 
 Detailed testing guide:
