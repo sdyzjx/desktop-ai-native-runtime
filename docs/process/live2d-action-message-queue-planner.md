@@ -68,21 +68,21 @@
 
 ### 功能点
 
-- [ ] A1. 定义动作消息 schema（含 `action + duration_sec`）。
-- [ ] A2. Gateway/runtime 侧发布标准动作事件（建议统一为 `ui.live2d.action`）。
-- [ ] A3. Electron main 识别该事件并转发给 renderer（新增专用通道）。
+- [x] A1. 定义动作消息 schema（含 `action + duration_sec`）。
+- [x] A2. Gateway/runtime 侧发布标准动作事件（建议统一为 `ui.live2d.action`）。
+- [x] A3. Electron main 识别该事件并转发给 renderer（新增专用通道）。
 
 ### 测试节点
 
-- [ ] A-T1. schema 校验单测：合法/非法消息。
-- [ ] A-T2. gateway -> desktop 通知映射集成测试。
-- [ ] A-T3. desktop main -> renderer 转发测试（含 payload 完整性断言）。
+- [x] A-T1. schema 校验单测：合法/非法消息。
+- [x] A-T2. gateway -> desktop 通知映射集成测试。
+- [x] A-T3. desktop main -> renderer 转发测试（含 payload 完整性断言）。
 
 ### 提交节点
 
-- [ ] A-C1. `feat(live2d-action): add action event schema and validator`
-- [ ] A-C2. `feat(live2d-action): forward ui.live2d.action from main to renderer`
-- [ ] A-C3. `test(live2d-action): cover action event schema and forwarding`
+- [x] A-C1. `feat(live2d-action): add action event schema and validator`
+- [x] A-C2. `feat(live2d-action): forward ui.live2d.action from main to renderer`
+- [x] A-C3. `test(live2d-action): cover action event schema and forwarding`
 
 ---
 
@@ -90,25 +90,25 @@
 
 ### 功能点
 
-- [ ] B1. 新增 `ActionQueuePlayer`（enqueue/dequeue/start/stop/clear）。
-- [ ] B2. 实现 `duration_sec` 播放时长控制。
-- [ ] B3. 执行映射：
+- [x] B1. 新增 `ActionQueuePlayer`（enqueue/dequeue/start/stop/clear）。
+- [x] B2. 实现 `duration_sec` 播放时长控制。
+- [x] B3. 执行映射：
   - `expression` -> `model.expression.set`
   - `motion` -> `model.motion.play`
-- [ ] B4. 队列空闲自动消费，错误隔离不中断后续动作。
+- [x] B4. 队列空闲自动消费，错误隔离不中断后续动作。
 
 ### 测试节点
 
-- [ ] B-T1. 队列顺序消费单测（FIFO）。
-- [ ] B-T2. duration 定时行为单测（fake timer）。
-- [ ] B-T3. expression/motion 调用映射单测。
-- [ ] B-T4. 异常动作不中断后续动作测试。
+- [x] B-T1. 队列顺序消费单测（FIFO）。
+- [x] B-T2. duration 定时行为单测（fake timer）。
+- [x] B-T3. expression/motion 调用映射单测。
+- [x] B-T4. 异常动作不中断后续动作测试。
 
 ### 提交节点
 
-- [ ] B-C1. `feat(live2d-action): add renderer action queue player`
-- [ ] B-C2. `feat(live2d-action): support expression and motion action playback`
-- [ ] B-C3. `test(live2d-action): cover queue order duration and error isolation`
+- [x] B-C1. `feat(live2d-action): add renderer action queue player`
+- [x] B-C2. `feat(live2d-action): support expression and motion action playback`
+- [x] B-C3. `test(live2d-action): cover queue order duration and error isolation`
 
 ---
 
@@ -193,11 +193,12 @@
 > 每次 commit 后在此追加 hash，形成追踪链。
 
 - [x] `1c0cae7` Phase A / A1
-- [ ] `<hash>` Phase A / A2
+- [x] `b82a185` Phase A / A2
 - [x] `1c0cae7` Phase A / A3
 - [x] `45222ed` Phase B / B1
 - [x] `45222ed` Phase B / B2
-- [x] `45222ed` Phase B / B3
+- [x] `63e454c` Phase B / B3
+- [x] `63e454c` Phase B / B4
 - [ ] `<hash>` Phase C / C1
 - [ ] `<hash>` Phase C / C2
 - [ ] `<hash>` Phase D / D1
