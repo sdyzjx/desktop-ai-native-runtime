@@ -24,6 +24,9 @@ const el = {
   agentInput:    document.getElementById('agentInput'),
   agentSendBtn:  document.getElementById('agentSendBtn'),
   themeSelect:   document.getElementById('themeSelect'),
+  gitLog:        document.getElementById('cv2-git-log'),
+  dirtyBadge:    document.getElementById('cv2-dirty-badge'),
+  gitRefreshBtn: document.getElementById('gitRefreshBtn'),
 };
 
 let activeTabId = TABS[0].id;
@@ -121,6 +124,7 @@ function switchTab(id) {
   }
 
   loadTab();
+  loadGitLog();
 }
 
 async function loadTab() {
@@ -146,8 +150,116 @@ async function saveTab() {
       body: JSON.stringify({ [tab.bodyKey]: el.editor.value }),
     });
     setStatus('已保存 ✓');
+    loadGitLog(); // 保存后刷新版本历史
   } catch (err) {
     setStatus(err.message, true);
+  }
+}
+
+// ── Git log ────────────────────────────────────────────────────────────────
+function formatDate(iso) {
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+async function loadGitLog() {
+  const tab = TABS.find(t => t.id === activeTabId);
+  // desktop-live2d 是 json，文件名不同
+  const fileName = tab.id === 'desktop-live2d' ? 'desktop-live2d.json' : `${tab.id}.yaml`;
+
+  try {
+    const data = await fetchJson(`/api/config/git/log?file=${encodeURIComponent(fileName)}&limit=12`);
+
+    // 未提交标记
+    el.dirtyBadge.hidden = !data.dirty;
+
+    el.gitLog.innerHTML = '';
+
+    if (!data.commits || data.commits.length === 0) {
+      const empty = document.createElement('li');
+      empty.className = 'cv2-git-empty';
+      empty.textContent = '暂无提交记录';
+      el.gitLog.appendChild(empty);
+      return;
+    }
+
+    data.commits.forEach((commit, idx) => {
+      const li = document.createElement('li');
+      li.className = 'cv2-git-entry';
+
+      // 绿点
+      const dot = document.createElement('span');
+      dot.className = 'cv2-git-dot';
+      dot.setAttribute('aria-hidden', 'true');
+
+      // short hash
+      const shortEl = document.createElement('span');
+      shortEl.className = 'cv2-git-short';
+      shortEl.textContent = commit.short;
+
+      // subject
+      const subjectEl = document.createElement('span');
+      subjectEl.className = 'cv2-git-subject';
+      subjectEl.textContent = commit.subject;
+      subjectEl.title = commit.subject;
+
+      // date
+      const dateEl = document.createElement('span');
+      dateEl.className = 'cv2-git-date';
+      dateEl.textContent = formatDate(commit.date);
+
+      // actions
+      const actions = document.createElement('div');
+      actions.className = 'cv2-git-actions';
+
+      // 预览按钮
+      const previewBtn = document.createElement('button');
+      previewBtn.type = 'button';
+      previewBtn.className = 'cv2-git-btn';
+      previewBtn.textContent = '预览';
+      previewBtn.setAttribute('aria-label', `预览 ${commit.short} 版本的 ${fileName}`);
+      previewBtn.addEventListener('click', async () => {
+        try {
+          const d = await fetchJson(`/api/config/git/show?hash=${commit.hash}&file=${encodeURIComponent(fileName)}`);
+          el.editor.value = d.content;
+          setStatus(`预览 ${commit.short} — 未保存`);
+        } catch (e) {
+          setStatus(e.message, true);
+        }
+      });
+
+      // 恢复按钮（最新 commit 不显示）
+      if (idx > 0) {
+        const restoreBtn = document.createElement('button');
+        restoreBtn.type = 'button';
+        restoreBtn.className = 'cv2-git-btn cv2-git-btn--restore';
+        restoreBtn.textContent = '恢复';
+        restoreBtn.setAttribute('aria-label', `恢复 ${fileName} 到 ${commit.short} 版本`);
+        restoreBtn.addEventListener('click', async () => {
+          if (!confirm(`确认将 ${fileName} 恢复到 ${commit.short}？\n${commit.subject}`)) return;
+          try {
+            await fetchJson('/api/config/git/restore', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hash: commit.hash, file: fileName }),
+            });
+            setStatus(`已恢复到 ${commit.short} ✓`);
+            loadTab();
+            loadGitLog();
+          } catch (e) {
+            setStatus(e.message, true);
+          }
+        });
+        actions.appendChild(restoreBtn);
+      }
+
+      actions.appendChild(previewBtn);
+      li.append(dot, shortEl, subjectEl, dateEl, actions);
+      el.gitLog.appendChild(li);
+    });
+  } catch (err) {
+    el.gitLog.innerHTML = `<li class="cv2-git-empty">加载失败: ${err.message}</li>`;
   }
 }
 
@@ -277,6 +389,7 @@ function init() {
 
   el.loadBtn.addEventListener('click', loadTab);
   el.saveBtn.addEventListener('click', saveTab);
+  el.gitRefreshBtn.addEventListener('click', loadGitLog);
   el.agentSendBtn.addEventListener('click', sendAgentMessage);
   el.agentInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {

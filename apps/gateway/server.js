@@ -502,6 +502,99 @@ app.get('/api/config/desktop-live2d/raw', (_, res) => {
   }
 });
 
+// --- Config v2: git log & revert ---
+const GIT_REPO_ROOT = path.resolve(__dirname, '../..');
+const CONFIG_FILES = ['providers.yaml', 'tools.yaml', 'skills.yaml', 'persona.yaml', 'voice-policy.yaml', 'desktop-live2d.json'];
+
+function gitExec(args) {
+  return new Promise((resolve, reject) => {
+    execFile('git', args, { cwd: GIT_REPO_ROOT }, (err, stdout, stderr) => {
+      if (err) { reject(new Error(stderr || err.message)); return; }
+      resolve(stdout.trim());
+    });
+  });
+}
+
+// GET /api/config/git/log?file=tools.yaml&limit=10
+// GET /api/config/git/log?limit=10  (all config files)
+app.get('/api/config/git/log', async (req, res) => {
+  const file = req.query.file;
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 15));
+
+  // validate file param
+  if (file && !CONFIG_FILES.includes(file)) {
+    res.status(400).json({ ok: false, error: 'unknown config file' });
+    return;
+  }
+
+  const pathArg = file ? `config/${file}` : 'config/';
+
+  try {
+    const raw = await gitExec([
+      'log', `--max-count=${limit}`,
+      '--format=%H|%h|%s|%ai',
+      '--', pathArg
+    ]);
+
+    if (!raw) { res.json({ ok: true, commits: [] }); return; }
+
+    const commits = raw.split('\n').map(line => {
+      const [hash, short, subject, date] = line.split('|');
+      return { hash, short, subject, date };
+    });
+
+    // 检查工作区是否有未提交的改动
+    const dirty = await gitExec(['status', '--porcelain', '--', pathArg])
+      .then(out => out.length > 0)
+      .catch(() => false);
+
+    res.json({ ok: true, commits, dirty });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/config/git/show?hash=abc123&file=tools.yaml
+app.get('/api/config/git/show', async (req, res) => {
+  const { hash, file } = req.query;
+  if (!hash || !/^[0-9a-f]{4,64}$/i.test(hash)) {
+    res.status(400).json({ ok: false, error: 'invalid hash' });
+    return;
+  }
+  if (!file || !CONFIG_FILES.includes(file)) {
+    res.status(400).json({ ok: false, error: 'unknown config file' });
+    return;
+  }
+  try {
+    const content = await gitExec(['show', `${hash}:config/${file}`]);
+    res.json({ ok: true, content });
+  } catch (err) {
+    res.status(404).json({ ok: false, error: `file not found in commit ${hash}` });
+  }
+});
+
+// POST /api/config/git/restore  { hash, file }
+app.post('/api/config/git/restore', async (req, res) => {
+  const { hash, file } = req.body || {};
+  if (!hash || !/^[0-9a-f]{4,64}$/i.test(hash)) {
+    res.status(400).json({ ok: false, error: 'invalid hash' });
+    return;
+  }
+  if (!file || !CONFIG_FILES.includes(file)) {
+    res.status(400).json({ ok: false, error: 'unknown config file' });
+    return;
+  }
+  try {
+    const content = await gitExec(['show', `${hash}:config/${file}`]);
+    const filePath = path.join(GIT_REPO_ROOT, 'config', file);
+    fsSync.writeFileSync(filePath, content, 'utf8');
+    commitConfigChange(file);
+    res.json({ ok: true, message: `restored ${file} to ${hash.slice(0, 7)}` });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 const port = Number(process.env.PORT) || 3000;
 const host = process.env.HOST || '0.0.0.0';
 

@@ -298,6 +298,148 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
+/* ── Git log panel ───────────────────────────────────────────────────────── */
+.cv2-git-panel {
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  max-height: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cv2-git-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.cv2-git-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: 1;
+}
+
+.cv2-dirty-badge {
+  font-size: 11px;
+  color: #f5a623;
+  font-weight: 600;
+}
+
+.cv2-git-refresh {
+  padding: 2px 7px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.cv2-git-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.cv2-git-log::-webkit-scrollbar { width: 4px; }
+.cv2-git-log::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+
+.cv2-git-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  transition: background 0.12s ease;
+}
+
+.cv2-git-entry:hover {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+/* 绿点 = 已提交 */
+.cv2-git-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #41c783;
+  flex-shrink: 0;
+  box-shadow: 0 0 4px #41c78366;
+}
+
+.cv2-git-short {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--primary);
+  flex-shrink: 0;
+  min-width: 52px;
+}
+
+.cv2-git-subject {
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cv2-git-date {
+  color: var(--muted);
+  font-size: 11px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.cv2-git-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.cv2-git-btn {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.cv2-git-btn:hover {
+  color: var(--text);
+  border-color: var(--primary);
+}
+
+.cv2-git-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.cv2-git-btn--restore:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.cv2-git-empty {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 8px;
+}
+
 /* ── Screen-reader only ─────────────────────────────────────────────────── */
 .sr-only {
   position: absolute;
