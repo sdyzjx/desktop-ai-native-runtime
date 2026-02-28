@@ -6,6 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+  normalizeLive2dPresetConfig,
+  loadLive2dPresetConfig,
   waitForRendererReady,
   writeRuntimeSummary,
   computeWindowBounds,
@@ -64,6 +66,45 @@ test('writeRuntimeSummary persists JSON payload', () => {
 
   assert.equal(content.ok, true);
   assert.equal(content.rpcUrl, 'ws://127.0.0.1:17373');
+});
+
+test('normalizeLive2dPresetConfig keeps emote/gesture/react object shape', () => {
+  const normalized = normalizeLive2dPresetConfig({
+    version: 2,
+    emote: { happy: { medium: { expression: 'smile' } } },
+    gesture: ['invalid'],
+    react: { waiting: [{ type: 'wait', ms: 120 }] }
+  });
+
+  assert.equal(normalized.version, 2);
+  assert.equal(typeof normalized.emote, 'object');
+  assert.deepEqual(normalized.gesture, {});
+  assert.equal(typeof normalized.react, 'object');
+});
+
+test('loadLive2dPresetConfig parses yaml file and returns normalized config', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-presets-'));
+  const projectRoot = path.join(tmpDir, 'project');
+  fs.mkdirSync(path.join(projectRoot, 'config'), { recursive: true });
+  fs.writeFileSync(
+    path.join(projectRoot, 'config', 'live2d-presets.yaml'),
+    [
+      'version: 1',
+      'gesture:',
+      '  greet:',
+      '    expression: smile'
+    ].join('\n'),
+    'utf8'
+  );
+
+  const loaded = loadLive2dPresetConfig({
+    projectRoot,
+    env: {},
+    logger: { warn: () => {} }
+  });
+
+  assert.equal(loaded.version, 1);
+  assert.equal(loaded.gesture.greet.expression, 'smile');
 });
 
 test('computeRightBottomWindowBounds places window at display corner', () => {

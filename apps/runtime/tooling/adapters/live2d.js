@@ -15,7 +15,13 @@ const DEFAULT_RPC_HOST = '127.0.0.1';
 const DEFAULT_RPC_PORT = 17373;
 const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_ACTION_COOLDOWN_MS = 250;
-const DEFAULT_ACTION_DURATION_SEC = 1.4;
+const DEFAULT_ACTION_DURATION_SEC_BY_TYPE = Object.freeze({
+  expression: 1.4,
+  motion: 1.8,
+  gesture: 2.2,
+  emote: 2.0,
+  react: 2.4
+});
 
 const DEFAULT_PRESET_PATH = path.join(getRuntimePaths().configDir, 'live2d-presets.yaml');
 const TEMPLATE_PRESET_PATH = path.resolve(__dirname, '..', '..', '..', '..', 'config', 'live2d-presets.yaml');
@@ -309,12 +315,12 @@ function resolveReactPlan(args, presetConfig) {
   return def.map(toActionStep);
 }
 
-function parseActionDurationSec(args = {}) {
+function parseActionDurationSec(args = {}, actionType = 'expression') {
   const rawDuration = Object.prototype.hasOwnProperty.call(args, 'duration_sec')
     ? args.duration_sec
     : args.durationSec;
   if (rawDuration == null) {
-    return DEFAULT_ACTION_DURATION_SEC;
+    return DEFAULT_ACTION_DURATION_SEC_BY_TYPE[actionType] || DEFAULT_ACTION_DURATION_SEC_BY_TYPE.expression;
   }
   return Number(rawDuration);
 }
@@ -329,6 +335,7 @@ function resolveActionId(args = {}, traceId = null) {
 
 function buildLive2dActionEventPayload({ method, args = {}, traceId = null } = {}) {
   let action = null;
+  let actionType = 'expression';
 
   if (method === 'model.expression.set') {
     action = {
@@ -336,6 +343,7 @@ function buildLive2dActionEventPayload({ method, args = {}, traceId = null } = {
       name: String(args.name || ''),
       args: {}
     };
+    actionType = 'expression';
   } else if (method === 'model.motion.play') {
     const nextArgs = {
       group: String(args.group || '')
@@ -348,6 +356,7 @@ function buildLive2dActionEventPayload({ method, args = {}, traceId = null } = {
       name: String(args.group || ''),
       args: nextArgs
     };
+    actionType = 'motion';
   }
 
   if (!action) {
@@ -357,7 +366,75 @@ function buildLive2dActionEventPayload({ method, args = {}, traceId = null } = {
   const normalized = normalizeLive2dActionMessage({
     action_id: resolveActionId(args, traceId),
     action,
-    duration_sec: parseActionDurationSec(args),
+    duration_sec: parseActionDurationSec(args, actionType),
+    queue_policy: resolveActionQueuePolicy(args)
+  });
+
+  if (!normalized.ok) {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, normalized.error);
+  }
+
+  return normalized.value;
+}
+
+function resolveSemanticActionName(actionType, args = {}) {
+  if (actionType === 'emote') {
+    return String(args.emotion || args.name || '').trim();
+  }
+  if (actionType === 'gesture') {
+    return String(args.type || args.name || '').trim();
+  }
+  if (actionType === 'react') {
+    return String(args.intent || args.name || '').trim();
+  }
+  return String(args.name || '').trim();
+}
+
+function resolveSemanticActionArgs(actionType, args = {}) {
+  if (actionType === 'emote') {
+    return {
+      emotion: String(args.emotion || '').trim(),
+      intensity: String(args.intensity || 'medium').trim()
+    };
+  }
+  if (actionType === 'gesture') {
+    return {
+      type: String(args.type || '').trim()
+    };
+  }
+  if (actionType === 'react') {
+    return {
+      intent: String(args.intent || '').trim()
+    };
+  }
+  return {};
+}
+
+function buildSemanticActionEventPayload({
+  actionType,
+  args = {},
+  traceId = null,
+  validatePreset = null
+} = {}) {
+  const type = String(actionType || '').trim().toLowerCase();
+  if (!['emote', 'gesture', 'react'].includes(type)) {
+    throw new ToolingError(ErrorCode.VALIDATION_ERROR, `unsupported semantic action type: ${type || '<empty>'}`);
+  }
+
+  if (typeof validatePreset === 'function') {
+    validatePreset();
+  }
+
+  const actionName = resolveSemanticActionName(type, args);
+  const actionArgs = resolveSemanticActionArgs(type, args);
+  const normalized = normalizeLive2dActionMessage({
+    action_id: resolveActionId(args, traceId),
+    action: {
+      type,
+      name: actionName,
+      args: actionArgs
+    },
+    duration_sec: parseActionDurationSec(args, type),
     queue_policy: resolveActionQueuePolicy(args)
   });
 
@@ -447,9 +524,25 @@ function createLive2dAdapters({
       const timeoutMs = Math.max(500, Number(args.timeoutMs || context.timeoutMs || DEFAULT_TIMEOUT_MS));
       const traceId = context.trace_id || null;
       const sessionKey = String(context.session_id || 'global');
+      const actionType = String(name || '').replace(/^live2d\./, '').trim();
       const steps = resolver(args, presetConfig);
+      const semanticEventPayload = buildSemanticActionEventPayload({
+        actionType,
+        args,
+        traceId
+      });
 
       const executePlan = async () => {
+        if (typeof context.publishEvent === 'function') {
+          context.publishEvent(ACTION_EVENT_NAME, semanticEventPayload);
+          return JSON.stringify({
+            ok: true,
+            mode: 'event',
+            topic: ACTION_EVENT_NAME,
+            action_id: semanticEventPayload.action_id
+          });
+        }
+
         const trace = [];
         for (const step of steps) {
           if (step.type === 'wait') {
@@ -509,6 +602,7 @@ module.exports = {
     resolveGesturePlan,
     resolveReactPlan,
     buildLive2dActionEventPayload,
+    buildSemanticActionEventPayload,
     toActionStep,
     loadLive2dPresetConfig,
     normalizeLive2dPresetConfig,

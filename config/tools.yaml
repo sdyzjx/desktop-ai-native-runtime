@@ -254,6 +254,9 @@ tools:
       properties:
         emotion: { type: string, minLength: 1, maxLength: 64 }
         intensity: { type: string, enum: [low, medium, high] }
+        action_id: { type: string, minLength: 1, maxLength: 160 }
+        duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
+        queue_policy: { type: string, enum: [append, replace, interrupt] }
         timeoutMs: { type: integer, minimum: 500, maximum: 120000 }
       required: [emotion]
       additionalProperties: false
@@ -266,6 +269,9 @@ tools:
       type: object
       properties:
         type: { type: string, minLength: 1, maxLength: 64 }
+        action_id: { type: string, minLength: 1, maxLength: 160 }
+        duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
+        queue_policy: { type: string, enum: [append, replace, interrupt] }
         timeoutMs: { type: integer, minimum: 500, maximum: 120000 }
       required: [type]
       additionalProperties: false
@@ -278,6 +284,9 @@ tools:
       type: object
       properties:
         intent: { type: string, minLength: 1, maxLength: 64 }
+        action_id: { type: string, minLength: 1, maxLength: 160 }
+        duration_sec: { type: number, exclusiveMinimum: 0, maximum: 120 }
+        queue_policy: { type: string, enum: [append, replace, interrupt] }
         timeoutMs: { type: integer, minimum: 500, maximum: 120000 }
       required: [intent]
       additionalProperties: false

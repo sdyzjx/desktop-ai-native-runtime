@@ -250,6 +250,94 @@ test('createLive2dAdapters validates action event payload fields', async () => {
   );
 });
 
+test('createLive2dAdapters publishes semantic gesture action event with default duration', async () => {
+  const events = [];
+  const rpcCalls = [];
+  const adapter = createLive2dAdapters({
+    invokeRpc: async ({ method }) => {
+      rpcCalls.push(method);
+      return { ok: true };
+    },
+    actionCooldownMs: 0,
+    presetConfig: {
+      version: 1,
+      emote: {},
+      gesture: {
+        greet: {
+          expression: 'smile',
+          motion: { group: 'Greet', index: 0 }
+        }
+      },
+      react: {}
+    }
+  });
+
+  const payload = await adapter['live2d.gesture']({
+    type: 'greet',
+    action_id: 'gesture-event-1'
+  }, {
+    session_id: 's-semantic-1',
+    trace_id: 'trace-semantic-1',
+    publishEvent: (topic, eventPayload) => {
+      events.push({ topic, eventPayload });
+    }
+  });
+
+  const parsed = JSON.parse(payload);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.mode, 'event');
+  assert.equal(parsed.topic, 'ui.live2d.action');
+  assert.equal(parsed.action_id, 'gesture-event-1');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].topic, 'ui.live2d.action');
+  assert.equal(events[0].eventPayload.action.type, 'gesture');
+  assert.equal(events[0].eventPayload.action.name, 'greet');
+  assert.equal(events[0].eventPayload.action.args.type, 'greet');
+  assert.equal(events[0].eventPayload.queue_policy, 'append');
+  assert.ok(Number(events[0].eventPayload.duration_sec) > 0);
+  assert.equal(rpcCalls.length, 0);
+});
+
+test('createLive2dAdapters semantic action duration override takes priority over default', async () => {
+  const events = [];
+  const adapter = createLive2dAdapters({
+    invokeRpc: async () => ({ ok: true }),
+    actionCooldownMs: 0,
+    presetConfig: {
+      version: 1,
+      emote: {
+        happy: {
+          medium: {
+            expression: 'smile',
+            params: [{ name: 'ParamMouthForm', value: 0.55 }]
+          }
+        }
+      },
+      gesture: {},
+      react: {}
+    }
+  });
+
+  await adapter['live2d.emote']({
+    emotion: 'happy',
+    intensity: 'medium',
+    duration_sec: 3.3
+  }, {
+    session_id: 's-semantic-2',
+    trace_id: 'trace-semantic-2',
+    publishEvent: (topic, eventPayload) => {
+      events.push({ topic, eventPayload });
+    }
+  });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].topic, 'ui.live2d.action');
+  assert.equal(events[0].eventPayload.action.type, 'emote');
+  assert.equal(events[0].eventPayload.action.name, 'happy');
+  assert.equal(events[0].eventPayload.action.args.intensity, 'medium');
+  assert.equal(events[0].eventPayload.duration_sec, 3.3);
+});
+
 test('semantic tools map presets to rpc calls in order', async () => {
   const calls = [];
   const adapter = createLive2dAdapters({

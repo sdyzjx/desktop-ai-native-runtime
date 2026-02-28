@@ -42,6 +42,7 @@
 
   const chatStateApi = window.ChatPanelState;
   let runtimeUiConfig = null;
+  let runtimeLive2dPresets = null;
   let chatPanelState = null;
   let chatInputComposing = false;
   let chatPanelEnabled = false;
@@ -452,6 +453,7 @@
         setExpression: setModelExpressionRaw,
         playMotion: playModelMotionRaw,
         setParamBatch: setModelParamsBatch,
+        presetConfig: runtimeLive2dPresets || {},
         createError: createRpcError
       });
       actionQueuePlayer = new Player({
@@ -1001,6 +1003,7 @@
 
       const runtimeConfig = await bridge.getRuntimeConfig();
       runtimeUiConfig = runtimeConfig.uiConfig || null;
+      runtimeLive2dPresets = runtimeConfig.live2dPresets || null;
       initChatPanel(runtimeUiConfig?.chat || {});
       await initPixi();
       await loadModel(runtimeConfig.modelRelativePath, runtimeConfig.modelName);

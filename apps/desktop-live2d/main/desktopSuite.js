@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const YAML = require('yaml');
 
 const { resolveDesktopLive2dConfig } = require('./config');
 const { validateModelAssetDirectory } = require('./modelAssets');
@@ -30,6 +31,34 @@ const CHANNELS = Object.freeze({
   windowControl: 'live2d:window:control',
   chatPanelVisibility: 'live2d:chat:panel-visibility'
 });
+
+function normalizeLive2dPresetConfig(config = {}) {
+  const safe = config && typeof config === 'object' && !Array.isArray(config) ? config : {};
+  const toObject = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+  return {
+    version: Number(safe.version || 1),
+    emote: toObject(safe.emote),
+    gesture: toObject(safe.gesture),
+    react: toObject(safe.react)
+  };
+}
+
+function loadLive2dPresetConfig({ projectRoot, env = process.env, logger = console } = {}) {
+  const presetPath = path.resolve(
+    env.LIVE2D_PRESETS_PATH || path.join(projectRoot || process.cwd(), 'config', 'live2d-presets.yaml')
+  );
+
+  try {
+    const rawYaml = fs.readFileSync(presetPath, 'utf8');
+    return normalizeLive2dPresetConfig(YAML.parse(rawYaml) || {});
+  } catch (err) {
+    logger.warn?.('[desktop-live2d] failed to load live2d presets', {
+      presetPath,
+      error: err?.message || String(err || 'unknown error')
+    });
+    return normalizeLive2dPresetConfig({});
+  }
+}
 
 function isNewSessionCommand(text) {
   return String(text || '').trim().toLowerCase() === '/new';
@@ -419,6 +448,11 @@ async function startDesktopSuite({
     modelDir: config.modelDir,
     modelJsonName: config.modelJsonName
   });
+  const live2dPresetConfig = loadLive2dPresetConfig({
+    projectRoot: config.projectRoot,
+    env: process.env,
+    logger
+  });
   const display = screen?.getPrimaryDisplay?.();
 
   logger.info?.('[desktop-live2d] desktop_up_start', {
@@ -742,6 +776,7 @@ async function startDesktopSuite({
     modelRelativePath: config.modelRelativePath,
     modelName: modelValidation.modelName,
     gatewayUrl: config.gatewayUrl,
+    live2dPresets: live2dPresetConfig,
     uiConfig: event?.sender === avatarWindow.webContents ? avatarUiConfig : config.uiConfig
   }));
   const windowDragListener = createWindowDragListener({ BrowserWindow });
@@ -1488,6 +1523,8 @@ function writeRuntimeSummary(summaryPath, payload) {
 
 module.exports = {
   CHANNELS,
+  normalizeLive2dPresetConfig,
+  loadLive2dPresetConfig,
   startDesktopSuite,
   waitForRendererReady,
   createMainWindow,
