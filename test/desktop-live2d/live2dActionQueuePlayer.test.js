@@ -234,3 +234,28 @@ test('Live2dActionQueuePlayer executes actions through provided mutex', async ()
   assert.deepEqual(executed, ['smile']);
   assert.equal(lockCalls.length, 1);
 });
+
+test('Live2dActionQueuePlayer emits enqueue/start/done/fail telemetry events', async () => {
+  const telemetry = [];
+  const player = new Live2dActionQueuePlayer({
+    executeAction: async (action) => {
+      if (action.name === 'bad') {
+        throw new Error('boom');
+      }
+    },
+    sleep: async () => {},
+    tickMs: 20,
+    onTelemetry: (event) => telemetry.push(event)
+  });
+
+  player.enqueue(createExpressionAction({ id: 'a1', name: 'good', durationSec: 0.01 }));
+  player.enqueue(createExpressionAction({ id: 'a2', name: 'bad', durationSec: 0.01 }));
+  await player.waitForIdle(800);
+
+  const events = telemetry.map((item) => item.event);
+  assert.ok(events.includes('enqueue'));
+  assert.ok(events.includes('start'));
+  assert.ok(events.includes('done'));
+  assert.ok(events.includes('fail'));
+  assert.ok(telemetry.every((item) => Number.isFinite(Number(item.timestamp))));
+});

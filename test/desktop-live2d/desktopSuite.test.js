@@ -21,11 +21,13 @@ const {
   normalizeChatPanelVisibilityPayload,
   normalizeModelBoundsPayload,
   normalizeBubbleMetricsPayload,
+  normalizeActionTelemetryPayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
   createModelBoundsListener,
   createBubbleMetricsListener,
+  createActionTelemetryListener,
   createChatInputListener,
   forwardLive2dActionEvent,
   handleDesktopRpcRequest,
@@ -490,6 +492,53 @@ test('createBubbleMetricsListener forwards normalized bubble metrics for bubble 
   assert.deepEqual(received[0], { width: 320, height: 168 });
 });
 
+test('normalizeActionTelemetryPayload validates telemetry shape', () => {
+  const normalized = normalizeActionTelemetryPayload({
+    event: ' done ',
+    action_id: 'act-1',
+    action_type: 'expression',
+    queue_size: 3,
+    timestamp: 1000
+  });
+
+  assert.deepEqual(normalized, {
+    event: 'done',
+    action_id: 'act-1',
+    action_type: 'expression',
+    queue_size: 3,
+    timestamp: 1000
+  });
+  assert.equal(normalizeActionTelemetryPayload({ event: 'invalid' }), null);
+});
+
+test('createActionTelemetryListener forwards normalized payload for avatar sender only', () => {
+  const webContents = { id: 28 };
+  const window = {
+    webContents,
+    isDestroyed() {
+      return false;
+    }
+  };
+  const received = [];
+  const listener = createActionTelemetryListener({
+    window,
+    onTelemetry: (payload) => received.push(payload)
+  });
+
+  listener({ sender: webContents }, {
+    event: 'start',
+    action_id: 'act-2',
+    action_type: 'motion',
+    queue_size: 1
+  });
+  listener({ sender: { id: 999 } }, { event: 'done', action_id: 'act-2' });
+  listener({ sender: webContents }, { event: 'bad' });
+
+  assert.equal(received.length, 1);
+  assert.equal(received[0].event, 'start');
+  assert.equal(received[0].action_id, 'act-2');
+});
+
 test('createChatInputListener forwards normalized payload to callback', () => {
   const logs = [];
   const received = [];
@@ -509,6 +558,7 @@ test('createChatInputListener forwards normalized payload to callback', () => {
 
 test('forwardLive2dActionEvent forwards normalized payload into renderer enqueue method', async () => {
   const calls = [];
+  const telemetry = [];
   const result = await forwardLive2dActionEvent({
     eventName: 'ui.live2d.action',
     eventPayload: {
@@ -523,9 +573,10 @@ test('forwardLive2dActionEvent forwards normalized payload into renderer enqueue
     bridge: {
       invoke: async (payload) => {
         calls.push(payload);
-        return { ok: true, queued: 1 };
+        return { ok: true, queued: 1, queue_size: 1 };
       }
     },
+    onTelemetry: (payload) => telemetry.push(payload),
     rendererTimeoutMs: 2222
   });
 
@@ -535,6 +586,9 @@ test('forwardLive2dActionEvent forwards normalized payload into renderer enqueue
   assert.equal(calls[0].timeoutMs, 2222);
   assert.equal(calls[0].params.action.type, 'expression');
   assert.equal(calls[0].params.duration_sec, 1.8);
+  assert.equal(telemetry.length, 1);
+  assert.equal(telemetry[0].event, 'ack');
+  assert.equal(telemetry[0].action_id, 'act-1');
 });
 
 test('forwardLive2dActionEvent skips invalid payload and does not invoke bridge', async () => {

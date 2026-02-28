@@ -463,6 +463,9 @@
         maxQueueSize: Number(runtimeActionQueueConfig.maxQueueSize) || 120,
         overflowPolicy: runtimeActionQueueConfig.overflowPolicy || 'drop_oldest',
         mutex: ensureActionExecutionMutex(),
+        onTelemetry: (payload) => {
+          bridge?.sendActionTelemetry?.(payload);
+        },
         logger: console
       });
       return actionQueuePlayer;

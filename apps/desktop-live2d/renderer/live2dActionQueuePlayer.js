@@ -13,6 +13,7 @@
       maxQueueSize = 120,
       overflowPolicy = 'drop_oldest',
       mutex = null,
+      onTelemetry = null,
       logger = console
     } = {}) {
       if (typeof executeAction !== 'function') {
@@ -28,6 +29,7 @@
       this.maxQueueSize = Math.max(1, Math.floor(Number(maxQueueSize) || 120));
       this.overflowPolicy = normalizedOverflowPolicy;
       this.mutex = mutex;
+      this.onTelemetry = onTelemetry;
       this.logger = logger;
       this.queue = [];
       this.loopRunning = false;
@@ -35,6 +37,22 @@
       this.sequence = 0;
       this.idleWaiters = [];
       this.droppedCount = 0;
+    }
+
+    emitTelemetry(event, payload = {}) {
+      if (typeof this.onTelemetry !== 'function') {
+        return;
+      }
+      try {
+        this.onTelemetry({
+          event: String(event || ''),
+          timestamp: Date.now(),
+          queue_size: this.queue.length,
+          ...payload
+        });
+      } catch {
+        // ignore telemetry handler errors
+      }
     }
 
     snapshot() {
@@ -76,6 +94,10 @@
             queue_size: this.queue.length,
             max_queue_size: this.maxQueueSize
           });
+          this.emitTelemetry('drop', {
+            reason: 'queue_overflow_drop_newest',
+            action_id: actionId
+          });
           return {
             ok: false,
             dropped: true,
@@ -93,9 +115,22 @@
           queue_size: this.queue.length,
           max_queue_size: this.maxQueueSize
         });
+        this.emitTelemetry('drop', {
+          reason: 'queue_overflow_drop_oldest',
+          dropped: dropCount
+        });
       }
 
       this.queue.push(nextAction);
+      this.logger.info?.('[live2d-action-player] enqueue', {
+        action_id: actionId,
+        action_type: nextAction.action?.type || null,
+        queue_size: this.queue.length
+      });
+      this.emitTelemetry('enqueue', {
+        action_id: actionId,
+        action_type: nextAction.action?.type || null
+      });
 
       void this.startLoop();
 
@@ -177,6 +212,15 @@
             interrupted: false
           };
           this.activeStep = activeStep;
+          this.logger.info?.('[live2d-action-player] start', {
+            action_id: actionMessage.action_id,
+            action_type: actionMessage.action?.type || null,
+            queue_size: this.queue.length
+          });
+          this.emitTelemetry('start', {
+            action_id: actionMessage.action_id,
+            action_type: actionMessage.action?.type || null
+          });
 
           const runAction = async () => {
             try {
@@ -186,8 +230,21 @@
                 action_id: actionMessage.action_id,
                 error: err?.message || String(err || 'unknown error')
               });
+              this.emitTelemetry('fail', {
+                action_id: actionMessage.action_id,
+                action_type: actionMessage.action?.type || null,
+                error: err?.message || String(err || 'unknown error')
+              });
             }
             await this.waitDuration(actionMessage.duration_sec, activeStep);
+            this.logger.info?.('[live2d-action-player] done', {
+              action_id: actionMessage.action_id,
+              action_type: actionMessage.action?.type || null
+            });
+            this.emitTelemetry('done', {
+              action_id: actionMessage.action_id,
+              action_type: actionMessage.action?.type || null
+            });
           };
 
           try {
