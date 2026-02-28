@@ -21,6 +21,12 @@ test('resolveDesktopLive2dConfig applies defaults and model relative path', () =
   assert.equal(config.uiConfig.window.compactWhenChatHidden, false);
   assert.equal(config.uiConfig.window.compactWidth, 320);
   assert.equal(config.uiConfig.window.compactHeight, 600);
+  assert.equal(config.uiConfig.actionQueue.maxQueueSize, 120);
+  assert.equal(config.uiConfig.actionQueue.overflowPolicy, 'drop_oldest');
+  assert.equal(config.uiConfig.actionQueue.idleFallbackEnabled, true);
+  assert.equal(config.uiConfig.actionQueue.idleAction.type, 'motion');
+  assert.equal(config.uiConfig.actionQueue.idleAction.name, 'Idle');
+  assert.equal(config.uiConfig.actionQueue.idleAction.args.group, 'Idle');
 });
 
 test('resolveDesktopLive2dConfig respects env overrides', () => {
@@ -73,6 +79,15 @@ test('resolveDesktopLive2dConfig loads overrides from YACHIYO_HOME/config/deskto
           defaultVisible: false,
           maxMessages: 88
         }
+      },
+      actionQueue: {
+        maxQueueSize: 32,
+        overflowPolicy: 'drop_newest',
+        idleFallbackEnabled: false,
+        idleAction: {
+          type: 'expression',
+          name: 'smile'
+        }
       }
     }),
     'utf8'
@@ -92,6 +107,11 @@ test('resolveDesktopLive2dConfig loads overrides from YACHIYO_HOME/config/deskto
   assert.equal(config.uiConfig.layout.lockPositionOnResize, false);
   assert.equal(config.uiConfig.chat.panel.defaultVisible, false);
   assert.equal(config.uiConfig.chat.panel.maxMessages, 88);
+  assert.equal(config.uiConfig.actionQueue.maxQueueSize, 32);
+  assert.equal(config.uiConfig.actionQueue.overflowPolicy, 'drop_newest');
+  assert.equal(config.uiConfig.actionQueue.idleFallbackEnabled, false);
+  assert.equal(config.uiConfig.actionQueue.idleAction.type, 'expression');
+  assert.equal(config.uiConfig.actionQueue.idleAction.name, 'smile');
 });
 
 test('resolveDesktopLive2dConfig writes generated rpc token back to process.env', () => {

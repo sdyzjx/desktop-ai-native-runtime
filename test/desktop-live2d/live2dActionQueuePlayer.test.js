@@ -259,3 +259,48 @@ test('Live2dActionQueuePlayer emits enqueue/start/done/fail telemetry events', a
   assert.ok(events.includes('fail'));
   assert.ok(telemetry.every((item) => Number.isFinite(Number(item.timestamp))));
 });
+
+test('Live2dActionQueuePlayer falls back to idle action when queue drains', async () => {
+  const executed = [];
+  const player = new Live2dActionQueuePlayer({
+    executeAction: async (action) => {
+      executed.push(action.name);
+    },
+    sleep: async () => {},
+    tickMs: 20,
+    idleAction: {
+      type: 'motion',
+      name: 'Idle',
+      args: { group: 'Idle', index: 0 }
+    }
+  });
+
+  player.enqueue(createExpressionAction({ id: 'a1', name: 'smile', durationSec: 0.01 }));
+  await player.waitForIdle(800);
+
+  assert.deepEqual(executed, ['smile', 'Idle']);
+  assert.equal(player.snapshot().idleActionApplied, true);
+});
+
+test('Live2dActionQueuePlayer re-applies idle fallback after next action batch', async () => {
+  const executed = [];
+  const player = new Live2dActionQueuePlayer({
+    executeAction: async (action) => {
+      executed.push(action.name);
+    },
+    sleep: async () => {},
+    tickMs: 20,
+    idleAction: {
+      type: 'motion',
+      name: 'Idle',
+      args: { group: 'Idle', index: 0 }
+    }
+  });
+
+  player.enqueue(createExpressionAction({ id: 'a1', name: 'smile', durationSec: 0.01 }));
+  await player.waitForIdle(800);
+  player.enqueue(createExpressionAction({ id: 'a2', name: 'tear_drop', durationSec: 0.01 }));
+  await player.waitForIdle(800);
+
+  assert.deepEqual(executed, ['smile', 'Idle', 'tear_drop', 'Idle']);
+});

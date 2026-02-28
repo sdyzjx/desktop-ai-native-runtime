@@ -12,6 +12,7 @@
       tickMs = 50,
       maxQueueSize = 120,
       overflowPolicy = 'drop_oldest',
+      idleAction = null,
       mutex = null,
       onTelemetry = null,
       logger = console
@@ -28,6 +29,9 @@
       this.tickMs = Math.max(5, Math.floor(Number(tickMs) || 50));
       this.maxQueueSize = Math.max(1, Math.floor(Number(maxQueueSize) || 120));
       this.overflowPolicy = normalizedOverflowPolicy;
+      this.idleAction = idleAction && typeof idleAction === 'object' && !Array.isArray(idleAction)
+        ? { ...idleAction }
+        : null;
       this.mutex = mutex;
       this.onTelemetry = onTelemetry;
       this.logger = logger;
@@ -37,6 +41,7 @@
       this.sequence = 0;
       this.idleWaiters = [];
       this.droppedCount = 0;
+      this.idleActionApplied = false;
     }
 
     emitTelemetry(event, payload = {}) {
@@ -60,7 +65,8 @@
         queueSize: this.queue.length,
         loopRunning: this.loopRunning,
         activeActionId: this.activeStep?.action?.action_id || null,
-        droppedCount: this.droppedCount
+        droppedCount: this.droppedCount,
+        idleActionApplied: this.idleActionApplied
       };
     }
 
@@ -82,6 +88,7 @@
         ...actionMessage,
         action_id: actionId
       };
+      this.idleActionApplied = false;
 
       if (this.queue.length >= this.maxQueueSize) {
         if (this.overflowPolicy === 'reject') {
@@ -192,6 +199,32 @@
       }
     }
 
+    async applyIdleActionIfNeeded() {
+      if (!this.idleAction || this.idleActionApplied) {
+        return;
+      }
+      this.idleActionApplied = true;
+      const runIdle = async () => {
+        try {
+          this.logger.info?.('[live2d-action-player] idle fallback', {
+            action_type: this.idleAction?.type || null,
+            action_name: this.idleAction?.name || null
+          });
+          await this.executeAction(this.idleAction);
+        } catch (err) {
+          this.logger.warn?.('[live2d-action-player] idle fallback failed', {
+            error: err?.message || String(err || 'unknown error')
+          });
+        }
+      };
+
+      if (this.mutex && typeof this.mutex.runExclusive === 'function') {
+        await this.mutex.runExclusive(runIdle);
+      } else {
+        await runIdle();
+      }
+    }
+
     async startLoop() {
       if (this.loopRunning) {
         return;
@@ -202,6 +235,7 @@
         while (this.loopRunning) {
           const actionMessage = this.queue.shift();
           if (!actionMessage) {
+            await this.applyIdleActionIfNeeded();
             this.loopRunning = false;
             this.resolveIdleWaiters();
             return;

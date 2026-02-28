@@ -449,6 +449,9 @@
         throw createRpcError(-32005, 'Live2dActionExecutor runtime is unavailable');
       }
       const runtimeActionQueueConfig = runtimeUiConfig?.actionQueue || {};
+      const idleAction = runtimeActionQueueConfig.idleFallbackEnabled === false
+        ? null
+        : (runtimeActionQueueConfig.idleAction || null);
       actionExecutor = actionExecutorApi.createLive2dActionExecutor({
         setExpression: setModelExpressionRaw,
         playMotion: playModelMotionRaw,
@@ -462,6 +465,7 @@
         },
         maxQueueSize: Number(runtimeActionQueueConfig.maxQueueSize) || 120,
         overflowPolicy: runtimeActionQueueConfig.overflowPolicy || 'drop_oldest',
+        idleAction,
         mutex: ensureActionExecutionMutex(),
         onTelemetry: (payload) => {
           bridge?.sendActionTelemetry?.(payload);
