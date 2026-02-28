@@ -65,11 +65,38 @@ npm run desktop:up
 npm run desktop:smoke
 ```
 
+Live2D 语义动作工具面：
+- 工具名：`live2d.motion.play`、`live2d.expression.set`、`live2d.param.set`、`live2d.param.batch_set`、`live2d.emote`、`live2d.gesture`、`live2d.react`
+- 语义预设文件：`config/live2d-presets.yaml`
+- 工具参数约束：`config/tools.yaml`（不存在的 preset 会在 schema 校验阶段被拒绝）
+- 渲染端动作播放器：按队列消费动作消息，队列清空后自动回退到 `Idle`
+
+动作消息结构：
+
+```json
+{
+  "action_id": "optional-id",
+  "action": { "type": "emote", "args": { "emotion": "happy", "intensity": "high" } },
+  "duration_sec": 2.5,
+  "queue_policy": "append"
+}
+```
+
 ## 测试
 
 ```bash
 npm test        # 完整测试套件
 npm run test:ci # CI 等效命令
+```
+
+CI 说明：
+- `npm run test:ci` 当前会排除 `test/runtime/voiceAdapter.test.js`，避免托管 CI 环境缺少 `ffmpeg` 导致失败。
+
+语音适配器测试（本地）：
+- 先安装 `ffmpeg`，再执行：
+
+```bash
+node --test test/runtime/voiceAdapter.test.js
 ```
 
 ## 项目结构
