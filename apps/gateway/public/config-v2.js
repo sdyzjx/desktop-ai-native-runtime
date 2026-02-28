@@ -162,45 +162,38 @@ function initWs() {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
 
-    // 流式 token
-    if (msg.type === 'token' || msg.type === 'delta') {
-      const chunk = msg.token || msg.delta || '';
-      streamingText += chunk;
+    // 只处理属于 config-v2-agent session 的消息
+    const msgSessionId = msg.session_id || msg.data?.session_id || msg.params?.session_id;
+    if (msgSessionId && msgSessionId !== AGENT_SESSION_ID) return;
+
+    // 运行中状态提示（legacy: type='start'）
+    if (msg.type === 'start') {
       if (streamingEl) {
-        streamingEl.querySelector('.cv2-msg-text').textContent = streamingText;
-        el.agentMessages.scrollTop = el.agentMessages.scrollHeight;
+        streamingEl.querySelector('.cv2-msg-text').textContent = '思考中…';
       }
       return;
     }
 
-    // 完成
-    if (msg.type === 'result' || msg.result) {
-      const output = msg.result?.output || msg.output || streamingText;
-      if (streamingEl) {
-        streamingEl.classList.remove('is-streaming');
-        const textEl = streamingEl.querySelector('.cv2-msg-text');
-        textEl.textContent = output;
-
-        // 检测代码块，注入 Apply 按钮
-        const codeMatch = output.match(/```(?:yaml|json)?\n([\s\S]*?)```/);
-        if (codeMatch) {
-          const applyBtn = document.createElement('button');
-          applyBtn.type = 'button';
-          applyBtn.className = 'cv2-apply-btn';
-          applyBtn.textContent = '应用到编辑器';
-          applyBtn.setAttribute('aria-label', '将 agent 建议的代码应用到编辑器');
-          const captured = codeMatch[1];
-          applyBtn.addEventListener('click', () => {
-            el.editor.value = captured;
-            setStatus('已从 Agent 应用');
-            el.editor.focus();
-          });
-          streamingEl.appendChild(applyBtn);
-        }
+    // 工具调用中间事件（legacy: type='event'）
+    if (msg.type === 'event') {
+      if (streamingEl && msg.data?.event === 'tool.call') {
+        streamingEl.querySelector('.cv2-msg-text').textContent =
+          `调用工具: ${msg.data.payload?.name || '…'}`;
       }
-      streamingText = '';
-      streamingEl = null;
-      el.agentMessages.scrollTop = el.agentMessages.scrollHeight;
+      return;
+    }
+
+    // 完成（legacy: type='final'，含 output 字段）
+    if (msg.type === 'final') {
+      const output = msg.output || streamingText || '（无回复）';
+      finishAgentMessage(output);
+      return;
+    }
+
+    // 错误
+    if (msg.type === 'error') {
+      finishAgentMessage(`错误：${msg.message || 'unknown error'}`, true);
+      return;
     }
   });
 
@@ -220,6 +213,36 @@ function appendMsg(role, text) {
   el.agentMessages.appendChild(div);
   el.agentMessages.scrollTop = el.agentMessages.scrollHeight;
   return div;
+}
+
+function finishAgentMessage(output, isErr = false) {
+  if (streamingEl) {
+    streamingEl.classList.remove('is-streaming');
+    const textEl = streamingEl.querySelector('.cv2-msg-text');
+    textEl.textContent = output;
+
+    if (!isErr) {
+      // 检测代码块，注入 Apply 按钮
+      const codeMatch = output.match(/```(?:yaml|json)?\n([\s\S]*?)```/);
+      if (codeMatch) {
+        const applyBtn = document.createElement('button');
+        applyBtn.type = 'button';
+        applyBtn.className = 'cv2-apply-btn';
+        applyBtn.textContent = '应用到编辑器';
+        applyBtn.setAttribute('aria-label', '将 agent 建议的代码应用到编辑器');
+        const captured = codeMatch[1];
+        applyBtn.addEventListener('click', () => {
+          el.editor.value = captured;
+          setStatus('已从 Agent 应用');
+          el.editor.focus();
+        });
+        streamingEl.appendChild(applyBtn);
+      }
+    }
+  }
+  streamingText = '';
+  streamingEl = null;
+  el.agentMessages.scrollTop = el.agentMessages.scrollHeight;
 }
 
 function sendAgentMessage() {
