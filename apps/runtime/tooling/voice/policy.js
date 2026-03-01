@@ -24,6 +24,11 @@ function defaultPolicy() {
       max_duration_sec: 45,
       cooldown_sec_per_session: 20,
       max_tts_calls_per_minute: 3
+    },
+    auto_voice_reply: {
+      enabled: false,
+      max_chars: 50,
+      style: 'auto'
     }
   };
 }
@@ -36,6 +41,7 @@ function loadVoicePolicy({ policyPath } = {}) {
   const parsed = YAML.parse(raw) || {};
   const vp = parsed.voice_policy || {};
   const limits = vp.limits || {};
+  const autoVoiceReply = vp.auto_voice_reply || {};
 
   return {
     limits: {
@@ -43,6 +49,11 @@ function loadVoicePolicy({ policyPath } = {}) {
       max_duration_sec: parseNum(limits.max_duration_sec, 45),
       cooldown_sec_per_session: parseNum(limits.cooldown_sec_per_session, 20),
       max_tts_calls_per_minute: parseNum(limits.max_tts_calls_per_minute, 3)
+    },
+    auto_voice_reply: {
+      enabled: parseBool(autoVoiceReply.enabled, false),
+      max_chars: parseNum(autoVoiceReply.max_chars, 50),
+      style: String(autoVoiceReply.style || 'auto')
     }
   };
 }

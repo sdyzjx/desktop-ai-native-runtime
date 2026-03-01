@@ -17,3 +17,8 @@ voice_policy:
     max_duration_sec: 45
     cooldown_sec_per_session: 20
     max_tts_calls_per_minute: 3
+
+  auto_voice_reply:
+    enabled: false
+    max_chars: 50
+    style: auto

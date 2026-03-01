@@ -5,6 +5,7 @@ const { PersonaStateStore } = require('./personaStateStore');
 const { PersonaProfileStore } = require('./personaProfileStore');
 const { PersonaGuidanceStateStore } = require('./personaGuidanceStateStore');
 const { maybePersistPersonaPreference } = require('./personaPreferenceWriteback');
+const { loadVoicePolicy } = require('../tooling/voice/policy');
 
 function clip(text, maxChars) {
   const s = String(text || '').trim();
@@ -61,11 +62,20 @@ class PersonaContextBuilder {
 
     const shouldPromptForCustomName = this.guidanceStore.shouldPromptForCustomName({ profile });
 
+    // Load voice policy to check auto_voice_reply setting
+    const voicePolicy = loadVoicePolicy();
+    const autoVoiceReplyEnabled = voicePolicy.auto_voice_reply?.enabled || false;
+    const autoVoiceReplyMaxChars = voicePolicy.auto_voice_reply?.max_chars || 50;
+
+    const voiceReplyPrompt = autoVoiceReplyEnabled
+      ? `Voice Reply Mode: 在每次回复后，你应该主动调用 voice.tts_aliyun_vc 工具生成一段简短的语音回复（不超过${autoVoiceReplyMaxChars}字）。这段语音可以是：\n- 对你回复内容的精炼总结\n- 对用户问题的轻松吐槽或评论\n- 简短的互动性回应\n根据对话氛围自行决定风格，保持自然和个性化。语音文本应该口语化、简洁有趣。`
+      : '';
+
     const parts = [
       `Persona Profile: ${profile.profile || cfg.defaults.profile || 'yachiyo'}`,
       `Address user as: ${effectiveAddressing}`,
       shouldPromptForCustomName
-        ? 'If user has not set preferred name, gently ask once: “你希望我怎么称呼你？我可以先用‘主人’，也可以换成你指定的称呼。”'
+        ? 'If user has not set preferred name, gently ask once: "你希望我怎么称呼你？我可以先用\'主人\'，也可以换成你指定的称呼。"'
         : '',
       'Persona Core:',
       clip(persona.soul || '', 600),
@@ -73,7 +83,8 @@ class PersonaContextBuilder {
       'User Preference:',
       clip(persona.user || '', 400),
       `Active persona mode: ${modeResolved.mode}`,
-      memoryHints.length ? `Memory preference hints:\n${memoryHints.join('\n')}` : ''
+      memoryHints.length ? `Memory preference hints:\n${memoryHints.join('\n')}` : '',
+      voiceReplyPrompt
     ].filter(Boolean);
 
     const maxChars = cfg.defaults.maxContextChars;
