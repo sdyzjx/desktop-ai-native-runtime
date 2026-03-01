@@ -67,9 +67,23 @@ function evaluateVoicePolicy(args, context, policy) {
   const containsManyLinks = parseBool(meta.containsManyLinks, false);
   const isTroubleshooting = parseBool(meta.isTroubleshooting, false);
   const sentenceCount = parseNum(meta.sentenceCount, 1);
+  const isAutoVoiceReply = parseBool(meta.isAutoVoiceReply, false);
 
   if (!text.trim()) {
     return { allow: false, code: 'TTS_POLICY_REJECTED', reason: 'empty text' };
+  }
+
+  // Auto voice reply bypasses content checks but still respects length limit
+  if (isAutoVoiceReply) {
+    const maxChars = policy.auto_voice_reply?.max_chars || 50;
+    if (text.length > maxChars) {
+      return {
+        allow: false,
+        code: 'TTS_TEXT_TOO_LONG',
+        reason: `auto voice reply text length ${text.length} > max_chars ${maxChars}`
+      };
+    }
+    return { allow: true, code: 'OK', reason: 'auto-voice-reply mode' };
   }
 
   if (containsCode || containsTable || containsManyLinks || isTroubleshooting) {

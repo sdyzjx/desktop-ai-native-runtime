@@ -153,6 +153,7 @@ tools:
             containsTable: { type: boolean }
             containsManyLinks: { type: boolean }
             isTroubleshooting: { type: boolean }
+            isAutoVoiceReply: { type: boolean }
           additionalProperties: false
       required: [text]
       additionalProperties: false
