@@ -426,7 +426,9 @@ async function renderMermaidDiagrams(container) {
 
     try {
       console.log('Rendering mermaid diagram:', code.substring(0, 50) + '...');
-      const { svg } = await window.mermaid.render(`mermaid-${Date.now()}-${Math.random()}`, code);
+      // Generate a valid CSS ID (no dots, starts with letter)
+      const uniqueId = `mermaid-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const { svg } = await window.mermaid.render(uniqueId, code);
       diagram.innerHTML = svg;
       diagram.classList.add('mermaid-rendered');
       console.log('Mermaid diagram rendered successfully');
