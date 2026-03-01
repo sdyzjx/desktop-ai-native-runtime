@@ -20,6 +20,19 @@
   let hideBubbleTimer = null;
   const systemAudio = new Audio();
   systemAudio.autoplay = true;
+  systemAudio.preload = 'auto';
+  let lipsyncCtx = null;
+  let lipsyncAnalyser = null;
+  let lipsyncSource = null;
+  let lipsyncRafId = 0;
+  let lipsyncSmoothed = 0;
+  let lipsyncCurrentMouthOpen = 0;
+  let lipsyncAudioEl = null;
+  let lipsyncTimeDomainBuffer = null;
+  let detachLipSyncPlaybackListeners = null;
+  let detachLipSyncTicker = null;
+  let detachLipSyncModelHook = null;
+  let lastLipSyncDebugLogAt = 0;
   let dragPointerState = null;
   let suppressModelTapUntil = 0;
   let stableModelScale = null;
@@ -69,6 +82,13 @@
   const CHAT_PANEL_SHOW_WAIT_RESIZE_TIMEOUT_MS = 220;
   const MODEL_TAP_SUPPRESS_AFTER_DRAG_MS = 220;
   const MODEL_TAP_SUPPRESS_AFTER_FOCUS_MS = 240;
+  const LIPSYNC_MOUTH_PARAM = 'ParamMouthOpenY';
+  const LIPSYNC_FFT_SIZE = 256;
+  const LIPSYNC_THRESHOLD = 0.004;
+  const LIPSYNC_RANGE = 0.06;
+  const LIPSYNC_CURVE_EXPONENT = 0.65;
+  const LIPSYNC_SMOOTHING_ALPHA = 0.38;
+  const LIPSYNC_MAX_MOUTH = 0.95;
 
   function nearlyEqual(left, right, epsilon = 1e-4) {
     if (typeof interactionApi?.nearlyEqual === 'function') {
@@ -143,6 +163,282 @@
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
+  }
+
+  function getCoreModel() {
+    return live2dModel?.internalModel?.coreModel || null;
+  }
+
+  function applyMouthOpenToModel(value) {
+    if (!state.modelLoaded) {
+      return { ok: false, skipped: true, reason: 'model_not_loaded' };
+    }
+
+    const coreModel = getCoreModel();
+    if (!coreModel || typeof coreModel.setParameterValueById !== 'function') {
+      return { ok: false, skipped: true, reason: 'core_model_unavailable' };
+    }
+
+    coreModel.setParameterValueById(LIPSYNC_MOUTH_PARAM, clamp(Number(value) || 0, 0, 1));
+    return { ok: true };
+  }
+
+  function setMouthOpen(value) {
+    lipsyncCurrentMouthOpen = clamp(Number(value) || 0, 0, 1);
+    return applyMouthOpenToModel(lipsyncCurrentMouthOpen);
+  }
+
+  function applyLipSyncForCurrentFrame() {
+    if (lipsyncCurrentMouthOpen <= 0) {
+      return;
+    }
+
+    const coreModel = getCoreModel();
+    if (!coreModel) {
+      return;
+    }
+
+    if (typeof coreModel.addParameterValueById === 'function') {
+      coreModel.addParameterValueById(LIPSYNC_MOUTH_PARAM, lipsyncCurrentMouthOpen, 1);
+      const now = Date.now();
+      if (now - lastLipSyncDebugLogAt >= 1000 && typeof coreModel.getParameterValueById === 'function') {
+        lastLipSyncDebugLogAt = now;
+        console.log('[lipsync] apply frame', JSON.stringify({
+          source: 'beforeModelUpdate',
+          target: lipsyncCurrentMouthOpen,
+          current: coreModel.getParameterValueById(LIPSYNC_MOUTH_PARAM)
+        }));
+      }
+      return;
+    }
+
+    applyMouthOpenToModel(lipsyncCurrentMouthOpen);
+  }
+
+  function bindLipSyncTicker() {
+    if (!pixiApp?.ticker || typeof pixiApp.ticker.add !== 'function' || detachLipSyncTicker) {
+      return;
+    }
+
+    const tick = () => {
+      if (lipsyncCurrentMouthOpen <= 0) {
+        return;
+      }
+      applyLipSyncForCurrentFrame();
+    };
+
+    pixiApp.ticker.add(tick);
+    detachLipSyncTicker = () => {
+      if (pixiApp?.ticker && typeof pixiApp.ticker.remove === 'function') {
+        pixiApp.ticker.remove(tick);
+      }
+      detachLipSyncTicker = null;
+    };
+  }
+
+  function bindLipSyncModelHook() {
+    const internalModel = live2dModel?.internalModel;
+    if (!internalModel || typeof internalModel.on !== 'function' || detachLipSyncModelHook) {
+      return false;
+    }
+
+    const handler = () => {
+      applyLipSyncForCurrentFrame();
+    };
+
+    internalModel.on('beforeModelUpdate', handler);
+    detachLipSyncModelHook = () => {
+      if (typeof internalModel.off === 'function') {
+        internalModel.off('beforeModelUpdate', handler);
+      } else if (typeof internalModel.removeListener === 'function') {
+        internalModel.removeListener('beforeModelUpdate', handler);
+      }
+      detachLipSyncModelHook = null;
+    };
+    return true;
+  }
+
+  function computeRmsFromTimeDomain(buffer) {
+    if (!buffer || buffer.length === 0) {
+      return 0;
+    }
+
+    let sumSquares = 0;
+    for (let index = 0; index < buffer.length; index += 1) {
+      const normalized = (buffer[index] - 128) / 128;
+      sumSquares += normalized * normalized;
+    }
+    return Math.sqrt(sumSquares / buffer.length);
+  }
+
+  async function ensureLipSyncGraph(audioEl) {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      throw createRpcError(-32005, 'AudioContext is unavailable');
+    }
+
+    if (!lipsyncCtx || lipsyncCtx.state === 'closed') {
+      lipsyncCtx = new AudioContextCtor();
+      lipsyncAnalyser = null;
+      lipsyncSource = null;
+      lipsyncAudioEl = null;
+      lipsyncTimeDomainBuffer = null;
+    }
+
+    if (lipsyncCtx.state === 'suspended') {
+      await lipsyncCtx.resume();
+    }
+
+    if (!lipsyncAnalyser) {
+      lipsyncAnalyser = lipsyncCtx.createAnalyser();
+      lipsyncAnalyser.fftSize = LIPSYNC_FFT_SIZE;
+      lipsyncTimeDomainBuffer = new Uint8Array(lipsyncAnalyser.fftSize);
+    }
+
+    if (!lipsyncSource) {
+      lipsyncSource = lipsyncCtx.createMediaElementSource(audioEl);
+      lipsyncAudioEl = audioEl;
+      lipsyncSource.connect(lipsyncAnalyser);
+      lipsyncAnalyser.connect(lipsyncCtx.destination);
+    } else if (lipsyncAudioEl !== audioEl) {
+      throw createRpcError(-32005, 'lip sync source is already bound to another audio element');
+    }
+
+    return {
+      ctx: lipsyncCtx,
+      analyser: lipsyncAnalyser,
+      buffer: lipsyncTimeDomainBuffer
+    };
+  }
+
+  function teardownLipSyncPlaybackListeners() {
+    if (typeof detachLipSyncPlaybackListeners === 'function') {
+      detachLipSyncPlaybackListeners();
+      detachLipSyncPlaybackListeners = null;
+    }
+  }
+
+  function stopLipSyncFrame() {
+    if (lipsyncRafId) {
+      window.cancelAnimationFrame(lipsyncRafId);
+      lipsyncRafId = 0;
+    }
+    lipsyncSmoothed = 0;
+    lipsyncCurrentMouthOpen = 0;
+    setMouthOpen(0);
+  }
+
+  function stopLipSync() {
+    stopLipSyncFrame();
+    teardownLipSyncPlaybackListeners();
+  }
+
+  async function startLipSyncWithAudio(audioEl) {
+    const graph = await ensureLipSyncGraph(audioEl);
+    stopLipSyncFrame();
+
+    const step = () => {
+      if (!graph.analyser || !graph.buffer) {
+        return;
+      }
+
+      graph.analyser.getByteTimeDomainData(graph.buffer);
+      const rms = computeRmsFromTimeDomain(graph.buffer);
+      const normalized = rms <= LIPSYNC_THRESHOLD
+        ? 0
+        : clamp((rms - LIPSYNC_THRESHOLD) / LIPSYNC_RANGE, 0, 1);
+      const target = normalized <= 0
+        ? 0
+        : Math.pow(normalized, LIPSYNC_CURVE_EXPONENT) * LIPSYNC_MAX_MOUTH;
+
+      lipsyncSmoothed += (target - lipsyncSmoothed) * LIPSYNC_SMOOTHING_ALPHA;
+      setMouthOpen(lipsyncSmoothed);
+      lipsyncRafId = window.requestAnimationFrame(step);
+    };
+
+    step();
+  }
+
+  function normalizeFileUrl(rawValue) {
+    const normalized = String(rawValue || '').trim();
+    if (!normalized) {
+      return '';
+    }
+    if (/^(file|https?|data|blob):/i.test(normalized)) {
+      return normalized;
+    }
+    if (normalized.startsWith('/')) {
+      return `file://${encodeURI(normalized)}`;
+    }
+    return '';
+  }
+
+  function resolveAudioPlaybackUrl(data = {}) {
+    const directRef = normalizeFileUrl(data.audio_ref || data.audioRef || data.audioPath);
+    if (directRef) {
+      return directRef;
+    }
+
+    const gatewayUrl = String(data.gatewayUrl || '').trim();
+    const audioRef = String(data.audio_ref || data.audioRef || '').trim();
+    if (gatewayUrl && audioRef) {
+      try {
+        const url = new URL('/api/audio', gatewayUrl);
+        url.searchParams.set('path', audioRef);
+        return url.toString();
+      } catch {
+        return '';
+      }
+    }
+
+    return '';
+  }
+
+  async function playAudioWithLipSync(audioUrl) {
+    if (!audioUrl) {
+      throw createRpcError(-32602, 'audio url is required for lip sync playback');
+    }
+
+    stopLipSync();
+    try {
+      systemAudio.pause();
+    } catch {
+      // no-op
+    }
+
+    systemAudio.currentTime = 0;
+    const previousAutoplay = systemAudio.autoplay;
+    systemAudio.autoplay = false;
+    systemAudio.src = audioUrl;
+    systemAudio.load();
+
+    const onPlaybackFinished = () => {
+      stopLipSync();
+      systemAudio.autoplay = previousAutoplay;
+    };
+    systemAudio.addEventListener('ended', onPlaybackFinished);
+    systemAudio.addEventListener('pause', onPlaybackFinished);
+    systemAudio.addEventListener('error', onPlaybackFinished);
+    detachLipSyncPlaybackListeners = () => {
+      systemAudio.removeEventListener('ended', onPlaybackFinished);
+      systemAudio.removeEventListener('pause', onPlaybackFinished);
+      systemAudio.removeEventListener('error', onPlaybackFinished);
+      systemAudio.autoplay = previousAutoplay;
+    };
+
+    await ensureLipSyncGraph(systemAudio);
+    await systemAudio.play();
+    await startLipSyncWithAudio(systemAudio);
+
+    return { ok: true, audioUrl };
+  }
+
+  async function handleVoicePlaybackRequest(payload = {}) {
+    const audioUrl = resolveAudioPlaybackUrl(payload);
+    if (!audioUrl) {
+      throw createRpcError(-32602, 'voice playback requires audio_ref, audioRef, or audioPath');
+    }
+    return playAudioWithLipSync(audioUrl);
   }
 
   function positionBubbleNearModelHead() {
@@ -674,6 +970,9 @@
     bindModelInteraction();
 
     pixiApp.stage.addChild(live2dModel);
+    if (!bindLipSyncModelHook()) {
+      bindLipSyncTicker();
+    }
     const initialBounds = live2dModel.getLocalBounds?.();
     if (
       initialBounds
@@ -998,6 +1297,8 @@
           } catch (err) {
             throw createRpcError(-32000, 'play failed');
           }
+        } else if (name === 'voice.playback.electron') {
+          result = await handleVoicePlaybackRequest(data || {});
         } else {
           result = { ok: true, ignored: true };
         }
@@ -1041,6 +1342,11 @@
       bridge.onInvoke((payload) => {
         void handleInvoke(payload);
       });
+      bridge.onVoicePlay?.((payload) => {
+        void handleVoicePlaybackRequest(payload).catch((err) => {
+          console.error('[Renderer] desktop:voice:play failed', err);
+        });
+      });
 
       bridge.notifyReady({ ok: true });
     } catch (err) {
@@ -1048,6 +1354,19 @@
       bridge?.notifyError({ message: state.lastError });
     }
   }
+
+  window.addEventListener('beforeunload', () => {
+    stopLipSync();
+    if (typeof detachLipSyncModelHook === 'function') {
+      detachLipSyncModelHook();
+    }
+    if (typeof detachLipSyncTicker === 'function') {
+      detachLipSyncTicker();
+    }
+    if (lipsyncCtx && lipsyncCtx.state !== 'closed') {
+      void lipsyncCtx.close().catch(() => { });
+    }
+  });
 
   void main();
 })();
