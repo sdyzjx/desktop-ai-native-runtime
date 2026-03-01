@@ -14,8 +14,9 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
   const runner = {
     async run({ sessionId, input, seedMessages, runtimeContext, onEvent }) {
       seedMessagesSeen = seedMessages;
-       runtimeContextSeen = runtimeContext;
+      runtimeContextSeen = runtimeContext;
       onEvent({ event: 'plan', payload: { input } });
+      onEvent({ event: 'llm.final', payload: { decision: { type: 'final', preview: 'ok:hello' } }, trace_id: 't-1', step_index: 1 });
       return { output: `ok:${input}`, traceId: 't-1', state: 'DONE', sessionId };
     }
   };
@@ -73,8 +74,11 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
 
   const hasStart = sendEvents.some((evt) => evt.method === 'runtime.start');
   const hasFinal = sendEvents.some((evt) => evt.method === 'runtime.final');
+  const deltaEvent = sendEvents.find((evt) => evt.method === 'message.delta');
   assert.equal(hasStart, true);
   assert.equal(hasFinal, true);
+  assert.ok(deltaEvent);
+  assert.equal(deltaEvent.params.delta, 'ok:hello');
   assert.equal(startHookCalled, true);
   assert.equal(finalHookCalled, true);
   assert.equal(buildPromptCalled, true);

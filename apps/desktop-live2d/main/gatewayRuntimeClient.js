@@ -24,7 +24,12 @@ function toGatewayWsUrl(gatewayUrl) {
 
 function mapGatewayMessageToDesktopEvent(message) {
   if (message && message.jsonrpc === '2.0' && typeof message.method === 'string') {
-    if (message.method === 'runtime.start' || message.method === 'runtime.event' || message.method === 'runtime.final') {
+    if (
+      message.method === 'runtime.start'
+      || message.method === 'runtime.event'
+      || message.method === 'runtime.final'
+      || message.method === 'message.delta'
+    ) {
       return {
         type: message.method,
         timestamp: Date.now(),
@@ -35,7 +40,7 @@ function mapGatewayMessageToDesktopEvent(message) {
   }
 
   if (message && typeof message.type === 'string') {
-    if (message.type === 'start' || message.type === 'event' || message.type === 'final') {
+    if (message.type === 'start' || message.type === 'event' || message.type === 'final' || message.type === 'delta') {
       return {
         type: `legacy.${message.type}`,
         timestamp: Date.now(),
