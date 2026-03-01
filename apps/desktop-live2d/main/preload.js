@@ -75,5 +75,11 @@ contextBridge.exposeInMainWorld('desktopLive2dBridge', {
   },
   getRuntimeConfig() {
     return ipcRenderer.invoke(CHANNELS.getRuntimeConfig);
+  },
+  onVoicePlayMemory(handler) {
+    const channel = 'desktop:voice:play-memory';
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.off(channel, listener);
   }
 });
