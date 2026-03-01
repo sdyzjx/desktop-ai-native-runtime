@@ -261,10 +261,39 @@
         overflow-x: auto;
         overflow-y: hidden;
       }
+
+      /* Mermaid diagram styles */
+      .chat-message .mermaid-diagram {
+        margin: 12px 0;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        overflow-x: auto;
+      }
+
+      .chat-message .mermaid-diagram.mermaid-rendered svg {
+        max-width: 100%;
+        height: auto;
+      }
+
+      .chat-message .mermaid-diagram.mermaid-error {
+        background: rgba(255, 100, 100, 0.15);
+        border-color: rgba(255, 100, 100, 0.3);
+      }
     </style>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <script type="module">
+      import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        securityLevel: 'loose'
+      });
+      window.mermaid = mermaid;
+    </script>
   </head>
   <body>
     <div id="chat-panel">

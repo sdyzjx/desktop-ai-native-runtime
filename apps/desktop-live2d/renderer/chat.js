@@ -58,6 +58,73 @@
     }
   }
 
+  function escapeHtml(text) {
+    return String(text)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  async function renderMarkdownWithMermaid(text) {
+    if (typeof marked === 'undefined') {
+      return text;
+    }
+    try {
+      // First render LaTeX formulas
+      const textWithLatex = renderLatex(text);
+
+      // Configure marked renderer to handle mermaid code blocks
+      const renderer = new marked.Renderer();
+      const originalCodeRenderer = renderer.code.bind(renderer);
+
+      renderer.code = function(code, language) {
+        if (language === 'mermaid') {
+          // Return mermaid diagram placeholder without pre/code wrapper
+          return `<div class="mermaid-diagram" data-mermaid="${escapeHtml(code)}">${escapeHtml(code)}</div>`;
+        }
+        // Use default renderer for other code blocks
+        return originalCodeRenderer(code, language);
+      };
+
+      return marked.parse(textWithLatex, {
+        breaks: true,
+        gfm: true,
+        renderer: renderer
+      });
+    } catch (err) {
+      console.error('Markdown parse error:', err);
+      return text;
+    }
+  }
+
+  async function renderMermaidDiagrams(container) {
+    if (typeof window.mermaid === 'undefined') {
+      console.warn('Mermaid library not loaded');
+      return;
+    }
+
+    const diagrams = container.querySelectorAll('.mermaid-diagram:not(.mermaid-rendered):not(.mermaid-error)');
+
+    for (const diagram of diagrams) {
+      const code = diagram.getAttribute('data-mermaid');
+      if (!code) continue;
+
+      try {
+        // Generate a valid CSS ID (no dots, starts with letter)
+        const uniqueId = `mermaid-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        const { svg } = await window.mermaid.render(uniqueId, code);
+        diagram.innerHTML = svg;
+        diagram.classList.add('mermaid-rendered');
+      } catch (err) {
+        console.error('Mermaid render error:', err);
+        diagram.innerHTML = `<pre><code>${escapeHtml(code)}</code></pre>`;
+        diagram.classList.add('mermaid-error');
+      }
+    }
+  }
+
   function renderMarkdown(text) {
     if (typeof marked === 'undefined') {
       return text;
@@ -88,7 +155,7 @@
     </div>`;
   }
 
-  function renderMessages() {
+  async function renderMessages() {
     if (!messagesElement) {
       return;
     }
@@ -102,20 +169,24 @@
 
       // Render tool calls if present
       if (message.role === 'tool' && message.toolCall) {
-        content = renderToolCall(message.toolCall) + (content ? `<div>${renderMarkdown(content)}</div>` : '');
+        content = renderToolCall(message.toolCall) + (content ? `<div>${await renderMarkdownWithMermaid(content)}</div>` : '');
         node.innerHTML = content;
       } else {
-        // Render markdown for all other messages
-        node.innerHTML = renderMarkdown(content);
+        // Render markdown with mermaid for all other messages
+        node.innerHTML = await renderMarkdownWithMermaid(content);
       }
 
       fragment.appendChild(node);
     }
     messagesElement.appendChild(fragment);
+
+    // Render mermaid diagrams after all messages are added
+    await renderMermaidDiagrams(messagesElement);
+
     messagesElement.scrollTop = messagesElement.scrollHeight;
   }
 
-  function applyChatState(payload) {
+  async function applyChatState(payload) {
     const nextInputEnabled = payload?.inputEnabled !== false;
     state.inputEnabled = nextInputEnabled;
     state.messages = Array.isArray(payload?.messages) ? payload.messages : [];
@@ -129,7 +200,7 @@
     if (chatSendElement) {
       chatSendElement.disabled = !nextInputEnabled;
     }
-    renderMessages();
+    await renderMessages();
   }
 
   function submitInput() {
@@ -153,7 +224,9 @@
   }
 
   bridge?.onChatStateSync?.((payload) => {
-    applyChatState(payload);
+    applyChatState(payload).catch(err => {
+      console.error('Error applying chat state:', err);
+    });
   });
 
   chatSendElement?.addEventListener('click', submitInput);
