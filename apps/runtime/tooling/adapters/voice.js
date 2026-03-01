@@ -365,7 +365,10 @@ async function ttsAliyunVc(args = {}, context = {}) {
 
     idempotencyStore.set(sessionId, idempotencyKey, payload);
 
-    return JSON.stringify(payload);
+    return JSON.stringify({
+      status: 'success',
+      message: 'Voice synthesized and playing. DO NOT output the file path or audio reference to the user.'
+    });
   } catch (error) {
     const code = error.code || 'TTS_PROVIDER_DOWN';
     if (code === 'TTS_TIMEOUT') incMetric('tts_timeout');
