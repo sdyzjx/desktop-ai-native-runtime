@@ -35,16 +35,25 @@
 
   function applyBubbleState(payload) {
     const visible = Boolean(payload?.visible);
+    const streaming = Boolean(payload?.streaming);
+
     if (!bubbleElement) {
       return;
     }
     if (!visible) {
-      bubbleElement.classList.remove('visible');
+      bubbleElement.classList.remove('visible', 'streaming');
       bubbleElement.textContent = '';
       return;
     }
     bubbleElement.textContent = String(payload?.text || '');
     bubbleElement.classList.add('visible');
+
+    if (streaming) {
+      bubbleElement.classList.add('streaming');
+    } else {
+      bubbleElement.classList.remove('streaming');
+    }
+
     scheduleBubbleMetricsSync();
     scheduleDelayedBubbleMetricsSync();
   }

@@ -41,6 +41,25 @@
       #bubble.visible {
         opacity: 1;
       }
+
+      #bubble.streaming::after {
+        content: '';
+        display: inline-block;
+        width: 2px;
+        height: 1em;
+        background: rgba(255, 255, 255, 0.7);
+        margin-left: 2px;
+        animation: blink 1s step-end infinite;
+      }
+
+      @keyframes blink {
+        0%, 50% {
+          opacity: 1;
+        }
+        51%, 100% {
+          opacity: 0;
+        }
+      }
     </style>
   </head>
   <body>
