@@ -13,7 +13,8 @@
     chatPanelVisible: false,
     chatHistorySize: 0,
     lastError: null,
-    layout: null
+    layout: null,
+    windowState: null
   };
 
   let pixiApp = null;
@@ -75,6 +76,7 @@
   let chatPanelShowResizeListener = null;
   let layoutRafToken = 0;
   let lastReportedModelBounds = null;
+  let detachWindowStateSync = null;
   const modelTapToggleGate = typeof interactionApi?.createCooldownGate === 'function'
     ? interactionApi.createCooldownGate({ cooldownMs: 220 })
     : {
@@ -1053,8 +1055,30 @@
       chatPanelVisible: state.chatPanelVisible,
       chatHistorySize: state.chatHistorySize,
       lastError: state.lastError,
-      layout: state.layout
+      layout: state.layout,
+      windowState: state.windowState
     };
+  }
+
+  function applyWindowState(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return;
+    }
+
+    state.windowState = {
+      width: Number(payload.width) || null,
+      height: Number(payload.height) || null,
+      x: Number(payload.x) || null,
+      y: Number(payload.y) || null,
+      minWidth: Number(payload.minWidth) || null,
+      minHeight: Number(payload.minHeight) || null,
+      defaultWidth: Number(payload.defaultWidth) || null,
+      defaultHeight: Number(payload.defaultHeight) || null
+    };
+  }
+
+  function requestWindowResize(payload = {}) {
+    bridge?.sendWindowResize?.(payload);
   }
 
   function initChatPanel(config) {
@@ -1577,6 +1601,9 @@
       const runtimeConfig = await bridge.getRuntimeConfig();
       runtimeUiConfig = runtimeConfig.uiConfig || null;
       runtimeLive2dPresets = runtimeConfig.live2dPresets || null;
+      detachWindowStateSync = bridge.onWindowStateSync?.((payload) => {
+        applyWindowState(payload);
+      }) || null;
       initChatPanel(runtimeUiConfig?.chat || {});
       await initPixi();
       await loadModel(runtimeConfig.modelRelativePath, runtimeConfig.modelName);
@@ -1599,6 +1626,9 @@
   }
 
   window.addEventListener('beforeunload', () => {
+    if (typeof detachWindowStateSync === 'function') {
+      detachWindowStateSync();
+    }
     stopLipSync();
     if (typeof detachLipSyncModelHook === 'function') {
       detachLipSyncModelHook();
@@ -1610,6 +1640,11 @@
       void lipsyncCtx.close().catch(() => { });
     }
   });
+
+  window.Live2DDesktopWindow = {
+    getWindowState: () => state.windowState,
+    requestResize: requestWindowResize
+  };
 
   void main();
 })();

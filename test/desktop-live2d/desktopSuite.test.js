@@ -19,12 +19,15 @@ const {
   normalizeWindowDragPayload,
   normalizeWindowControlPayload,
   normalizeChatPanelVisibilityPayload,
+  normalizeWindowResizePayload,
   normalizeModelBoundsPayload,
   normalizeBubbleMetricsPayload,
   normalizeActionTelemetryPayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
+  buildWindowStatePayload,
+  createWindowResizeListener,
   createModelBoundsListener,
   createBubbleMetricsListener,
   createActionTelemetryListener,
@@ -313,6 +316,33 @@ test('normalizeWindowControlPayload and normalizeChatPanelVisibilityPayload vali
   assert.equal(normalizeChatPanelVisibilityPayload({ visible: 'true' }), null);
 });
 
+test('normalizeWindowResizePayload validates resize actions and dimensions', () => {
+  assert.deepEqual(normalizeWindowResizePayload({
+    action: ' set ',
+    width: 401.7,
+    height: 602.2,
+    source: 'toolbar'
+  }), {
+    action: 'set',
+    width: 402,
+    height: 602,
+    source: 'toolbar'
+  });
+
+  assert.deepEqual(normalizeWindowResizePayload({ action: 'grow', step: 80 }), {
+    action: 'grow',
+    step: 80,
+    source: 'avatar-window'
+  });
+  assert.deepEqual(normalizeWindowResizePayload({ action: 'reset', persist: false }), {
+    action: 'reset',
+    persist: false,
+    source: 'avatar-window'
+  });
+  assert.equal(normalizeWindowResizePayload({ action: 'set', width: 0, height: 10 }), null);
+  assert.equal(normalizeWindowResizePayload({ action: 'unknown' }), null);
+});
+
 test('normalizeModelBoundsPayload validates numeric bounds payload', () => {
   assert.deepEqual(normalizeModelBoundsPayload({
     x: 12.2,
@@ -446,6 +476,78 @@ test('createChatPanelVisibilityListener resizes when visibility changes', () => 
   assert.equal(setBoundsCalls.length, 2);
   assert.deepEqual(setBoundsCalls[0], { x: 1160, y: 360, width: 300, height: 560 });
   assert.deepEqual(setBoundsCalls[1], { x: 1000, y: 300, width: 460, height: 620 });
+});
+
+test('buildWindowStatePayload returns normalized bounds and defaults', () => {
+  const payload = buildWindowStatePayload({
+    window: {
+      getBounds() {
+        return { x: 1000.4, y: 300.2, width: 460.7, height: 620.9 };
+      }
+    },
+    windowMetrics: {
+      minWidth: 280,
+      minHeight: 360,
+      expandedWidth: 460,
+      expandedHeight: 620
+    }
+  });
+
+  assert.deepEqual(payload, {
+    width: 461,
+    height: 621,
+    x: 1000,
+    y: 300,
+    minWidth: 280,
+    minHeight: 360,
+    defaultWidth: 460,
+    defaultHeight: 620
+  });
+});
+
+test('createWindowResizeListener resizes avatar window and publishes updated state', () => {
+  const webContents = { id: 16 };
+  const setBoundsCalls = [];
+  const emittedStates = [];
+  const state = { x: 1000, y: 300, width: 460, height: 620 };
+  const window = {
+    webContents,
+    isDestroyed() {
+      return false;
+    },
+    getBounds() {
+      return { ...state };
+    },
+    setBounds(bounds) {
+      setBoundsCalls.push(bounds);
+      state.x = bounds.x;
+      state.y = bounds.y;
+      state.width = bounds.width;
+      state.height = bounds.height;
+    }
+  };
+
+  const listener = createWindowResizeListener({
+    window,
+    windowMetrics: {
+      minWidth: 300,
+      minHeight: 420,
+      expandedWidth: 460,
+      expandedHeight: 620
+    },
+    onStateChange: (payload) => emittedStates.push(payload)
+  });
+
+  listener({ sender: webContents }, { action: 'grow', step: 60 });
+  listener({ sender: webContents }, { action: 'shrink', step: 500 });
+  listener({ sender: webContents }, { action: 'reset' });
+
+  assert.deepEqual(setBoundsCalls[0], { x: 940, y: 240, width: 520, height: 680 });
+  assert.deepEqual(setBoundsCalls[1], { x: 1160, y: 500, width: 300, height: 420 });
+  assert.deepEqual(setBoundsCalls[2], { x: 1000, y: 300, width: 460, height: 620 });
+  assert.equal(emittedStates.length, 3);
+  assert.equal(emittedStates[2].width, 460);
+  assert.equal(emittedStates[2].height, 620);
 });
 
 test('createModelBoundsListener forwards normalized bounds for avatar sender only', () => {

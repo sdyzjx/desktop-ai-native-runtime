@@ -30,7 +30,9 @@ const CHANNELS = Object.freeze({
   actionTelemetry: 'live2d:action:telemetry',
   windowDrag: 'live2d:window:drag',
   windowControl: 'live2d:window:control',
-  chatPanelVisibility: 'live2d:chat:panel-visibility'
+  chatPanelVisibility: 'live2d:chat:panel-visibility',
+  windowResizeRequest: 'live2d:window:resize-request',
+  windowStateSync: 'live2d:window:state-sync'
 });
 
 function normalizeLive2dPresetConfig(config = {}) {
@@ -263,6 +265,38 @@ function normalizeChatPanelTogglePayload(payload) {
   };
 }
 
+function normalizeWindowResizePayload(payload) {
+  const action = String(payload?.action || 'set').trim().toLowerCase();
+  if (!['set', 'grow', 'shrink', 'reset'].includes(action)) {
+    return null;
+  }
+
+  const normalized = {
+    action,
+    source: String(payload?.source || 'avatar-window')
+  };
+  if (payload?.persist !== undefined) {
+    normalized.persist = Boolean(payload.persist);
+  }
+
+  if (action === 'set') {
+    const width = Number(payload?.width);
+    const height = Number(payload?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return null;
+    }
+    normalized.width = Math.round(width);
+    normalized.height = Math.round(height);
+    return normalized;
+  }
+
+  const step = Number(payload?.step);
+  if (Number.isFinite(step) && step > 0) {
+    normalized.step = Math.round(step);
+  }
+  return normalized;
+}
+
 function createChatPanelToggleListener({ window, onToggle = null } = {}) {
   return (event, payload) => {
     if (!window || window.isDestroyed() || event?.sender !== window.webContents) {
@@ -411,6 +445,65 @@ function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
       width: nextSize.width,
       height: nextSize.height
     });
+  };
+}
+
+function buildWindowStatePayload({ window, windowMetrics } = {}) {
+  if (!window || typeof window.getBounds !== 'function') {
+    return null;
+  }
+
+  const bounds = window.getBounds();
+  return {
+    width: Math.round(bounds.width),
+    height: Math.round(bounds.height),
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    minWidth: Math.round(windowMetrics?.minWidth || 0),
+    minHeight: Math.round(windowMetrics?.minHeight || 0),
+    defaultWidth: Math.round(windowMetrics?.expandedWidth || bounds.width),
+    defaultHeight: Math.round(windowMetrics?.expandedHeight || bounds.height)
+  };
+}
+
+function createWindowResizeListener({ window, windowMetrics, onStateChange = null } = {}) {
+  return (event, payload) => {
+    if (!window || window.isDestroyed?.() || event?.sender !== window.webContents) {
+      return;
+    }
+
+    const normalized = normalizeWindowResizePayload(payload);
+    if (!normalized) {
+      return;
+    }
+
+    const bounds = window.getBounds();
+    const minWidth = Math.max(120, Number(windowMetrics?.minWidth) || 120);
+    const minHeight = Math.max(160, Number(windowMetrics?.minHeight) || 160);
+    const resizeStep = Math.max(20, Number(normalized.step) || 48);
+    let nextWidth = bounds.width;
+    let nextHeight = bounds.height;
+
+    if (normalized.action === 'reset') {
+      nextWidth = Number(windowMetrics?.expandedWidth) || bounds.width;
+      nextHeight = Number(windowMetrics?.expandedHeight) || bounds.height;
+    } else if (normalized.action === 'grow') {
+      nextWidth += resizeStep;
+      nextHeight += resizeStep;
+    } else if (normalized.action === 'shrink') {
+      nextWidth -= resizeStep;
+      nextHeight -= resizeStep;
+    } else {
+      nextWidth = normalized.width;
+      nextHeight = normalized.height;
+    }
+
+    resizeWindowKeepingBottomRight({
+      window,
+      width: Math.max(minWidth, Math.round(nextWidth)),
+      height: Math.max(minHeight, Math.round(nextHeight))
+    });
+    onStateChange?.(buildWindowStatePayload({ window, windowMetrics }));
   };
 }
 
@@ -600,6 +693,19 @@ async function startDesktopSuite({
       visible: bubbleState.visible,
       text: bubbleState.text
     });
+  }
+
+  function syncWindowStateToRenderer() {
+    const payload = buildWindowStatePayload({ window: avatarWindow, windowMetrics });
+    if (!payload) {
+      return;
+    }
+    if (!avatarWindow.isDestroyed()) {
+      avatarWindow.webContents.send(CHANNELS.windowStateSync, payload);
+    }
+    if (!chatWindow.isDestroyed()) {
+      chatWindow.webContents.send(CHANNELS.windowStateSync, payload);
+    }
   }
 
   function setWindowBoundsIfChanged(windowRef, nextBounds) {
@@ -809,10 +915,12 @@ async function startDesktopSuite({
   avatarWindow.on('move', () => {
     updateChatWindowBounds();
     updateBubbleWindowBounds();
+    syncWindowStateToRenderer();
   });
   avatarWindow.on('resize', () => {
     updateChatWindowBounds();
     updateBubbleWindowBounds();
+    syncWindowStateToRenderer();
   });
   avatarWindow.on('hide', () => {
     if (!chatWindow.isDestroyed()) {
@@ -889,6 +997,12 @@ async function startDesktopSuite({
     onClosePet: hidePetWindows
   });
   ipcMain.on(CHANNELS.windowControl, windowControlListener);
+  const windowResizeListener = createWindowResizeListener({
+    window: avatarWindow,
+    windowMetrics,
+    onStateChange: syncWindowStateToRenderer
+  });
+  ipcMain.on(CHANNELS.windowResizeRequest, windowResizeListener);
 
   const gatewayRuntimeClient = new GatewayRuntimeClient({
     gatewayUrl: config.gatewayUrl,
@@ -1101,6 +1215,7 @@ async function startDesktopSuite({
   await rendererReadyPromise;
   syncChatStateToRenderer();
   syncBubbleStateToRenderer();
+  syncWindowStateToRenderer();
   if (chatState.visible) {
     updateChatWindowBounds();
     chatWindow.show();
@@ -1173,6 +1288,7 @@ async function startDesktopSuite({
     ipcMain.off(CHANNELS.bubbleMetricsUpdate, bubbleMetricsListener);
     ipcMain.off(CHANNELS.actionTelemetry, actionTelemetryListener);
     ipcMain.off(CHANNELS.windowControl, windowControlListener);
+    ipcMain.off(CHANNELS.windowResizeRequest, windowResizeListener);
     ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
 
     if (rpcServerRef) {
@@ -1672,9 +1788,12 @@ module.exports = {
   normalizeModelBoundsPayload,
   normalizeBubbleMetricsPayload,
   normalizeActionTelemetryPayload,
+  normalizeWindowResizePayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
+  buildWindowStatePayload,
+  createWindowResizeListener,
   createChatPanelToggleListener,
   createModelBoundsListener,
   createBubbleMetricsListener,
