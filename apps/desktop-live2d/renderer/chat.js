@@ -19,12 +19,54 @@
     return allowedRoles.has(normalized) ? normalized : 'assistant';
   }
 
+  function renderLatex(text) {
+    if (typeof katex === 'undefined') {
+      return text;
+    }
+
+    try {
+      // Replace display math: $$...$$
+      text = text.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
+        try {
+          return katex.renderToString(formula.trim(), {
+            displayMode: true,
+            throwOnError: false
+          });
+        } catch (err) {
+          console.error('KaTeX display math error:', err);
+          return match;
+        }
+      });
+
+      // Replace inline math: $...$
+      text = text.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+        try {
+          return katex.renderToString(formula.trim(), {
+            displayMode: false,
+            throwOnError: false
+          });
+        } catch (err) {
+          console.error('KaTeX inline math error:', err);
+          return match;
+        }
+      });
+
+      return text;
+    } catch (err) {
+      console.error('LaTeX render error:', err);
+      return text;
+    }
+  }
+
   function renderMarkdown(text) {
     if (typeof marked === 'undefined') {
       return text;
     }
     try {
-      return marked.parse(text, {
+      // First render LaTeX formulas
+      const textWithLatex = renderLatex(text);
+
+      return marked.parse(textWithLatex, {
         breaks: true,
         gfm: true
       });

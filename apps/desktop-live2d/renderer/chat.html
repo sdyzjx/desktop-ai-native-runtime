@@ -250,7 +250,20 @@
         font-size: 10px;
         opacity: 0.9;
       }
+
+      /* LaTeX formula styles */
+      .chat-message .katex {
+        font-size: 1.1em;
+      }
+
+      .chat-message .katex-display {
+        margin: 12px 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+      }
     </style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
   </head>
   <body>

@@ -351,8 +351,41 @@ async function renderMarkdownWithMermaid(text) {
   }
 
   try {
+    // First render LaTeX formulas before markdown
+    let processedText = text;
+    if (typeof katex !== 'undefined') {
+      // Replace display math: $$...$$
+      processedText = processedText.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
+        try {
+          const rendered = katex.renderToString(formula.trim(), {
+            displayMode: true,
+            throwOnError: false
+          });
+          // Wrap in a special marker to prevent markdown processing
+          return `<div class="katex-display-wrapper">${rendered}</div>`;
+        } catch (err) {
+          console.error('KaTeX display math error:', err);
+          return match;
+        }
+      });
+
+      // Replace inline math: $...$
+      processedText = processedText.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+        try {
+          const rendered = katex.renderToString(formula.trim(), {
+            displayMode: false,
+            throwOnError: false
+          });
+          return `<span class="katex-inline-wrapper">${rendered}</span>`;
+        } catch (err) {
+          console.error('KaTeX inline math error:', err);
+          return match;
+        }
+      });
+    }
+
     // Configure marked to handle code blocks
-    const html = marked.parse(text, {
+    const html = marked.parse(processedText, {
       breaks: true,
       gfm: true,
       highlight: function(code, lang) {

@@ -371,6 +371,30 @@ body.chat-page {
   border-color: #ff4444;
 }
 
+/* LaTeX formula styles */
+.message-body .katex {
+  font-size: 1.05em;
+}
+
+.message-body .katex-display-wrapper {
+  margin: 16px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 8px 0;
+}
+
+.message-body .katex-display {
+  margin: 0;
+}
+
+.message-body .katex-inline-wrapper {
+  display: inline;
+}
+
+.message-body .katex-html {
+  white-space: nowrap;
+}
+
 
 .message-attachments {
   margin-top: 10px;

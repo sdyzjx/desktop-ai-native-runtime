@@ -48,10 +48,27 @@
 
     const text = String(payload?.text || '');
 
-    // Render markdown for bubble (inline only, no complex structures)
+    // Render LaTeX and markdown for bubble (inline only, no complex structures)
     if (typeof marked !== 'undefined' && text) {
       try {
-        const html = marked.parseInline(text);
+        // First render LaTeX formulas
+        let processedText = text;
+        if (typeof katex !== 'undefined') {
+          // Inline math only for bubble
+          processedText = text.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+            try {
+              return katex.renderToString(formula.trim(), {
+                displayMode: false,
+                throwOnError: false
+              });
+            } catch (err) {
+              console.error('KaTeX inline math error:', err);
+              return match;
+            }
+          });
+        }
+
+        const html = marked.parseInline(processedText);
         bubbleElement.innerHTML = html;
       } catch (err) {
         console.error('Bubble markdown parse error:', err);
