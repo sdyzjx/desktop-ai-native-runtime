@@ -384,17 +384,24 @@ async function renderMarkdownWithMermaid(text) {
       });
     }
 
-    // Configure marked to handle code blocks
+    // Configure marked renderer to handle mermaid code blocks
+    const renderer = new marked.Renderer();
+    const originalCodeRenderer = renderer.code.bind(renderer);
+
+    renderer.code = function(code, language) {
+      if (language === 'mermaid') {
+        console.log('Detected mermaid code block, language:', language);
+        // Return mermaid diagram placeholder without pre/code wrapper
+        return `<div class="mermaid-diagram" data-mermaid="${escapeHtml(code)}">${escapeHtml(code)}</div>`;
+      }
+      // Use default renderer for other code blocks
+      return originalCodeRenderer(code, language);
+    };
+
     const html = marked.parse(processedText, {
       breaks: true,
       gfm: true,
-      highlight: function(code, lang) {
-        if (lang === 'mermaid') {
-          // Return a placeholder for mermaid diagrams
-          return `<div class="mermaid-diagram" data-mermaid="${escapeHtml(code)}">${escapeHtml(code)}</div>`;
-        }
-        return escapeHtml(code);
-      }
+      renderer: renderer
     });
 
     return html;
@@ -406,18 +413,23 @@ async function renderMarkdownWithMermaid(text) {
 
 async function renderMermaidDiagrams(container) {
   if (typeof window.mermaid === 'undefined') {
+    console.warn('Mermaid library not loaded');
     return;
   }
 
   const diagrams = container.querySelectorAll('.mermaid-diagram');
+  console.log(`Found ${diagrams.length} mermaid diagrams to render`);
+
   for (const diagram of diagrams) {
     const code = diagram.getAttribute('data-mermaid');
     if (!code) continue;
 
     try {
+      console.log('Rendering mermaid diagram:', code.substring(0, 50) + '...');
       const { svg } = await window.mermaid.render(`mermaid-${Date.now()}-${Math.random()}`, code);
       diagram.innerHTML = svg;
       diagram.classList.add('mermaid-rendered');
+      console.log('Mermaid diagram rendered successfully');
     } catch (err) {
       console.error('Mermaid render error:', err);
       diagram.innerHTML = `<pre><code>${escapeHtml(code)}</code></pre>`;
@@ -849,7 +861,10 @@ function renderHeader() {
 function render() {
   renderSessions();
   renderHeader();
-  renderMessages();
+  // Call async renderMessages without blocking
+  renderMessages().catch(err => {
+    console.error('Error rendering messages:', err);
+  });
 }
 
 function resolvePendingSession() {
