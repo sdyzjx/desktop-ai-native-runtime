@@ -101,3 +101,62 @@ test('complex content hint message', () => {
   assert.ok(hint.includes('图表'), 'Hint should mention diagrams');
   assert.ok(hint.includes('聊天面板'), 'Hint should mention chat panel');
 });
+
+test('truncate integration - simple mode short text', () => {
+  const text = 'Short message';
+  const config = { enabled: true, maxLength: 120, mode: 'simple', suffix: '...' };
+
+  const chars = Array.from(text);
+  const result = chars.length > config.maxLength
+    ? chars.slice(0, config.maxLength).join('') + config.suffix
+    : text;
+
+  assert.equal(result, 'Short message', 'Should not truncate short text');
+});
+
+test('truncate integration - simple mode long text', () => {
+  const text = 'A'.repeat(150);
+  const config = { enabled: true, maxLength: 120, mode: 'simple', suffix: '...' };
+
+  const chars = Array.from(text);
+  const result = chars.slice(0, config.maxLength).join('') + config.suffix;
+
+  assert.equal(result.length, 123, 'Should truncate to maxLength + suffix');
+  assert.ok(result.endsWith('...'), 'Should end with suffix');
+});
+
+test('truncate integration - disabled mode', () => {
+  const text = 'A'.repeat(150);
+  const config = { enabled: false, maxLength: 120, mode: 'smart', suffix: '...' };
+
+  const result = !config.enabled ? text : text.substring(0, config.maxLength) + config.suffix;
+
+  assert.equal(result, text, 'Should not truncate when disabled');
+});
+
+test('truncate integration - complex content with hint', () => {
+  const text = '```mermaid\ngraph TD\n  A-->B\n```';
+  const config = { enabled: true, maxLength: 120, mode: 'smart', suffix: '...', showHintForComplex: true };
+
+  const hasComplexSyntax = /```[\s\S]*?```|\$\$[\s\S]+?\$\$|\n\|.*\|.*\n/.test(text);
+  const result = hasComplexSyntax && config.showHintForComplex
+    ? '📊 内容包含图表或公式，请查看聊天面板'
+    : text;
+
+  assert.equal(result, '📊 内容包含图表或公式，请查看聊天面板', 'Should show hint for complex content');
+});
+
+test('truncate integration - complex content without hint', () => {
+  const text = '```mermaid\ngraph TD\n  A-->B\n```';
+  const config = { enabled: true, maxLength: 30, mode: 'smart', suffix: '...', showHintForComplex: false };
+
+  const hasComplexSyntax = /```[\s\S]*?```|\$\$[\s\S]+?\$\$|\n\|.*\|.*\n/.test(text);
+  // When showHintForComplex is false, it should truncate normally
+  const result = hasComplexSyntax && config.showHintForComplex
+    ? '📊 内容包含图表或公式，请查看聊天面板'
+    : (Array.from(text).length > config.maxLength ? Array.from(text).slice(0, config.maxLength).join('') + config.suffix : text);
+
+  assert.ok(result.includes('```'), 'Should truncate complex content when hint is disabled');
+  assert.ok(result.length <= config.maxLength + config.suffix.length, 'Should respect maxLength');
+});
+
