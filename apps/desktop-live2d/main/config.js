@@ -110,6 +110,9 @@ function resolveDesktopLive2dConfig({ env = process.env, projectRoot = PROJECT_R
     runtimeSummaryPath: path.resolve(
       env.DESKTOP_LIVE2D_RUNTIME_SUMMARY_PATH || path.join(runtimePaths.dataDir, 'desktop-live2d', 'runtime-summary.json')
     ),
+    windowStatePath: path.resolve(
+      env.DESKTOP_LIVE2D_WINDOW_STATE_PATH || path.join(runtimePaths.dataDir, 'desktop-live2d', 'window-state.json')
+    ),
     importBackupRoot: path.resolve(
       env.DESKTOP_LIVE2D_BACKUP_ROOT || path.join(runtimePaths.dataDir, 'backups', 'live2d')
     ),

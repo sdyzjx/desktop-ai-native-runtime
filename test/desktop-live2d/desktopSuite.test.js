@@ -30,6 +30,9 @@ const {
   createChatPanelVisibilityListener,
   buildWindowStatePayload,
   createWindowResizeListener,
+  normalizePersistedWindowState,
+  loadPersistedWindowState,
+  writePersistedWindowState,
   createModelBoundsListener,
   createBubbleMetricsListener,
   createActionTelemetryListener,
@@ -582,9 +585,48 @@ test('buildWindowStatePayload returns normalized bounds and defaults', () => {
     y: 300,
     minWidth: 280,
     minHeight: 360,
+    maxWidth: 0,
+    maxHeight: 0,
     defaultWidth: 460,
     defaultHeight: 620
   });
+});
+
+test('normalizePersistedWindowState clamps saved size into runtime bounds', () => {
+  const normalized = normalizePersistedWindowState({
+    width: 999,
+    height: 200
+  }, {
+    windowMetrics: {
+      minWidth: 280,
+      minHeight: 360,
+      maxWidth: 540,
+      maxHeight: 700
+    }
+  });
+
+  assert.deepEqual(normalized, {
+    width: 540,
+    height: 360
+  });
+});
+
+test('loadPersistedWindowState and writePersistedWindowState round-trip window size', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-window-state-'));
+  const statePath = path.join(tmpDir, 'desktop-live2d', 'window-state.json');
+
+  writePersistedWindowState(statePath, { width: 512, height: 688 });
+  const loaded = loadPersistedWindowState(statePath, {
+    windowMetrics: {
+      minWidth: 280,
+      minHeight: 360,
+      maxWidth: 540,
+      maxHeight: 700
+    },
+    logger: { warn() {} }
+  });
+
+  assert.deepEqual(loaded, { width: 512, height: 688 });
 });
 
 test('createWindowResizeListener resizes avatar window and publishes updated state', () => {

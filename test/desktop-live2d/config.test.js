@@ -13,6 +13,7 @@ test('resolveDesktopLive2dConfig applies defaults and model relative path', () =
   assert.equal(config.rpcPort, 17373);
   assert.equal(config.modelJsonName, '八千代辉夜姬.model3.json');
   assert.ok(config.modelRelativePath.includes('assets/live2d/yachiyo-kaguya/八千代辉夜姬.model3.json'));
+  assert.ok(config.windowStatePath.endsWith(path.join('desktop-live2d', 'window-state.json')));
   assert.equal(config.gatewayExternal, false);
   assert.equal(config.uiConfig.chat.panel.enabled, true);
   assert.equal(config.uiConfig.chat.panel.defaultVisible, false);

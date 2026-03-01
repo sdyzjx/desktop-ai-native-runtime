@@ -31,6 +31,46 @@
         display: none;
       }
 
+      #window-toolbar {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 8px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 999px;
+        background: rgba(10, 14, 24, 0.58);
+        backdrop-filter: blur(10px);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+        -webkit-app-region: drag;
+      }
+
+      .window-toolbar-action {
+        -webkit-app-region: no-drag;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 999px;
+        min-width: 30px;
+        height: 24px;
+        padding: 0 8px;
+        background: rgba(255, 255, 255, 0.1);
+        color: #f4f8ff;
+        font-size: 11px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .window-toolbar-action:hover:enabled {
+        background: rgba(255, 255, 255, 0.18);
+      }
+
+      .window-toolbar-action:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+
       #bubble-layer {
         position: fixed;
         left: 0;
@@ -208,6 +248,11 @@
   </head>
   <body>
     <div id="drag-handle"></div>
+    <div id="window-toolbar" aria-label="Window size controls">
+      <button class="window-toolbar-action" id="pet-shrink" type="button" title="Shrink">-</button>
+      <button class="window-toolbar-action" id="pet-grow" type="button" title="Grow">+</button>
+      <button class="window-toolbar-action" id="pet-reset" type="button" title="Reset size">Reset</button>
+    </div>
     <div id="stage"></div>
     <div id="chat-panel">
       <div id="chat-panel-header">

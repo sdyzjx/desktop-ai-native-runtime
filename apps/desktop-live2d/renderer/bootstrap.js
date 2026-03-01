@@ -62,6 +62,9 @@
   const chatComposerElement = document.getElementById('chat-panel-composer');
   const petHideElement = document.getElementById('pet-hide');
   const petCloseElement = document.getElementById('pet-close');
+  const petShrinkElement = document.getElementById('pet-shrink');
+  const petGrowElement = document.getElementById('pet-grow');
+  const petResetElement = document.getElementById('pet-reset');
 
   const chatStateApi = window.ChatPanelState;
   let runtimeUiConfig = null;
@@ -1072,13 +1075,73 @@
       y: Number(payload.y) || null,
       minWidth: Number(payload.minWidth) || null,
       minHeight: Number(payload.minHeight) || null,
+      maxWidth: Number(payload.maxWidth) || null,
+      maxHeight: Number(payload.maxHeight) || null,
       defaultWidth: Number(payload.defaultWidth) || null,
       defaultHeight: Number(payload.defaultHeight) || null
     };
+    applyWindowToolbarState();
   }
 
   function requestWindowResize(payload = {}) {
     bridge?.sendWindowResize?.(payload);
+  }
+
+  function applyWindowToolbarState() {
+    const windowState = state.windowState;
+    const currentWidth = Number(windowState?.width);
+    const currentHeight = Number(windowState?.height);
+    const minWidth = Number(windowState?.minWidth);
+    const minHeight = Number(windowState?.minHeight);
+    const maxWidth = Number(windowState?.maxWidth);
+    const maxHeight = Number(windowState?.maxHeight);
+    const defaultWidth = Number(windowState?.defaultWidth);
+    const defaultHeight = Number(windowState?.defaultHeight);
+    const hasState = Number.isFinite(currentWidth) && Number.isFinite(currentHeight);
+
+    if (petShrinkElement) {
+      petShrinkElement.disabled = !hasState || (
+        Number.isFinite(minWidth)
+        && minWidth > 0
+        && Number.isFinite(minHeight)
+        && minHeight > 0
+        && currentWidth <= minWidth
+        && currentHeight <= minHeight
+      );
+    }
+    if (petGrowElement) {
+      petGrowElement.disabled = !hasState || (
+        Number.isFinite(maxWidth)
+        && maxWidth > 0
+        && Number.isFinite(maxHeight)
+        && maxHeight > 0
+        && currentWidth >= maxWidth
+        && currentHeight >= maxHeight
+      );
+    }
+    if (petResetElement) {
+      petResetElement.disabled = !hasState || (
+        Number.isFinite(defaultWidth)
+        && defaultWidth > 0
+        && Number.isFinite(defaultHeight)
+        && defaultHeight > 0
+        && currentWidth === defaultWidth
+        && currentHeight === defaultHeight
+      );
+    }
+  }
+
+  function bindWindowToolbar() {
+    petShrinkElement?.addEventListener('click', () => {
+      requestWindowResize({ action: 'shrink', source: 'window-toolbar' });
+    });
+    petGrowElement?.addEventListener('click', () => {
+      requestWindowResize({ action: 'grow', source: 'window-toolbar' });
+    });
+    petResetElement?.addEventListener('click', () => {
+      requestWindowResize({ action: 'reset', source: 'window-toolbar' });
+    });
+    applyWindowToolbarState();
   }
 
   function initChatPanel(config) {
@@ -1636,6 +1699,7 @@
       detachWindowStateSync = bridge.onWindowStateSync?.((payload) => {
         applyWindowState(payload);
       }) || null;
+      bindWindowToolbar();
       initChatPanel(runtimeUiConfig?.chat || {});
       await initPixi();
       await loadModel(runtimeConfig.modelRelativePath, runtimeConfig.modelName);

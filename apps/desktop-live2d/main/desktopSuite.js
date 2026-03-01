@@ -601,12 +601,22 @@ function buildWindowStatePayload({ window, windowMetrics } = {}) {
     y: Math.round(bounds.y),
     minWidth: Math.round(windowMetrics?.minWidth || 0),
     minHeight: Math.round(windowMetrics?.minHeight || 0),
+    maxWidth: Math.round(windowMetrics?.maxWidth || 0),
+    maxHeight: Math.round(windowMetrics?.maxHeight || 0),
     defaultWidth: Math.round(windowMetrics?.expandedWidth || bounds.width),
     defaultHeight: Math.round(windowMetrics?.expandedHeight || bounds.height)
   };
 }
 
-function createWindowResizeListener({ window, windowMetrics, screen, display, margin = 8, onStateChange = null } = {}) {
+function createWindowResizeListener({
+  window,
+  windowMetrics,
+  screen,
+  display,
+  margin = 8,
+  onStateChange = null,
+  onResizeCommitted = null
+} = {}) {
   return (event, payload) => {
     if (!window || window.isDestroyed?.() || event?.sender !== window.webContents) {
       return;
@@ -650,8 +660,75 @@ function createWindowResizeListener({ window, windowMetrics, screen, display, ma
       maxHeight: Number(windowMetrics?.maxHeight) || Number.POSITIVE_INFINITY,
       margin
     });
-    onStateChange?.(buildWindowStatePayload({ window, windowMetrics }));
+    const nextState = buildWindowStatePayload({ window, windowMetrics });
+    onStateChange?.(nextState);
+    if (normalized.persist !== false) {
+      onResizeCommitted?.(nextState);
+    }
   };
+}
+
+function normalizePersistedWindowState(value, { windowMetrics } = {}) {
+  const width = Number(value?.width);
+  const height = Number(value?.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return {
+    width: clamp(
+      Math.round(width),
+      Number(windowMetrics?.minWidth) || 120,
+      Number(windowMetrics?.maxWidth) || Number.POSITIVE_INFINITY
+    ),
+    height: clamp(
+      Math.round(height),
+      Number(windowMetrics?.minHeight) || 160,
+      Number(windowMetrics?.maxHeight) || Number.POSITIVE_INFINITY
+    )
+  };
+}
+
+function loadPersistedWindowState(windowStatePath, { windowMetrics, logger = console } = {}) {
+  if (!windowStatePath || !fs.existsSync(windowStatePath)) {
+    return null;
+  }
+
+  try {
+    const raw = JSON.parse(fs.readFileSync(windowStatePath, 'utf8'));
+    return normalizePersistedWindowState(raw, { windowMetrics });
+  } catch (err) {
+    logger.warn?.('[desktop-live2d] failed to load window state', {
+      windowStatePath,
+      error: err?.message || String(err || 'unknown error')
+    });
+    return null;
+  }
+}
+
+function writePersistedWindowState(windowStatePath, payload, { logger = console } = {}) {
+  if (!windowStatePath || !payload) {
+    return;
+  }
+
+  const normalized = normalizePersistedWindowState(payload);
+  if (!normalized) {
+    return;
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(windowStatePath), { recursive: true });
+    fs.writeFileSync(windowStatePath, JSON.stringify({
+      width: normalized.width,
+      height: normalized.height,
+      updatedAt: new Date().toISOString()
+    }, null, 2), 'utf8');
+  } catch (err) {
+    logger.warn?.('[desktop-live2d] failed to persist window state', {
+      windowStatePath,
+      error: err?.message || String(err || 'unknown error')
+    });
+  }
 }
 
 async function forwardLive2dActionEvent({
@@ -764,12 +841,18 @@ async function startDesktopSuite({
   let rpcServerRef = null;
   let ipcBridgeRef = null;
   const windowMetrics = resolveWindowMetrics(config.uiConfig);
+  const persistedWindowState = loadPersistedWindowState(config.windowStatePath, {
+    windowMetrics,
+    logger
+  });
+  let manualWindowSizeActive = Boolean(persistedWindowState);
   const avatarWindow = createMainWindow({
     BrowserWindow,
     preloadPath: path.join(__dirname, 'preload.js'),
     display,
     uiConfig: config.uiConfig,
-    windowMetrics
+    windowMetrics,
+    initialSizeOverride: persistedWindowState
   });
   const avatarWindowBounds = avatarWindow.getBounds();
 
@@ -855,6 +938,11 @@ async function startDesktopSuite({
     }
   }
 
+  function persistAvatarWindowState(payload) {
+    manualWindowSizeActive = true;
+    writePersistedWindowState(config.windowStatePath, payload, { logger });
+  }
+
   function resolveAvatarDisplay(bounds = null) {
     const targetBounds = bounds || (avatarWindow.isDestroyed() ? null : avatarWindow.getBounds());
     return resolveDisplayForBounds({
@@ -881,7 +969,7 @@ async function startDesktopSuite({
   }
 
   function applyAvatarFitBounds(modelBounds) {
-    if (!fitWindowConfig.enabled || avatarWindow.isDestroyed()) {
+    if (!fitWindowConfig.enabled || manualWindowSizeActive || avatarWindow.isDestroyed()) {
       return;
     }
     const activeDisplay = resolveAvatarDisplay(avatarWindow.getBounds());
@@ -1166,7 +1254,8 @@ async function startDesktopSuite({
     windowMetrics,
     screen,
     display,
-    onStateChange: syncWindowStateToRenderer
+    onStateChange: syncWindowStateToRenderer,
+    onResizeCommitted: persistAvatarWindowState
   });
   ipcMain.on(CHANNELS.windowResizeRequest, windowResizeListener);
 
@@ -1611,9 +1700,9 @@ async function handleDesktopRpcRequest({
   });
 }
 
-function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windowMetrics }) {
+function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windowMetrics, initialSizeOverride = null }) {
   const windowConfig = uiConfig?.window || {};
-  const initialSize = {
+  const initialSize = normalizePersistedWindowState(initialSizeOverride, { windowMetrics }) || {
     width: windowMetrics?.expandedWidth || 320,
     height: windowMetrics?.expandedHeight || 500
   };
@@ -1977,6 +2066,9 @@ module.exports = {
   createChatPanelVisibilityListener,
   buildWindowStatePayload,
   createWindowResizeListener,
+  normalizePersistedWindowState,
+  loadPersistedWindowState,
+  writePersistedWindowState,
   createChatPanelToggleListener,
   createModelBoundsListener,
   createBubbleMetricsListener,
