@@ -139,6 +139,93 @@
         opacity: 0.5;
         cursor: default;
       }
+
+      /* Markdown rendering styles */
+      .chat-message-content {
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .chat-message-content h1,
+      .chat-message-content h2,
+      .chat-message-content h3 {
+        margin: 8px 0 4px 0;
+        font-weight: 600;
+        color: #f8fcff;
+      }
+
+      .chat-message-content h1 { font-size: 16px; }
+      .chat-message-content h2 { font-size: 14px; }
+      .chat-message-content h3 { font-size: 13px; }
+
+      .chat-message-content p {
+        margin: 4px 0;
+      }
+
+      .chat-message-content code {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-family: 'SF Mono', 'Consolas', monospace;
+        font-size: 11px;
+        color: #ffd580;
+      }
+
+      .chat-message-content pre {
+        background: rgba(0, 0, 0, 0.4);
+        padding: 8px;
+        border-radius: 6px;
+        overflow-x: auto;
+        margin: 6px 0;
+      }
+
+      .chat-message-content pre code {
+        background: none;
+        padding: 0;
+        color: #e8f0ff;
+        font-size: 11px;
+      }
+
+      .chat-message-content ul,
+      .chat-message-content ol {
+        margin: 4px 0;
+        padding-left: 20px;
+      }
+
+      .chat-message-content li {
+        margin: 2px 0;
+      }
+
+      .chat-message-content a {
+        color: #6db3ff;
+        text-decoration: none;
+      }
+
+      .chat-message-content a:hover {
+        text-decoration: underline;
+      }
+
+      .chat-message-content blockquote {
+        border-left: 3px solid rgba(255, 255, 255, 0.3);
+        padding-left: 10px;
+        margin: 6px 0;
+        color: #c8d6f0;
+      }
+
+      /* Mermaid diagram styles */
+      .chat-message-content .mermaid {
+        background: rgba(0, 0, 0, 0.2);
+        padding: 12px;
+        border-radius: 8px;
+        margin: 8px 0;
+        overflow-x: auto;
+      }
+
+      /* Code highlighting */
+      .chat-message-content .hljs {
+        background: rgba(0, 0, 0, 0.4);
+        color: #e8f0ff;
+      }
     </style>
   </head>
   <body>
@@ -156,6 +243,15 @@
         <button id="chat-send" type="button">Send</button>
       </div>
     </div>
+    <!-- Markdown and Mermaid libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/core.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/javascript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/json.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/bash.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
     <script src="./chat.js"></script>
   </body>
 </html>
