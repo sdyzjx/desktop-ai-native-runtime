@@ -5,6 +5,7 @@
   const actionMutexApi = window.Live2DActionMutex || null;
   const actionQueueApi = window.Live2DActionQueuePlayer || null;
   const actionExecutorApi = window.Live2DActionExecutor || null;
+  const visemeLipSyncApi = window.Live2DVisemeLipSync || null;
   const state = {
     modelLoaded: false,
     modelName: null,
@@ -20,6 +21,28 @@
   let hideBubbleTimer = null;
   const systemAudio = new Audio();
   systemAudio.autoplay = true;
+  systemAudio.preload = 'auto';
+  let currentVoiceObjectUrl = null;
+  let lipsyncCtx = null;
+  let lipsyncAnalyser = null;
+  let lipsyncSource = null;
+  let lipsyncRafId = 0;
+  let lipsyncSmoothed = 0;
+  let lipsyncSmoothedForm = 0;
+  let lipsyncCurrentMouthOpen = 0;
+  let lipsyncCurrentMouthForm = 0;
+  let lipsyncAudioEl = null;
+  let lipsyncTimeDomainBuffer = null;
+  let lipsyncFrequencyBuffer = null;
+  let lipsyncParamMetaCache = null;
+  let lipsyncVisemeState = visemeLipSyncApi?.createRuntimeState?.() || null;
+  let lipsyncLastVisemeFrame = null;
+  let recentVoicePlaybackKeys = new Map();
+  let detachLipSyncPlaybackListeners = null;
+  let detachLipSyncTicker = null;
+  let detachLipSyncModelHook = null;
+  let lastLipSyncDebugLogAt = 0;
+  let lipsyncLastVoiceAt = 0;
   let dragPointerState = null;
   let suppressModelTapUntil = 0;
   let stableModelScale = null;
@@ -69,6 +92,29 @@
   const CHAT_PANEL_SHOW_WAIT_RESIZE_TIMEOUT_MS = 220;
   const MODEL_TAP_SUPPRESS_AFTER_DRAG_MS = 220;
   const MODEL_TAP_SUPPRESS_AFTER_FOCUS_MS = 240;
+  const LIPSYNC_MOUTH_PARAM = 'ParamMouthOpenY';
+  const LIPSYNC_MOUTH_FORM_PARAM = 'ParamMouthForm';
+  const LIPSYNC_FFT_SIZE = 256;
+  const LIPSYNC_THRESHOLD = 0.004;
+  const LIPSYNC_RANGE = 0.06;
+  const LIPSYNC_CURVE_EXPONENT = 0.65;
+  const LIPSYNC_HARD_CLOSE_RMS_THRESHOLD = 0.014;
+  const LIPSYNC_HARD_CLOSE_NORMALIZED_THRESHOLD = 0.14;
+  const LIPSYNC_ATTACK_ALPHA = 0.56;
+  const LIPSYNC_RELEASE_ALPHA = 0.18;
+  const LIPSYNC_FORM_ATTACK_ALPHA = 0.42;
+  const LIPSYNC_FORM_RELEASE_ALPHA = 0.22;
+  const LIPSYNC_ACTIVE_BASELINE = 0.08;
+  const LIPSYNC_SILENCE_HANGOVER_MS = 100;
+  const LIPSYNC_MAX_MOUTH = 0.95;
+  const LIPSYNC_FORM_MAX_ABS = 0.16;
+  const LIPSYNC_FORM_DEADZONE = 0.18;
+  const LIPSYNC_FORM_CURVE_EXPONENT = 0.82;
+  const LIPSYNC_FORM_NEGATIVE_SCALE = 0.55;
+  const LIPSYNC_FORM_POSITIVE_SCALE = 0.8;
+  const LIPSYNC_FORM_LOW_BAND_HZ = [180, 900];
+  const LIPSYNC_FORM_HIGH_BAND_HZ = [1200, 3600];
+  const VOICE_PLAYBACK_DEDUPE_WINDOW_MS = 3500;
 
   function nearlyEqual(left, right, epsilon = 1e-4) {
     if (typeof interactionApi?.nearlyEqual === 'function') {
@@ -143,6 +189,553 @@
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
+  }
+
+  function getCoreModel() {
+    return live2dModel?.internalModel?.coreModel || null;
+  }
+
+  function getLipSyncParamMeta(parameterId) {
+    const coreModel = getCoreModel();
+    if (
+      !coreModel
+      || typeof coreModel.getParameterIndex !== 'function'
+      || typeof coreModel.getParameterDefaultValue !== 'function'
+      || typeof coreModel.getParameterMinimumValue !== 'function'
+      || typeof coreModel.getParameterMaximumValue !== 'function'
+    ) {
+      return null;
+    }
+
+    if (!lipsyncParamMetaCache) {
+      lipsyncParamMetaCache = new Map();
+    }
+    if (lipsyncParamMetaCache.has(parameterId)) {
+      return lipsyncParamMetaCache.get(parameterId);
+    }
+
+    const parameterIndex = coreModel.getParameterIndex(parameterId);
+    if (!Number.isInteger(parameterIndex) || parameterIndex < 0) {
+      lipsyncParamMetaCache.set(parameterId, null);
+      return null;
+    }
+
+    const meta = {
+      defaultValue: Number(coreModel.getParameterDefaultValue(parameterIndex)),
+      minValue: Number(coreModel.getParameterMinimumValue(parameterIndex)),
+      maxValue: Number(coreModel.getParameterMaximumValue(parameterIndex))
+    };
+    lipsyncParamMetaCache.set(parameterId, meta);
+    return meta;
+  }
+
+  function applyMouthOpenToModel(value) {
+    if (!state.modelLoaded) {
+      return { ok: false, skipped: true, reason: 'model_not_loaded' };
+    }
+
+    const coreModel = getCoreModel();
+    if (!coreModel || typeof coreModel.setParameterValueById !== 'function') {
+      return { ok: false, skipped: true, reason: 'core_model_unavailable' };
+    }
+
+    coreModel.setParameterValueById(LIPSYNC_MOUTH_PARAM, clamp(Number(value) || 0, 0, 1));
+    return { ok: true };
+  }
+
+  function setMouthOpen(value) {
+    lipsyncCurrentMouthOpen = clamp(Number(value) || 0, 0, 1);
+    return applyMouthOpenToModel(lipsyncCurrentMouthOpen);
+  }
+
+  function applyMouthFormToModel(value) {
+    if (!state.modelLoaded) {
+      return { ok: false, skipped: true, reason: 'model_not_loaded' };
+    }
+
+    const coreModel = getCoreModel();
+    if (!coreModel || typeof coreModel.setParameterValueById !== 'function') {
+      return { ok: false, skipped: true, reason: 'core_model_unavailable' };
+    }
+
+    const normalizedValue = clamp(Number(value) || 0, -1, 1);
+    const meta = getLipSyncParamMeta(LIPSYNC_MOUTH_FORM_PARAM);
+    if (!meta) {
+      coreModel.setParameterValueById(
+        LIPSYNC_MOUTH_FORM_PARAM,
+        clamp(normalizedValue * LIPSYNC_FORM_MAX_ABS, -LIPSYNC_FORM_MAX_ABS, LIPSYNC_FORM_MAX_ABS)
+      );
+      return { ok: true, calibrated: false };
+    }
+
+    const positiveSpan = Math.max(0, Math.min(meta.maxValue - meta.defaultValue, LIPSYNC_FORM_MAX_ABS));
+    const negativeSpan = Math.max(0, Math.min(meta.defaultValue - meta.minValue, LIPSYNC_FORM_MAX_ABS));
+    const delta = normalizedValue >= 0
+      ? normalizedValue * positiveSpan
+      : normalizedValue * negativeSpan;
+    const calibratedValue = clamp(meta.defaultValue + delta, meta.minValue, meta.maxValue);
+
+    coreModel.setParameterValueById(LIPSYNC_MOUTH_FORM_PARAM, calibratedValue);
+    return { ok: true };
+  }
+
+  function setMouthForm(value) {
+    lipsyncCurrentMouthForm = clamp(Number(value) || 0, -1, 1);
+    return applyMouthFormToModel(lipsyncCurrentMouthForm);
+  }
+
+  function getFrequencyBandEnergy(buffer, sampleRate, minHz, maxHz) {
+    if (!buffer || !buffer.length || !Number.isFinite(sampleRate) || sampleRate <= 0) {
+      return 0;
+    }
+
+    const nyquist = sampleRate / 2;
+    const minIndex = clamp(Math.floor((minHz / nyquist) * buffer.length), 0, buffer.length - 1);
+    const maxIndex = clamp(Math.ceil((maxHz / nyquist) * buffer.length), minIndex + 1, buffer.length);
+    let sum = 0;
+    let count = 0;
+    for (let index = minIndex; index < maxIndex; index += 1) {
+      sum += buffer[index] / 255;
+      count += 1;
+    }
+    return count > 0 ? sum / count : 0;
+  }
+
+  function applyLipSyncForCurrentFrame() {
+    if (lipsyncCurrentMouthOpen <= 0 && Math.abs(lipsyncCurrentMouthForm) <= 1e-4) {
+      return;
+    }
+
+    const coreModel = getCoreModel();
+    if (!coreModel) {
+      return;
+    }
+
+    if (typeof coreModel.addParameterValueById === 'function') {
+      coreModel.addParameterValueById(LIPSYNC_MOUTH_PARAM, lipsyncCurrentMouthOpen, 1);
+      applyMouthFormToModel(lipsyncCurrentMouthForm);
+      const now = Date.now();
+      if (now - lastLipSyncDebugLogAt >= 1000 && typeof coreModel.getParameterValueById === 'function') {
+        const formMeta = getLipSyncParamMeta(LIPSYNC_MOUTH_FORM_PARAM);
+        lastLipSyncDebugLogAt = now;
+        console.log('[lipsync] apply frame', JSON.stringify({
+          source: 'beforeModelUpdate',
+          target: lipsyncCurrentMouthOpen,
+          current: coreModel.getParameterValueById(LIPSYNC_MOUTH_PARAM),
+          form_target: lipsyncCurrentMouthForm,
+          form_current: coreModel.getParameterValueById(LIPSYNC_MOUTH_FORM_PARAM),
+          form_default: formMeta?.defaultValue ?? null,
+          form_min: formMeta?.minValue ?? null,
+          form_max: formMeta?.maxValue ?? null,
+          viseme: lipsyncLastVisemeFrame?.dominantViseme ?? null,
+          viseme_confidence: lipsyncLastVisemeFrame?.confidence ?? null,
+          viseme_weights: lipsyncLastVisemeFrame?.weights ?? null
+        }));
+      }
+      return;
+    }
+
+    applyMouthOpenToModel(lipsyncCurrentMouthOpen);
+    applyMouthFormToModel(lipsyncCurrentMouthForm);
+  }
+
+  function bindLipSyncTicker() {
+    if (!pixiApp?.ticker || typeof pixiApp.ticker.add !== 'function' || detachLipSyncTicker) {
+      return;
+    }
+
+    const tick = () => {
+      if (lipsyncCurrentMouthOpen <= 0) {
+        return;
+      }
+      applyLipSyncForCurrentFrame();
+    };
+
+    pixiApp.ticker.add(tick);
+    detachLipSyncTicker = () => {
+      if (pixiApp?.ticker && typeof pixiApp.ticker.remove === 'function') {
+        pixiApp.ticker.remove(tick);
+      }
+      detachLipSyncTicker = null;
+    };
+  }
+
+  function bindLipSyncModelHook() {
+    const internalModel = live2dModel?.internalModel;
+    if (!internalModel || typeof internalModel.on !== 'function' || detachLipSyncModelHook) {
+      return false;
+    }
+
+    const handler = () => {
+      applyLipSyncForCurrentFrame();
+    };
+
+    internalModel.on('beforeModelUpdate', handler);
+    detachLipSyncModelHook = () => {
+      if (typeof internalModel.off === 'function') {
+        internalModel.off('beforeModelUpdate', handler);
+      } else if (typeof internalModel.removeListener === 'function') {
+        internalModel.removeListener('beforeModelUpdate', handler);
+      }
+      detachLipSyncModelHook = null;
+    };
+    return true;
+  }
+
+  function computeRmsFromTimeDomain(buffer) {
+    if (!buffer || buffer.length === 0) {
+      return 0;
+    }
+
+    let sumSquares = 0;
+    for (let index = 0; index < buffer.length; index += 1) {
+      const normalized = (buffer[index] - 128) / 128;
+      sumSquares += normalized * normalized;
+    }
+    return Math.sqrt(sumSquares / buffer.length);
+  }
+
+  async function ensureLipSyncGraph(audioEl) {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      throw createRpcError(-32005, 'AudioContext is unavailable');
+    }
+
+    if (!lipsyncCtx || lipsyncCtx.state === 'closed') {
+      lipsyncCtx = new AudioContextCtor();
+      lipsyncAnalyser = null;
+      lipsyncSource = null;
+      lipsyncAudioEl = null;
+      lipsyncTimeDomainBuffer = null;
+      lipsyncFrequencyBuffer = null;
+    }
+
+    if (lipsyncCtx.state === 'suspended') {
+      await lipsyncCtx.resume();
+    }
+
+    if (!lipsyncAnalyser) {
+      lipsyncAnalyser = lipsyncCtx.createAnalyser();
+      lipsyncAnalyser.fftSize = LIPSYNC_FFT_SIZE;
+      lipsyncTimeDomainBuffer = new Uint8Array(lipsyncAnalyser.fftSize);
+      lipsyncFrequencyBuffer = new Uint8Array(lipsyncAnalyser.frequencyBinCount);
+    }
+
+    if (!lipsyncSource) {
+      lipsyncSource = lipsyncCtx.createMediaElementSource(audioEl);
+      lipsyncAudioEl = audioEl;
+      lipsyncSource.connect(lipsyncAnalyser);
+      lipsyncAnalyser.connect(lipsyncCtx.destination);
+    } else if (lipsyncAudioEl !== audioEl) {
+      throw createRpcError(-32005, 'lip sync source is already bound to another audio element');
+    }
+
+    return {
+      ctx: lipsyncCtx,
+      analyser: lipsyncAnalyser,
+      buffer: lipsyncTimeDomainBuffer,
+      frequencyBuffer: lipsyncFrequencyBuffer
+    };
+  }
+
+  function teardownLipSyncPlaybackListeners() {
+    if (typeof detachLipSyncPlaybackListeners === 'function') {
+      detachLipSyncPlaybackListeners();
+      detachLipSyncPlaybackListeners = null;
+    }
+  }
+
+  function stopLipSyncFrame() {
+    if (lipsyncRafId) {
+      window.cancelAnimationFrame(lipsyncRafId);
+      lipsyncRafId = 0;
+    }
+    lipsyncSmoothed = 0;
+    lipsyncSmoothedForm = 0;
+    lipsyncCurrentMouthOpen = 0;
+    lipsyncCurrentMouthForm = 0;
+    lipsyncLastVoiceAt = 0;
+    lipsyncVisemeState = visemeLipSyncApi?.createRuntimeState?.() || null;
+    lipsyncLastVisemeFrame = null;
+    setMouthOpen(0);
+    setMouthForm(0);
+  }
+
+  function stopLipSync() {
+    stopLipSyncFrame();
+    teardownLipSyncPlaybackListeners();
+  }
+
+  async function startLipSyncWithAudio(audioEl) {
+    const graph = await ensureLipSyncGraph(audioEl);
+    stopLipSyncFrame();
+
+    const step = () => {
+      if (!graph.analyser || !graph.buffer || !graph.frequencyBuffer) {
+        return;
+      }
+
+      graph.analyser.getByteTimeDomainData(graph.buffer);
+      graph.analyser.getByteFrequencyData(graph.frequencyBuffer);
+      const rms = computeRmsFromTimeDomain(graph.buffer);
+      const now = performance.now();
+      const normalized = rms <= LIPSYNC_THRESHOLD
+        ? 0
+        : clamp((rms - LIPSYNC_THRESHOLD) / LIPSYNC_RANGE, 0, 1);
+      const hardSilent = rms < LIPSYNC_HARD_CLOSE_RMS_THRESHOLD || normalized < LIPSYNC_HARD_CLOSE_NORMALIZED_THRESHOLD;
+      if (hardSilent) {
+        lipsyncSmoothed = 0;
+        lipsyncSmoothedForm = 0;
+        lipsyncLastVoiceAt = 0;
+        lipsyncLastVisemeFrame = null;
+        lipsyncVisemeState = visemeLipSyncApi?.createRuntimeState?.() || null;
+        setMouthOpen(0);
+        setMouthForm(0);
+        lipsyncRafId = window.requestAnimationFrame(step);
+        return;
+      }
+      let target = 0;
+      if (normalized > 0) {
+        lipsyncLastVoiceAt = now;
+        const shaped = Math.pow(normalized, LIPSYNC_CURVE_EXPONENT);
+        target = LIPSYNC_ACTIVE_BASELINE + shaped * (LIPSYNC_MAX_MOUTH - LIPSYNC_ACTIVE_BASELINE);
+      } else if (lipsyncLastVoiceAt > 0 && now - lipsyncLastVoiceAt <= LIPSYNC_SILENCE_HANGOVER_MS) {
+        target = LIPSYNC_ACTIVE_BASELINE;
+      }
+
+      const smoothingAlpha = target > lipsyncSmoothed ? LIPSYNC_ATTACK_ALPHA : LIPSYNC_RELEASE_ALPHA;
+      lipsyncSmoothed += (target - lipsyncSmoothed) * smoothingAlpha;
+      const lowBandEnergy = getFrequencyBandEnergy(
+        graph.frequencyBuffer,
+        graph.ctx?.sampleRate || 0,
+        LIPSYNC_FORM_LOW_BAND_HZ[0],
+        LIPSYNC_FORM_LOW_BAND_HZ[1]
+      );
+      const highBandEnergy = getFrequencyBandEnergy(
+        graph.frequencyBuffer,
+        graph.ctx?.sampleRate || 0,
+        LIPSYNC_FORM_HIGH_BAND_HZ[0],
+        LIPSYNC_FORM_HIGH_BAND_HZ[1]
+      );
+      const spectralBalance = clamp(
+        (highBandEnergy - lowBandEnergy) / Math.max(1e-4, highBandEnergy + lowBandEnergy),
+        -1,
+        1
+      );
+      const mouthOpenWeight = clamp((lipsyncSmoothed - LIPSYNC_ACTIVE_BASELINE) / Math.max(1e-4, LIPSYNC_MAX_MOUTH), 0, 1);
+      const spectralMagnitude = Math.abs(spectralBalance);
+      const normalizedFormMagnitude = spectralMagnitude <= LIPSYNC_FORM_DEADZONE
+        ? 0
+        : clamp((spectralMagnitude - LIPSYNC_FORM_DEADZONE) / Math.max(1e-4, 1 - LIPSYNC_FORM_DEADZONE), 0, 1);
+      const shapedFormBalance = Math.sign(spectralBalance) * Math.pow(normalizedFormMagnitude, LIPSYNC_FORM_CURVE_EXPONENT);
+      const directionalFormScale = shapedFormBalance < 0 ? LIPSYNC_FORM_NEGATIVE_SCALE : LIPSYNC_FORM_POSITIVE_SCALE;
+      const fallbackFormTarget = shapedFormBalance * mouthOpenWeight * directionalFormScale;
+      const formSmoothingAlpha = Math.abs(fallbackFormTarget) > Math.abs(lipsyncSmoothedForm)
+        ? LIPSYNC_FORM_ATTACK_ALPHA
+        : LIPSYNC_FORM_RELEASE_ALPHA;
+      lipsyncSmoothedForm += (fallbackFormTarget - lipsyncSmoothedForm) * formSmoothingAlpha;
+
+      let nextMouthOpen = lipsyncSmoothed;
+      let nextMouthForm = lipsyncSmoothedForm;
+      const visemeFrame = visemeLipSyncApi?.resolveVisemeFrame?.({
+        frequencyBuffer: graph.frequencyBuffer,
+        sampleRate: graph.ctx?.sampleRate || 0,
+        voiceEnergy: normalized,
+        speaking: normalized > 0 || target > 0,
+        fallbackOpen: lipsyncSmoothed,
+        fallbackForm: lipsyncSmoothedForm,
+        state: lipsyncVisemeState
+      }) || null;
+      if (visemeFrame) {
+        lipsyncLastVisemeFrame = visemeFrame;
+        nextMouthOpen = clamp(Number(visemeFrame.mouthOpen) || 0, 0, 1);
+        nextMouthForm = clamp(Number(visemeFrame.mouthForm) || 0, -1, 1);
+      } else {
+        lipsyncLastVisemeFrame = null;
+      }
+
+      setMouthOpen(nextMouthOpen);
+      setMouthForm(nextMouthForm);
+      lipsyncRafId = window.requestAnimationFrame(step);
+    };
+
+    step();
+  }
+
+  function normalizeFileUrl(rawValue) {
+    const normalized = String(rawValue || '').trim();
+    if (!normalized) {
+      return '';
+    }
+    if (/^(file|https?|data|blob):/i.test(normalized)) {
+      return normalized;
+    }
+    if (normalized.startsWith('/')) {
+      return `file://${encodeURI(normalized)}`;
+    }
+    return '';
+  }
+
+  function resolveAudioPlaybackUrl(data = {}) {
+    const directRef = normalizeFileUrl(data.audio_ref || data.audioRef || data.audioPath);
+    if (directRef) {
+      return directRef;
+    }
+
+    const gatewayUrl = String(data.gatewayUrl || '').trim();
+    const audioRef = String(data.audio_ref || data.audioRef || '').trim();
+    if (gatewayUrl && audioRef) {
+      try {
+        const url = new URL('/api/audio', gatewayUrl);
+        url.searchParams.set('path', audioRef);
+        return url.toString();
+      } catch {
+        return '';
+      }
+    }
+
+    return '';
+  }
+
+  function buildVoicePlaybackKey(payload = {}, audioUrl = '') {
+    const idempotencyKey = String(payload.idempotencyKey || payload.idempotency_key || '').trim();
+    if (idempotencyKey) {
+      return `idem:${idempotencyKey}`;
+    }
+
+    const turnId = String(payload.turnId || payload.turn_id || '').trim();
+    if (turnId && audioUrl) {
+      return `turn:${turnId}|url:${audioUrl}`;
+    }
+    if (turnId) {
+      return `turn:${turnId}`;
+    }
+
+    return audioUrl ? `url:${audioUrl}` : '';
+  }
+
+  function shouldSkipDuplicateVoicePlayback(playbackKey) {
+    if (!playbackKey) {
+      return false;
+    }
+
+    const now = Date.now();
+    for (const [key, timestamp] of recentVoicePlaybackKeys.entries()) {
+      if (!Number.isFinite(timestamp) || now - timestamp > VOICE_PLAYBACK_DEDUPE_WINDOW_MS) {
+        recentVoicePlaybackKeys.delete(key);
+      }
+    }
+
+    const previousSeenAt = recentVoicePlaybackKeys.get(playbackKey);
+    if (Number.isFinite(previousSeenAt) && now - previousSeenAt <= VOICE_PLAYBACK_DEDUPE_WINDOW_MS) {
+      return true;
+    }
+
+    recentVoicePlaybackKeys.set(playbackKey, now);
+    return false;
+  }
+
+  async function playAudioWithLipSync(audioUrl) {
+    if (!audioUrl) {
+      throw createRpcError(-32602, 'audio url is required for lip sync playback');
+    }
+
+    stopLipSync();
+    try {
+      systemAudio.pause();
+    } catch {
+      // no-op
+    }
+
+    systemAudio.currentTime = 0;
+    const previousAutoplay = systemAudio.autoplay;
+    systemAudio.autoplay = false;
+    systemAudio.src = audioUrl;
+    systemAudio.load();
+
+    const onPlaybackFinished = () => {
+      stopLipSync();
+      systemAudio.autoplay = previousAutoplay;
+    };
+    systemAudio.addEventListener('ended', onPlaybackFinished);
+    systemAudio.addEventListener('pause', onPlaybackFinished);
+    systemAudio.addEventListener('error', onPlaybackFinished);
+    detachLipSyncPlaybackListeners = () => {
+      systemAudio.removeEventListener('ended', onPlaybackFinished);
+      systemAudio.removeEventListener('pause', onPlaybackFinished);
+      systemAudio.removeEventListener('error', onPlaybackFinished);
+      systemAudio.autoplay = previousAutoplay;
+    };
+
+    await ensureLipSyncGraph(systemAudio);
+    await systemAudio.play();
+    await startLipSyncWithAudio(systemAudio);
+
+    return { ok: true, audioUrl };
+  }
+
+  async function handleVoicePlaybackRequest(payload = {}) {
+    const audioUrl = resolveAudioPlaybackUrl(payload);
+    if (!audioUrl) {
+      throw createRpcError(-32602, 'voice playback requires audio_ref, audioRef, or audioPath');
+    }
+    const playbackKey = buildVoicePlaybackKey(payload, audioUrl);
+    if (shouldSkipDuplicateVoicePlayback(playbackKey)) {
+      console.log('[lipsync] skip duplicate voice playback', JSON.stringify({
+        playbackKey,
+        turnId: payload.turnId || payload.turn_id || null,
+        idempotencyKey: payload.idempotencyKey || payload.idempotency_key || null
+      }));
+      return { ok: true, deduplicated: true, audioUrl };
+    }
+    return playAudioWithLipSync(audioUrl);
+  }
+
+  async function handleVoicePlaybackMemoryRequest(payload = {}) {
+    const audioBase64 = String(payload.audioBase64 || '').trim();
+    if (!audioBase64) {
+      throw createRpcError(-32602, 'voice playback memory requires audioBase64');
+    }
+    const mimeType = String(payload.mimeType || payload.mime_type || 'audio/ogg');
+    const requestId = String(payload.requestId || payload.request_id || `${Date.now()}-voice`);
+    
+    const playbackKey = buildVoicePlaybackKey({
+      idempotencyKey: requestId,
+      turnId: payload.turnId || payload.turn_id
+    }, `blob:memory:${requestId}`);
+    
+    if (shouldSkipDuplicateVoicePlayback(playbackKey)) {
+      console.log('[lipsync] skip duplicate voice playback (memory)', JSON.stringify({
+        playbackKey,
+        requestId
+      }));
+      return { ok: true, deduplicated: true, requestId };
+    }
+    
+    const binaryString = atob(audioBase64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    releaseCurrentVoiceObjectUrl();
+    const blob = new Blob([bytes], { type: mimeType });
+    const objectUrl = URL.createObjectURL(blob);
+    currentVoiceObjectUrl = objectUrl;
+    
+    return playAudioWithLipSync(objectUrl);
+  }
+
+  function releaseCurrentVoiceObjectUrl() {
+    if (currentVoiceObjectUrl) {
+      try {
+        URL.revokeObjectURL(currentVoiceObjectUrl);
+      } catch {
+        // ignore revoke errors
+      }
+      currentVoiceObjectUrl = null;
+    }
   }
 
   function positionBubbleNearModelHead() {
@@ -674,6 +1267,9 @@
     bindModelInteraction();
 
     pixiApp.stage.addChild(live2dModel);
+    if (!bindLipSyncModelHook()) {
+      bindLipSyncTicker();
+    }
     const initialBounds = live2dModel.getLocalBounds?.();
     if (
       initialBounds
@@ -991,13 +1587,9 @@
         const { name, data } = params || {};
         console.log('[Renderer] Received RPC invoke:', name);
         if (name === 'voice.play') {
-          try {
-            systemAudio.src = `file://${data.audioPath}`;
-            systemAudio.play().catch(console.error);
-            result = { ok: true };
-          } catch (err) {
-            throw createRpcError(-32000, 'play failed');
-          }
+          result = await handleVoicePlaybackRequest(data || {});
+        } else if (name === 'voice.playback.electron') {
+          result = await handleVoicePlaybackRequest(data || {});
         } else {
           result = { ok: true, ignored: true };
         }
@@ -1041,6 +1633,16 @@
       bridge.onInvoke((payload) => {
         void handleInvoke(payload);
       });
+      bridge.onVoicePlay?.((payload) => {
+        void handleVoicePlaybackRequest(payload).catch((err) => {
+          console.error('[Renderer] desktop:voice:play failed', err);
+        });
+      });
+      bridge.onVoicePlayMemory?.((payload) => {
+        void handleVoicePlaybackMemoryRequest(payload).catch((err) => {
+          console.error('[Renderer] desktop:voice:play-memory failed', err);
+        });
+      });
 
       bridge.notifyReady({ ok: true });
     } catch (err) {
@@ -1048,6 +1650,19 @@
       bridge?.notifyError({ message: state.lastError });
     }
   }
+
+  window.addEventListener('beforeunload', () => {
+    stopLipSync();
+    if (typeof detachLipSyncModelHook === 'function') {
+      detachLipSyncModelHook();
+    }
+    if (typeof detachLipSyncTicker === 'function') {
+      detachLipSyncTicker();
+    }
+    if (lipsyncCtx && lipsyncCtx.state !== 'closed') {
+      void lipsyncCtx.close().catch(() => { });
+    }
+  });
 
   void main();
 })();

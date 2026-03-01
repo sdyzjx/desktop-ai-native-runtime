@@ -15,7 +15,8 @@ const CHANNELS = {
   actionTelemetry: 'live2d:action:telemetry',
   windowDrag: 'live2d:window:drag',
   windowControl: 'live2d:window:control',
-  chatPanelVisibility: 'live2d:chat:panel-visibility'
+  chatPanelVisibility: 'live2d:chat:panel-visibility',
+  voicePlay: 'desktop:voice:play'
 };
 
 contextBridge.exposeInMainWorld('desktopLive2dBridge', {
@@ -58,6 +59,11 @@ contextBridge.exposeInMainWorld('desktopLive2dBridge', {
     ipcRenderer.on(CHANNELS.bubbleStateSync, listener);
     return () => ipcRenderer.off(CHANNELS.bubbleStateSync, listener);
   },
+  onVoicePlay(handler) {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on(CHANNELS.voicePlay, listener);
+    return () => ipcRenderer.off(CHANNELS.voicePlay, listener);
+  },
   sendWindowDrag(payload = {}) {
     ipcRenderer.send(CHANNELS.windowDrag, payload);
   },
@@ -69,5 +75,11 @@ contextBridge.exposeInMainWorld('desktopLive2dBridge', {
   },
   getRuntimeConfig() {
     return ipcRenderer.invoke(CHANNELS.getRuntimeConfig);
+  },
+  onVoicePlayMemory(handler) {
+    const channel = 'desktop:voice:play-memory';
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.off(channel, listener);
   }
 });
