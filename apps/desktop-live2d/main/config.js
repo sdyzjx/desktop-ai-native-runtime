@@ -10,70 +10,7 @@ const {
   DEFAULT_RPC_PORT,
   DEFAULT_RENDERER_TIMEOUT_MS
 } = require('./constants');
-
-const DEFAULT_UI_CONFIG = Object.freeze({
-  window: {
-    width: 320,
-    height: 500,
-    minWidth: 180,
-    minHeight: 260,
-    compactWhenChatHidden: false,
-    compactWidth: 260,
-    compactHeight: 500,
-    placement: {
-      anchor: 'bottom-right',
-      marginRight: 18,
-      marginBottom: 18
-    }
-  },
-  render: {
-    resolutionScale: 1,
-    maxDevicePixelRatio: 2,
-    antialias: false
-  },
-  layout: {
-    targetWidthRatio: 0.68,
-    targetHeightRatio: 0.8,
-    horizontalAlign: 'right',
-    rightOffsetRatio: 0.97,
-    bottomOffsetRatio: 0.97,
-    marginX: 22,
-    marginY: 12,
-    pivotXRatio: 0.72,
-    pivotYRatio: 0.97,
-    scaleMultiplier: 0.9,
-    minScale: 0.04,
-    maxScale: 2,
-    lockScaleOnResize: true,
-    lockPositionOnResize: true
-  },
-  chat: {
-    panel: {
-      enabled: true,
-      defaultVisible: false,
-      width: 320,
-      height: 220,
-      maxMessages: 200,
-      inputEnabled: true
-    },
-    bubble: {
-      mirrorToPanel: false
-    }
-  },
-  actionQueue: {
-    maxQueueSize: 120,
-    overflowPolicy: 'drop_oldest',
-    idleFallbackEnabled: true,
-    idleAction: {
-      type: 'motion',
-      name: 'Idle',
-      args: {
-        group: 'Idle',
-        index: 0
-      }
-    }
-  }
-});
+const { DEFAULT_UI_CONFIG } = require('../shared/defaultUiConfig');
 
 function toPositiveInt(value, fallback) {
   const parsed = Number(value);
@@ -108,6 +45,9 @@ function resolveDesktopLive2dConfig({ env = process.env, projectRoot = PROJECT_R
     runtimeSummaryPath: path.resolve(
       env.DESKTOP_LIVE2D_RUNTIME_SUMMARY_PATH || path.join(runtimePaths.dataDir, 'desktop-live2d', 'runtime-summary.json')
     ),
+    windowStatePath: path.resolve(
+      env.DESKTOP_LIVE2D_WINDOW_STATE_PATH || path.join(runtimePaths.dataDir, 'desktop-live2d', 'window-state.json')
+    ),
     importBackupRoot: path.resolve(
       env.DESKTOP_LIVE2D_BACKUP_ROOT || path.join(runtimePaths.dataDir, 'backups', 'live2d')
     ),
@@ -136,8 +76,86 @@ function loadDesktopLive2dUiConfig(configPath, { templatePath } = {}) {
     return JSON.parse(JSON.stringify(DEFAULT_UI_CONFIG));
   }
 
-  const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const raw = parseJsonWithComments(fs.readFileSync(configPath, 'utf8'));
   return normalizeUiConfig(raw);
+}
+
+function parseJsonWithComments(input) {
+  return JSON.parse(stripJsonComments(String(input || '')));
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stripJsonComments(input) {
+  let output = '';
+  let inString = false;
+  let stringQuote = '';
+  let escaped = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const current = input[index];
+    const next = input[index + 1];
+
+    if (inLineComment) {
+      if (current === '\n') {
+        inLineComment = false;
+        output += current;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (current === '*' && next === '/') {
+        inBlockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      output += current;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (current === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (current === stringQuote) {
+        inString = false;
+        stringQuote = '';
+      }
+      continue;
+    }
+
+    if ((current === '"' || current === '\'' || current === '`')) {
+      inString = true;
+      stringQuote = current;
+      output += current;
+      continue;
+    }
+
+    if (current === '/' && next === '/') {
+      inLineComment = true;
+      index += 1;
+      continue;
+    }
+
+    if (current === '/' && next === '*') {
+      inBlockComment = true;
+      index += 1;
+      continue;
+    }
+
+    output += current;
+  }
+
+  return output;
 }
 
 function normalizeUiConfig(raw) {
@@ -186,6 +204,8 @@ function normalizeUiConfig(raw) {
   merged.window.height = toPositiveInt(merged.window.height, DEFAULT_UI_CONFIG.window.height);
   merged.window.minWidth = toPositiveInt(merged.window.minWidth, DEFAULT_UI_CONFIG.window.minWidth);
   merged.window.minHeight = toPositiveInt(merged.window.minHeight, DEFAULT_UI_CONFIG.window.minHeight);
+  merged.window.maxWidth = toPositiveInt(merged.window.maxWidth, DEFAULT_UI_CONFIG.window.maxWidth);
+  merged.window.maxHeight = toPositiveInt(merged.window.maxHeight, DEFAULT_UI_CONFIG.window.maxHeight);
   merged.window.compactWhenChatHidden = merged.window.compactWhenChatHidden !== false;
   merged.window.compactWidth = toPositiveInt(merged.window.compactWidth, DEFAULT_UI_CONFIG.window.compactWidth);
   merged.window.compactHeight = toPositiveInt(merged.window.compactHeight, DEFAULT_UI_CONFIG.window.compactHeight);
@@ -199,10 +219,6 @@ function normalizeUiConfig(raw) {
 
   const layoutDefaults = DEFAULT_UI_CONFIG.layout;
   for (const key of Object.keys(layoutDefaults)) {
-    if (key === 'horizontalAlign') {
-      merged.layout[key] = String(merged.layout[key] || layoutDefaults[key]);
-      continue;
-    }
     if (key === 'lockScaleOnResize' || key === 'lockPositionOnResize') {
       merged.layout[key] = merged.layout[key] !== false;
       continue;
@@ -254,6 +270,96 @@ function normalizeUiConfig(raw) {
   return merged;
 }
 
+function roundLayoutOverrideValue(key, value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  if (key === 'offsetX' || key === 'offsetY') {
+    return Math.round(parsed);
+  }
+  if (key === 'scaleMultiplier') {
+    return Math.round(parsed * 1000) / 1000;
+  }
+  return parsed;
+}
+
+function upsertDesktopLive2dLayoutOverrides(configPath, overrides = {}, { defaults = DEFAULT_UI_CONFIG.layout } = {}) {
+  const currentRaw = fs.existsSync(configPath)
+    ? parseJsonWithComments(fs.readFileSync(configPath, 'utf8'))
+    : {};
+  const nextRaw = isPlainObject(currentRaw) ? { ...currentRaw } : {};
+  const nextLayout = isPlainObject(nextRaw.layout) ? { ...nextRaw.layout } : {};
+
+  for (const key of ['offsetX', 'offsetY', 'scaleMultiplier']) {
+    if (!Object.prototype.hasOwnProperty.call(overrides, key)) {
+      continue;
+    }
+    const rounded = roundLayoutOverrideValue(key, overrides[key]);
+    if (rounded === null) {
+      continue;
+    }
+    const defaultValue = roundLayoutOverrideValue(key, defaults[key]);
+    if (rounded === defaultValue) {
+      delete nextLayout[key];
+    } else {
+      nextLayout[key] = rounded;
+    }
+  }
+
+  if (Object.keys(nextLayout).length === 0) {
+    delete nextRaw.layout;
+  } else {
+    nextRaw.layout = nextLayout;
+  }
+
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, serializeDesktopLive2dUiConfig(nextRaw), 'utf8');
+  return nextRaw;
+}
+
+function serializeDesktopLive2dUiConfig(raw = {}) {
+  const safe = isPlainObject(raw) ? raw : {};
+  const orderedKeys = [];
+  const preferredOrder = ['window', 'layout', 'render', 'chat', 'actionQueue'];
+
+  for (const key of preferredOrder) {
+    if (isPlainObject(safe[key])) {
+      orderedKeys.push(key);
+    }
+  }
+  for (const key of Object.keys(safe)) {
+    if (!orderedKeys.includes(key) && safe[key] !== undefined) {
+      orderedKeys.push(key);
+    }
+  }
+
+  if (orderedKeys.length === 0) {
+    return '{\n}\n';
+  }
+
+  const comments = {
+    window: 'Window overrides. Delete any field here to fall back to shared defaults.',
+    layout: 'Layout tuner overrides. These are the direct controls for avatar placement.'
+  };
+
+  const sections = orderedKeys.map((key) => {
+    const value = safe[key];
+    const valueLines = JSON.stringify(value, null, 2).split('\n');
+    const lines = [];
+    if (comments[key]) {
+      lines.push(`  // ${comments[key]}`);
+    }
+    lines.push(`  "${key}": ${valueLines[0]}`);
+    for (const line of valueLines.slice(1)) {
+      lines.push(`  ${line}`);
+    }
+    return lines.join('\n');
+  });
+
+  return `{\n${sections.join(',\n')}\n}\n`;
+}
+
 function toFiniteNumber(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -267,6 +373,10 @@ module.exports = {
   resolveDesktopLive2dConfig,
   loadDesktopLive2dUiConfig,
   normalizeUiConfig,
+  parseJsonWithComments,
+  upsertDesktopLive2dLayoutOverrides,
+  serializeDesktopLive2dUiConfig,
+  stripJsonComments,
   toPositiveInt,
   DEFAULT_UI_CONFIG
 };

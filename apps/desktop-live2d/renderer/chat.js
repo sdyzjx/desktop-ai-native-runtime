@@ -4,8 +4,8 @@
   const chatInputElement = document.getElementById('chat-input');
   const chatSendElement = document.getElementById('chat-send');
   const chatComposerElement = document.getElementById('chat-panel-composer');
-  const petHideElement = document.getElementById('pet-hide');
-  const petCloseElement = document.getElementById('pet-close');
+  const chatHideElement = document.getElementById('chat-hide');
+  const openWebUiElement = document.getElementById('open-webui');
 
   const state = {
     inputEnabled: true,
@@ -97,10 +97,10 @@
     submitInput();
   });
 
-  petHideElement?.addEventListener('click', () => {
-    bridge?.sendWindowControl?.({ action: 'hide' });
+  chatHideElement?.addEventListener('click', () => {
+    bridge?.sendWindowControl?.({ action: 'hide_chat' });
   });
-  petCloseElement?.addEventListener('click', () => {
-    bridge?.sendWindowControl?.({ action: 'close_pet' });
+  openWebUiElement?.addEventListener('click', () => {
+    bridge?.sendWindowControl?.({ action: 'open_webui' });
   });
 })();

@@ -417,6 +417,55 @@ Do not add free-form items outside this format.
 - Update Log:
   - 2026-02-26 04:12 DONE 模块级文档完成并同步索引。
 
+### [REQ-20260301-001] Desktop Live2D resize/layout UX simplification and config cleanup
+- Created At: 2026-03-01 20:20
+- Source: user
+- Priority: P0
+- Status: DONE
+- Owner: runtime
+- Branch: `codex/feature/issue-43-38-window-resize-layout-fix`
+- Related Issues:
+  - `#43` window resize UX
+  - `#38` horizontal clipping / layout bounds
+- Description:
+  - Simplify desktop-live2d resize and layout behavior so avatar sizing is window-driven, layout tuning is direct, and default/config/state ownership is easy to reason about.
+- Acceptance Criteria:
+  1. Resize mode uses locked-aspect window resizing and does not allow free native width/height drift.
+  2. Layout placement is controlled by direct parameters (`offsetX`, `offsetY`, `scaleMultiplier`) instead of derived alignment rules.
+  3. Desktop UI provides an in-window layout tuner with preview, reset, and save.
+  4. Config layers are clarified: code defaults, user overrides, runtime window state.
+  5. Startup behavior uses the intended current default baseline instead of reviving stale local resize state.
+- Impacted Modules:
+  - `apps/desktop-live2d/shared/defaultUiConfig.js`
+  - `apps/desktop-live2d/main/config.js`
+  - `apps/desktop-live2d/main/desktopSuite.js`
+  - `apps/desktop-live2d/main/electronMain.js`
+  - `apps/desktop-live2d/main/trayController.js`
+  - `apps/desktop-live2d/renderer/bootstrap.js`
+  - `apps/desktop-live2d/renderer/index.html`
+  - `apps/desktop-live2d/renderer/layout.js`
+  - `apps/desktop-live2d/renderer/chat.html`
+  - `apps/desktop-live2d/renderer/chat.js`
+  - `config/desktop-live2d.json`
+  - `test/desktop-live2d/*.test.js`
+- Risks/Dependencies:
+  - Runtime startup still prefers persisted window size from `~/yachiyo/data/desktop-live2d/window-state.json`; mismatched local state can make defaults look wrong until state is updated.
+  - Future layout work should avoid reintroducing model-bounds-driven resize feedback during resize mode.
+- Plan:
+  1. Replace click-based resize UX with resize mode + locked aspect ratio.
+  2. Simplify layout to shared defaults plus direct anchor/offset controls.
+  3. Add an in-window layout tuner and save user overrides back to config.
+  4. Clarify config layering and align startup state with the chosen default baseline.
+- Commits/PR:
+  - `8070129` (`desktop-live2d: simplify layout tuning and resize UX`)
+  - PR `#50`
+- Update Log:
+  - 2026-03-01 20:20 DONE resize mode converted to locked-aspect window-driven flow; native free resize disabled.
+  - 2026-03-01 20:20 DONE layout simplified to `anchorXRatio/anchorYRatio + offsetX/offsetY + scaleMultiplier`; oversized-model clamp changed to partial-visibility mode.
+  - 2026-03-01 20:20 DONE desktop chat made independent; tray/menu and renderer controls synchronized with current UX.
+  - 2026-03-01 20:20 DONE layout tuner added with preview/reset/save; `desktop-live2d.json` now supports comments and clear config-layer documentation.
+  - 2026-03-01 20:20 DONE startup baseline aligned by syncing local window-state to the chosen default window size.
+
 ### [REQ-20260226-009] 异步语音工具链（ASR+TTS）并入 Tool Call 决策
 - Created At: 2026-02-26 17:32
 - Source: user

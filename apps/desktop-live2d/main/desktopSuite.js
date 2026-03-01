@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const YAML = require('yaml');
 
-const { resolveDesktopLive2dConfig } = require('./config');
+const { resolveDesktopLive2dConfig, upsertDesktopLive2dLayoutOverrides, DEFAULT_UI_CONFIG } = require('./config');
 const { validateModelAssetDirectory } = require('./modelAssets');
 const { GatewaySupervisor } = require('./gatewaySupervisor');
 const { Live2dRpcServer } = require('./rpcServer');
@@ -31,8 +31,12 @@ const CHANNELS = Object.freeze({
   actionTelemetry: 'live2d:action:telemetry',
   windowDrag: 'live2d:window:drag',
   windowControl: 'live2d:window:control',
-  chatPanelVisibility: 'live2d:chat:panel-visibility'
+  chatPanelVisibility: 'live2d:chat:panel-visibility',
+  windowResizeRequest: 'live2d:window:resize-request',
+  windowStateSync: 'live2d:window:state-sync'
 });
+
+const AVATAR_WINDOW_MAX_OFFSCREEN_RATIO = 0.8;
 
 function normalizeLive2dPresetConfig(config = {}) {
   const safe = config && typeof config === 'object' && !Array.isArray(config) ? config : {};
@@ -85,7 +89,12 @@ function normalizeWindowDragPayload(payload) {
   };
 }
 
-function createWindowDragListener({ BrowserWindow } = {}) {
+function createWindowDragListener({
+  BrowserWindow,
+  screen,
+  margin = 8,
+  maxOffscreenRatio = 0
+} = {}) {
   const dragStates = new Map();
   return (event, payload) => {
     const normalized = normalizeWindowDragPayload(payload);
@@ -126,6 +135,34 @@ function createWindowDragListener({ BrowserWindow } = {}) {
       }
       const nextX = Math.round(state.windowX + normalized.screenX - state.cursorX);
       const nextY = Math.round(state.windowY + normalized.screenY - state.cursorY);
+      if (typeof win.getBounds === 'function') {
+        const currentBounds = win.getBounds();
+        const nextBounds = clampWindowBoundsToWorkArea({
+          bounds: {
+            x: nextX,
+            y: nextY,
+            width: currentBounds.width,
+            height: currentBounds.height
+          },
+          display: resolveDisplayForBounds({
+            screen,
+            bounds: {
+              x: nextX,
+              y: nextY,
+              width: currentBounds.width,
+              height: currentBounds.height
+            }
+          }),
+          minWidth: currentBounds.width,
+          minHeight: currentBounds.height,
+          maxWidth: currentBounds.width,
+          maxHeight: currentBounds.height,
+          margin,
+          maxOffscreenRatio
+        });
+        win.setPosition(nextBounds.x, nextBounds.y);
+        return;
+      }
       win.setPosition(nextX, nextY);
       return;
     }
@@ -156,6 +193,10 @@ function resolveWindowMetrics(uiConfig) {
 
   const minWidthRaw = toPositiveInt(windowConfig.minWidth, 360);
   const minHeightRaw = toPositiveInt(windowConfig.minHeight, 480);
+  const baseMinWidth = Math.max(120, Math.min(minWidthRaw, expandedWidth, compactWhenChatHidden ? compactWidth : expandedWidth));
+  const baseMinHeight = Math.max(160, Math.min(minHeightRaw, expandedHeight, compactWhenChatHidden ? compactHeight : expandedHeight));
+  const maxWidthRaw = toPositiveInt(windowConfig.maxWidth, 900);
+  const maxHeightRaw = toPositiveInt(windowConfig.maxHeight, 1400);
 
   return {
     expandedWidth,
@@ -163,8 +204,10 @@ function resolveWindowMetrics(uiConfig) {
     compactWidth,
     compactHeight,
     compactWhenChatHidden,
-    minWidth: Math.max(120, Math.min(minWidthRaw, expandedWidth, compactWhenChatHidden ? compactWidth : expandedWidth)),
-    minHeight: Math.max(160, Math.min(minHeightRaw, expandedHeight, compactWhenChatHidden ? compactHeight : expandedHeight)),
+    minWidth: baseMinWidth,
+    minHeight: baseMinHeight,
+    maxWidth: Math.max(baseMinWidth, expandedWidth, compactWidth, maxWidthRaw),
+    maxHeight: Math.max(baseMinHeight, expandedHeight, compactHeight, maxHeightRaw),
     defaultChatPanelVisible: Boolean(chatPanelConfig.enabled && chatPanelConfig.defaultVisible)
   };
 }
@@ -182,7 +225,160 @@ function resolveWindowSizeForChatPanel({ windowMetrics, chatPanelVisible }) {
   };
 }
 
-function resizeWindowKeepingBottomRight({ window, width, height }) {
+function resolveWindowAspectRatio(windowMetrics = {}) {
+  const baseWidth = Math.max(1, Number(windowMetrics?.expandedWidth) || 460);
+  const baseHeight = Math.max(1, Number(windowMetrics?.expandedHeight) || 620);
+  return baseWidth / baseHeight;
+}
+
+function resolveAspectLockedWindowSize({
+  width,
+  height,
+  windowMetrics = {}
+} = {}) {
+  const baseWidth = Math.max(1, Number(windowMetrics?.expandedWidth) || 460);
+  const baseHeight = Math.max(1, Number(windowMetrics?.expandedHeight) || 620);
+  const minWidth = Math.max(1, Number(windowMetrics?.minWidth) || 120);
+  const minHeight = Math.max(1, Number(windowMetrics?.minHeight) || 160);
+  const maxWidth = Math.max(minWidth, Number(windowMetrics?.maxWidth) || Number.POSITIVE_INFINITY);
+  const maxHeight = Math.max(minHeight, Number(windowMetrics?.maxHeight) || Number.POSITIVE_INFINITY);
+
+  const scaleFromWidth = Number(width) / baseWidth;
+  const scaleFromHeight = Number(height) / baseHeight;
+  const requestedScale = Number.isFinite(scaleFromWidth) && scaleFromWidth > 0
+    ? scaleFromWidth
+    : (Number.isFinite(scaleFromHeight) && scaleFromHeight > 0 ? scaleFromHeight : 1);
+  const minScale = Math.max(minWidth / baseWidth, minHeight / baseHeight);
+  const maxScale = Math.min(maxWidth / baseWidth, maxHeight / baseHeight);
+  const safeScale = clamp(requestedScale, minScale, maxScale);
+
+  return {
+    width: Math.max(minWidth, Math.round(baseWidth * safeScale)),
+    height: Math.max(minHeight, Math.round(baseHeight * safeScale)),
+    scale: safeScale,
+    aspectRatio: baseWidth / baseHeight
+  };
+}
+
+function resolveDisplayForBounds({ screen, bounds, fallbackDisplay = null } = {}) {
+  if (screen?.getDisplayMatching && bounds) {
+    try {
+      const matched = screen.getDisplayMatching(bounds);
+      if (matched?.workArea) {
+        return matched;
+      }
+    } catch {
+      // ignore electron screen lookup failures in tests/bootstrap
+    }
+  }
+  if (screen?.getPrimaryDisplay) {
+    const primary = screen.getPrimaryDisplay();
+    if (primary?.workArea) {
+      return primary;
+    }
+  }
+  return fallbackDisplay?.workArea ? fallbackDisplay : null;
+}
+
+function clampWindowBoundsToWorkArea({
+  bounds,
+  display,
+  minWidth = 120,
+  minHeight = 160,
+  maxWidth = Number.POSITIVE_INFINITY,
+  maxHeight = Number.POSITIVE_INFINITY,
+  margin = 8,
+  maxOffscreenRatio = 0,
+  aspectRatio = null
+} = {}) {
+  if (!bounds) {
+    return null;
+  }
+
+  const workArea = display?.workArea;
+  const rawWidth = Math.max(1, Math.round(Number(bounds.width) || minWidth));
+  const rawHeight = Math.max(1, Math.round(Number(bounds.height) || minHeight));
+  const safeMinWidth = Math.max(1, Math.round(Number(minWidth) || 1));
+  const safeMinHeight = Math.max(1, Math.round(Number(minHeight) || 1));
+  const safeMaxWidth = Math.max(safeMinWidth, Math.round(Number.isFinite(maxWidth) ? maxWidth : rawWidth));
+  const safeMaxHeight = Math.max(safeMinHeight, Math.round(Number.isFinite(maxHeight) ? maxHeight : rawHeight));
+  const safeAspectRatio = Number.isFinite(Number(aspectRatio)) && Number(aspectRatio) > 0
+    ? Number(aspectRatio)
+    : null;
+
+  if (!workArea || typeof workArea !== 'object') {
+    if (safeAspectRatio) {
+      const minScale = Math.max(safeMinWidth / rawWidth, safeMinHeight / rawHeight);
+      const maxScale = Math.min(safeMaxWidth / rawWidth, safeMaxHeight / rawHeight);
+      const safeScale = clamp(1, minScale, maxScale);
+      return {
+        x: Math.round(Number(bounds.x) || 0),
+        y: Math.round(Number(bounds.y) || 0),
+        width: Math.max(1, Math.round(rawWidth * safeScale)),
+        height: Math.max(1, Math.round(rawHeight * safeScale))
+      };
+    }
+    return {
+      x: Math.round(Number(bounds.x) || 0),
+      y: Math.round(Number(bounds.y) || 0),
+      width: clamp(rawWidth, safeMinWidth, safeMaxWidth),
+      height: clamp(rawHeight, safeMinHeight, safeMaxHeight)
+    };
+  }
+
+  const safeMaxOffscreenRatio = clamp(Number(maxOffscreenRatio) || 0, 0, 0.95);
+  const minVisibleRatio = Math.max(0.05, 1 - safeMaxOffscreenRatio);
+  const maxVisibleWidth = Math.max(1, Math.round(workArea.width - margin * 2));
+  const maxVisibleHeight = Math.max(1, Math.round(workArea.height - margin * 2));
+  const maxAllowedWidth = Math.max(1, Math.round(maxVisibleWidth / minVisibleRatio));
+  const maxAllowedHeight = Math.max(1, Math.round(maxVisibleHeight / minVisibleRatio));
+  const effectiveMinWidth = Math.min(safeMinWidth, maxVisibleWidth);
+  const effectiveMinHeight = Math.min(safeMinHeight, maxVisibleHeight);
+  let width;
+  let height;
+  if (safeAspectRatio) {
+    const maxWidthByViewport = Math.min(safeMaxWidth, maxAllowedWidth);
+    const maxHeightByViewport = Math.min(safeMaxHeight, maxAllowedHeight);
+    const minScale = Math.max(effectiveMinWidth / rawWidth, effectiveMinHeight / rawHeight);
+    const maxScale = Math.min(maxWidthByViewport / rawWidth, maxHeightByViewport / rawHeight);
+    const safeScale = clamp(1, minScale, maxScale);
+    width = Math.max(1, Math.round(rawWidth * safeScale));
+    height = Math.max(1, Math.round(rawHeight * safeScale));
+  } else {
+    width = clamp(rawWidth, effectiveMinWidth, Math.min(safeMaxWidth, maxAllowedWidth));
+    height = clamp(rawHeight, effectiveMinHeight, Math.min(safeMaxHeight, maxAllowedHeight));
+  }
+
+  const minVisibleWidth = Math.min(maxVisibleWidth, Math.max(1, Math.round(width * minVisibleRatio)));
+  const minVisibleHeight = Math.min(maxVisibleHeight, Math.max(1, Math.round(height * minVisibleRatio)));
+
+  const minX = Math.round(workArea.x + margin - width + minVisibleWidth);
+  const minY = Math.round(workArea.y + margin - height + minVisibleHeight);
+  const maxX = Math.round(workArea.x + workArea.width - margin - minVisibleWidth);
+  const maxY = Math.round(workArea.y + workArea.height - margin - minVisibleHeight);
+
+  return {
+    x: clamp(Math.round(Number(bounds.x) || minX), minX, maxX),
+    y: clamp(Math.round(Number(bounds.y) || minY), minY, maxY),
+    width,
+    height
+  };
+}
+
+function resizeWindowKeepingBottomRight({
+  window,
+  width,
+  height,
+  screen = null,
+  display = null,
+  minWidth = 120,
+  minHeight = 160,
+  maxWidth = Number.POSITIVE_INFINITY,
+  maxHeight = Number.POSITIVE_INFINITY,
+  margin = 8,
+  maxOffscreenRatio = 0,
+  aspectRatio = null
+}) {
   if (!window || typeof window.getBounds !== 'function' || typeof window.setBounds !== 'function') {
     return;
   }
@@ -195,23 +391,71 @@ function resizeWindowKeepingBottomRight({ window, width, height }) {
   const right = bounds.x + bounds.width;
   const bottom = bounds.y + bounds.height;
 
-  window.setBounds({
-    x: Math.round(right - width),
-    y: Math.round(bottom - height),
-    width,
-    height
-  }, false);
+  const nextBounds = clampWindowBoundsToWorkArea({
+    bounds: {
+      x: Math.round(right - width),
+      y: Math.round(bottom - height),
+      width,
+      height
+    },
+    display: resolveDisplayForBounds({
+      screen,
+      bounds: {
+        x: Math.round(right - width),
+        y: Math.round(bottom - height),
+        width,
+        height
+      },
+      fallbackDisplay: display
+    }),
+    minWidth,
+    minHeight,
+    maxWidth,
+    maxHeight,
+    margin,
+    maxOffscreenRatio,
+    aspectRatio
+  });
+
+  window.setBounds(nextBounds, false);
 }
 
 function normalizeWindowControlPayload(payload) {
   const action = String(payload?.action || '').trim().toLowerCase();
-  if (!['hide', 'close_pet'].includes(action)) {
+  if (!['hide', 'hide_chat', 'close_pet', 'open_webui', 'close_resize_mode', 'save_layout_overrides'].includes(action)) {
     return null;
   }
-  return { action };
+  const normalized = { action };
+  if (action === 'save_layout_overrides') {
+    const layout = payload?.layout;
+    if (!layout || typeof layout !== 'object') {
+      return null;
+    }
+    const offsetX = Number(layout.offsetX);
+    const offsetY = Number(layout.offsetY);
+    const scaleMultiplier = Number(layout.scaleMultiplier);
+    if (!Number.isFinite(offsetX) || !Number.isFinite(offsetY) || !Number.isFinite(scaleMultiplier)) {
+      return null;
+    }
+    normalized.layout = {
+      offsetX: Math.round(offsetX),
+      offsetY: Math.round(offsetY),
+      scaleMultiplier: Math.round(scaleMultiplier * 1000) / 1000
+    };
+  }
+  return normalized;
 }
 
-function createWindowControlListener({ window, windows = null, onHide = null, onClosePet = null } = {}) {
+function createWindowControlListener({
+  window,
+  windows = null,
+  onHide = null,
+  onHideChat = null,
+  onClosePet = null,
+  onOpenWebUi = null,
+  onCloseResizeMode = null,
+  onSaveLayoutOverrides = null
+} = {}) {
   const allowedWindows = Array.isArray(windows) && windows.length > 0
     ? windows
     : (window ? [window] : []);
@@ -243,8 +487,30 @@ function createWindowControlListener({ window, windows = null, onHide = null, on
       return;
     }
 
+    if (normalized.action === 'hide_chat') {
+      if (typeof onHideChat === 'function') {
+        onHideChat();
+      }
+      return;
+    }
+
     if (normalized.action === 'close_pet' && typeof onClosePet === 'function') {
       onClosePet();
+      return;
+    }
+
+    if (normalized.action === 'open_webui' && typeof onOpenWebUi === 'function') {
+      onOpenWebUi();
+      return;
+    }
+
+    if (normalized.action === 'close_resize_mode' && typeof onCloseResizeMode === 'function') {
+      onCloseResizeMode();
+      return;
+    }
+
+    if (normalized.action === 'save_layout_overrides' && typeof onSaveLayoutOverrides === 'function') {
+      onSaveLayoutOverrides(normalized.layout);
     }
   };
 }
@@ -262,6 +528,38 @@ function normalizeChatPanelTogglePayload(payload) {
   return {
     source: String(payload?.source || 'avatar-window')
   };
+}
+
+function normalizeWindowResizePayload(payload) {
+  const action = String(payload?.action || 'set').trim().toLowerCase();
+  if (!['set', 'grow', 'shrink', 'reset'].includes(action)) {
+    return null;
+  }
+
+  const normalized = {
+    action,
+    source: String(payload?.source || 'avatar-window')
+  };
+  if (payload?.persist !== undefined) {
+    normalized.persist = Boolean(payload.persist);
+  }
+
+  if (action === 'set') {
+    const width = Number(payload?.width);
+    const height = Number(payload?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return null;
+    }
+    normalized.width = Math.round(width);
+    normalized.height = Math.round(height);
+    return normalized;
+  }
+
+  const step = Number(payload?.step);
+  if (Number.isFinite(step) && step > 0) {
+    normalized.step = Math.round(step);
+  }
+  return normalized;
 }
 
 function createChatPanelToggleListener({ window, onToggle = null } = {}) {
@@ -390,7 +688,7 @@ function createActionTelemetryListener({ window, onTelemetry = null } = {}) {
   };
 }
 
-function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
+function createChatPanelVisibilityListener({ window, windowMetrics, screen, display, margin = 8 } = {}) {
   let lastVisible = null;
   return (event, payload) => {
     if (!window || window.isDestroyed() || event?.sender !== window.webContents) {
@@ -410,9 +708,164 @@ function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
     resizeWindowKeepingBottomRight({
       window,
       width: nextSize.width,
-      height: nextSize.height
+      height: nextSize.height,
+      screen,
+      display,
+      minWidth: windowMetrics?.minWidth,
+      minHeight: windowMetrics?.minHeight,
+      maxWidth: windowMetrics?.maxWidth,
+      maxHeight: windowMetrics?.maxHeight,
+      margin
     });
   };
+}
+
+function buildWindowStatePayload({ window, windowMetrics } = {}) {
+  if (!window || typeof window.getBounds !== 'function') {
+    return null;
+  }
+
+  const bounds = window.getBounds();
+  return {
+    width: Math.round(bounds.width),
+    height: Math.round(bounds.height),
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    minWidth: Math.round(windowMetrics?.minWidth || 0),
+    minHeight: Math.round(windowMetrics?.minHeight || 0),
+    maxWidth: Math.round(windowMetrics?.maxWidth || 0),
+    maxHeight: Math.round(windowMetrics?.maxHeight || 0),
+    defaultWidth: Math.round(windowMetrics?.expandedWidth || bounds.width),
+    defaultHeight: Math.round(windowMetrics?.expandedHeight || bounds.height),
+    aspectRatio: resolveWindowAspectRatio(windowMetrics),
+    resizeModeEnabled: false
+  };
+}
+
+function createWindowResizeListener({
+  window,
+  windowMetrics,
+  screen,
+  display,
+  margin = 8,
+  maxOffscreenRatio = 0,
+  onStateChange = null,
+  onResizeCommitted = null
+} = {}) {
+  return (event, payload) => {
+    if (!window || window.isDestroyed?.() || event?.sender !== window.webContents) {
+      return;
+    }
+
+    const normalized = normalizeWindowResizePayload(payload);
+    if (!normalized) {
+      return;
+    }
+
+    const bounds = window.getBounds();
+    const resizeStep = Math.max(20, Number(normalized.step) || 48);
+    let nextWidth = bounds.width;
+    let nextHeight = bounds.height;
+
+    if (normalized.action === 'reset') {
+      nextWidth = Number(windowMetrics?.expandedWidth) || bounds.width;
+      nextHeight = Number(windowMetrics?.expandedHeight) || bounds.height;
+    } else if (normalized.action === 'grow') {
+      nextWidth += resizeStep;
+    } else if (normalized.action === 'shrink') {
+      nextWidth -= resizeStep;
+    } else {
+      nextWidth = normalized.width;
+      nextHeight = normalized.height;
+    }
+
+    const lockedSize = resolveAspectLockedWindowSize({
+      width: nextWidth,
+      height: nextHeight,
+      windowMetrics
+    });
+
+    resizeWindowKeepingBottomRight({
+      window,
+      width: lockedSize.width,
+      height: lockedSize.height,
+      screen,
+      display,
+      minWidth: Number(windowMetrics?.minWidth) || 120,
+      minHeight: Number(windowMetrics?.minHeight) || 160,
+      maxWidth: Number(windowMetrics?.maxWidth) || Number.POSITIVE_INFINITY,
+      maxHeight: Number(windowMetrics?.maxHeight) || Number.POSITIVE_INFINITY,
+      margin,
+      maxOffscreenRatio,
+      aspectRatio: resolveWindowAspectRatio(windowMetrics)
+    });
+    const nextState = buildWindowStatePayload({ window, windowMetrics });
+    onStateChange?.(nextState);
+    if (normalized.persist !== false) {
+      onResizeCommitted?.(nextState);
+    }
+  };
+}
+
+function normalizePersistedWindowState(value, { windowMetrics } = {}) {
+  const width = Number(value?.width);
+  const height = Number(value?.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const lockedSize = resolveAspectLockedWindowSize({
+    width,
+    height,
+    windowMetrics
+  });
+
+  return {
+    width: lockedSize.width,
+    height: lockedSize.height
+  };
+}
+
+function loadPersistedWindowState(windowStatePath, { windowMetrics, logger = console } = {}) {
+  if (!windowStatePath || !fs.existsSync(windowStatePath)) {
+    return null;
+  }
+
+  try {
+    const raw = JSON.parse(fs.readFileSync(windowStatePath, 'utf8'));
+    return normalizePersistedWindowState(raw, { windowMetrics });
+  } catch (err) {
+    logger.warn?.('[desktop-live2d] failed to load window state', {
+      windowStatePath,
+      error: err?.message || String(err || 'unknown error')
+    });
+    return null;
+  }
+}
+
+function writePersistedWindowState(windowStatePath, payload, { logger = console } = {}) {
+  if (!windowStatePath || !payload) {
+    return;
+  }
+
+  const normalized = normalizePersistedWindowState(payload);
+  if (!normalized) {
+    return;
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(windowStatePath), { recursive: true });
+    fs.writeFileSync(windowStatePath, JSON.stringify({
+      width: normalized.width,
+      height: normalized.height,
+      updatedAt: new Date().toISOString()
+    }, null, 2), 'utf8');
+  } catch (err) {
+    logger.warn?.('[desktop-live2d] failed to persist window state', {
+      windowStatePath,
+      error: err?.message || String(err || 'unknown error')
+    });
+  }
 }
 
 async function forwardLive2dActionEvent({
@@ -577,6 +1030,8 @@ async function startDesktopSuite({
   BrowserWindow,
   ipcMain,
   screen,
+  shell = null,
+  onResizeModeChange = null,
   logger = console,
   onChatInput = null
 } = {}) {
@@ -615,12 +1070,20 @@ async function startDesktopSuite({
   let rpcServerRef = null;
   let ipcBridgeRef = null;
   const windowMetrics = resolveWindowMetrics(config.uiConfig);
+  const persistedWindowState = loadPersistedWindowState(config.windowStatePath, {
+    windowMetrics,
+    logger
+  });
+  let manualWindowSizeActive = Boolean(persistedWindowState);
+  let initialManualFitPending = Boolean(persistedWindowState);
+  let resizeModeEnabled = false;
   const avatarWindow = createMainWindow({
     BrowserWindow,
     preloadPath: path.join(__dirname, 'preload.js'),
     display,
     uiConfig: config.uiConfig,
-    windowMetrics
+    windowMetrics,
+    initialSizeOverride: persistedWindowState
   });
   const avatarWindowBounds = avatarWindow.getBounds();
 
@@ -657,13 +1120,13 @@ async function startDesktopSuite({
   let bubbleHideTimer = null;
   const fitWindowConfig = {
     enabled: true,
-    minWidth: 180,
-    minHeight: 260,
-    maxWidth: 900,
-    maxHeight: 1400,
+    minWidth: windowMetrics.minWidth,
+    minHeight: windowMetrics.minHeight,
+    maxWidth: windowMetrics.maxWidth,
+    maxHeight: windowMetrics.maxHeight,
     paddingX: 18,
-    paddingTop: 18,
-    paddingBottom: 14
+    paddingTop: 8,
+    paddingBottom: 4
   };
 
   function buildChatStateSnapshot() {
@@ -693,6 +1156,45 @@ async function startDesktopSuite({
     });
   }
 
+  function syncWindowStateToRenderer() {
+    const payload = buildWindowStatePayload({ window: avatarWindow, windowMetrics });
+    if (!payload) {
+      return;
+    }
+    payload.resizeModeEnabled = resizeModeEnabled;
+    if (!avatarWindow.isDestroyed()) {
+      avatarWindow.webContents.send(CHANNELS.windowStateSync, payload);
+    }
+    if (!chatWindow.isDestroyed()) {
+      chatWindow.webContents.send(CHANNELS.windowStateSync, payload);
+    }
+  }
+
+  function persistAvatarWindowState(payload) {
+    manualWindowSizeActive = true;
+    writePersistedWindowState(config.windowStatePath, payload, { logger });
+  }
+
+  function setResizeModeEnabled(enabled) {
+    resizeModeEnabled = Boolean(enabled);
+    onResizeModeChange?.(resizeModeEnabled);
+    syncWindowStateToRenderer();
+    return resizeModeEnabled;
+  }
+
+  function isResizeModeEnabled() {
+    return resizeModeEnabled;
+  }
+
+  function resolveAvatarDisplay(bounds = null) {
+    const targetBounds = bounds || (avatarWindow.isDestroyed() ? null : avatarWindow.getBounds());
+    return resolveDisplayForBounds({
+      screen,
+      bounds: targetBounds,
+      fallbackDisplay: display
+    }) || display;
+  }
+
   function setWindowBoundsIfChanged(windowRef, nextBounds) {
     if (!windowRef || windowRef.isDestroyed?.() || !nextBounds) {
       return;
@@ -710,25 +1212,43 @@ async function startDesktopSuite({
   }
 
   function applyAvatarFitBounds(modelBounds) {
-    if (!fitWindowConfig.enabled || avatarWindow.isDestroyed()) {
+    if (!fitWindowConfig.enabled || resizeModeEnabled || avatarWindow.isDestroyed()) {
       return;
     }
+    const allowInitialShrinkFit = initialManualFitPending && manualWindowSizeActive;
+    if (manualWindowSizeActive && !allowInitialShrinkFit) {
+      return;
+    }
+
+    const current = avatarWindow.getBounds();
+    const activeDisplay = resolveAvatarDisplay(avatarWindow.getBounds());
     const nextBounds = computeFittedAvatarWindowBounds({
-      windowBounds: avatarWindow.getBounds(),
+      windowBounds: current,
       modelBounds,
-      display,
+      display: activeDisplay,
       minWidth: fitWindowConfig.minWidth,
       minHeight: fitWindowConfig.minHeight,
       maxWidth: fitWindowConfig.maxWidth,
       maxHeight: fitWindowConfig.maxHeight,
       paddingX: fitWindowConfig.paddingX,
       paddingTop: fitWindowConfig.paddingTop,
-      paddingBottom: fitWindowConfig.paddingBottom
+      paddingBottom: fitWindowConfig.paddingBottom,
+      anchor: 'model'
     });
     if (!nextBounds) {
+      if (allowInitialShrinkFit) {
+        initialManualFitPending = false;
+      }
       return;
     }
-    const current = avatarWindow.getBounds();
+    if (allowInitialShrinkFit) {
+      initialManualFitPending = false;
+      const shrinkOnly = nextBounds.width <= current.width && nextBounds.height <= current.height;
+      if (!shrinkOnly) {
+        return;
+      }
+    }
+
     const unchanged = Math.abs(current.x - nextBounds.x) < 2
       && Math.abs(current.y - nextBounds.y) < 2
       && Math.abs(current.width - nextBounds.width) < 3
@@ -737,26 +1257,17 @@ async function startDesktopSuite({
       return;
     }
     avatarWindow.setBounds(nextBounds, false);
-  }
-
-  function updateChatWindowBounds() {
-    if (!chatState.enabled || chatWindow.isDestroyed()) {
-      return;
+    if (allowInitialShrinkFit) {
+      writePersistedWindowState(config.windowStatePath, nextBounds, { logger });
     }
-    const chatBounds = computeChatWindowBounds({
-      avatarBounds: avatarWindow.getBounds(),
-      chatWidth: toPositiveInt(chatPanelConfig.width, 320),
-      chatHeight: toPositiveInt(chatPanelConfig.height, 220),
-      display
-    });
-    setWindowBoundsIfChanged(chatWindow, chatBounds);
   }
 
   function updateBubbleWindowBounds() {
     if (!bubbleState.visible || bubbleWindow.isDestroyed()) {
       return;
     }
-    const workArea = display?.workArea;
+    const activeDisplay = resolveAvatarDisplay(avatarWindow.getBounds());
+    const workArea = activeDisplay?.workArea;
     const maxBubbleWidth = Math.max(120, (Number(workArea?.width) || 520) - 32);
     const maxBubbleHeight = Math.max(44, (Number(workArea?.height) || 1000) - 32);
     const bubbleWidth = clamp(Number(bubbleState.width) || 320, 120, maxBubbleWidth);
@@ -765,7 +1276,7 @@ async function startDesktopSuite({
       avatarBounds: avatarWindow.getBounds(),
       bubbleWidth,
       bubbleHeight,
-      display
+      display: activeDisplay
     });
     setWindowBoundsIfChanged(bubbleWindow, bubbleBounds);
   }
@@ -802,8 +1313,8 @@ async function startDesktopSuite({
     chatState.visible = Boolean(visible);
     syncChatStateToRenderer();
     if (chatState.visible) {
-      updateChatWindowBounds();
       chatWindow.show();
+      chatWindow.focus();
     } else {
       chatWindow.hide();
     }
@@ -841,7 +1352,7 @@ async function startDesktopSuite({
       1,
       text.split('\n').length + Math.floor(text.length / 20)
     );
-    const workArea = display?.workArea;
+    const workArea = resolveAvatarDisplay(avatarWindow.getBounds())?.workArea;
     const maxBubbleHeight = Math.max(44, (Number(workArea?.height) || 1000) - 32);
     bubbleState.width = 320;
     bubbleState.height = clamp(44 + roughLines * 24, 60, maxBubbleHeight);
@@ -862,9 +1373,6 @@ async function startDesktopSuite({
     if (!avatarWindow.isDestroyed()) {
       avatarWindow.hide();
     }
-    if (!chatWindow.isDestroyed()) {
-      chatWindow.hide();
-    }
     hideBubbleWindow();
   }
 
@@ -874,11 +1382,28 @@ async function startDesktopSuite({
     }
     avatarWindow.show();
     avatarWindow.focus();
-    if (chatState.visible && !chatWindow.isDestroyed()) {
-      updateChatWindowBounds();
-      chatWindow.show();
-    }
     updateBubbleWindowBounds();
+  }
+
+  function hideChatWindow() {
+    chatState.visible = false;
+    syncChatStateToRenderer();
+    if (!chatWindow.isDestroyed()) {
+      chatWindow.hide();
+    }
+  }
+
+  function openWebUi() {
+    const gatewayUrl = String(config.gatewayUrl || '').trim();
+    if (!gatewayUrl || typeof shell?.openExternal !== 'function') {
+      return;
+    }
+    void shell.openExternal(gatewayUrl).catch((err) => {
+      logger.warn?.('[desktop-live2d] failed to open web ui', {
+        gatewayUrl,
+        error: err?.message || String(err || 'unknown error')
+      });
+    });
   }
 
   function publishLive2dActionTelemetry(payload = {}) {
@@ -898,24 +1423,15 @@ async function startDesktopSuite({
   }
 
   avatarWindow.on('move', () => {
-    updateChatWindowBounds();
     updateBubbleWindowBounds();
+    syncWindowStateToRenderer();
   });
   avatarWindow.on('resize', () => {
-    updateChatWindowBounds();
     updateBubbleWindowBounds();
+    syncWindowStateToRenderer();
   });
   avatarWindow.on('hide', () => {
-    if (!chatWindow.isDestroyed()) {
-      chatWindow.hide();
-    }
     hideBubbleWindow();
-  });
-  avatarWindow.on('show', () => {
-    if (chatState.visible && !chatWindow.isDestroyed()) {
-      updateChatWindowBounds();
-      chatWindow.show();
-    }
   });
 
   const avatarUiConfig = {
@@ -928,6 +1444,16 @@ async function startDesktopSuite({
       }
     }
   };
+  function persistLayoutOverrides(layoutOverrides) {
+    const nextRaw = upsertDesktopLive2dLayoutOverrides(config.uiConfigPath, layoutOverrides, {
+      defaults: DEFAULT_UI_CONFIG.layout
+    });
+    config.uiConfig.layout = {
+      ...config.uiConfig.layout,
+      ...(nextRaw.layout || {})
+    };
+    avatarUiConfig.layout = config.uiConfig.layout;
+  }
 
   ipcMain.handle(CHANNELS.getRuntimeConfig, (event) => ({
     modelRelativePath: config.modelRelativePath,
@@ -936,9 +1462,18 @@ async function startDesktopSuite({
     live2dPresets: live2dPresetConfig,
     uiConfig: event?.sender === avatarWindow.webContents ? avatarUiConfig : config.uiConfig
   }));
-  const windowDragListener = createWindowDragListener({ BrowserWindow });
+  const windowDragListener = createWindowDragListener({
+    BrowserWindow,
+    screen,
+    maxOffscreenRatio: AVATAR_WINDOW_MAX_OFFSCREEN_RATIO
+  });
   ipcMain.on(CHANNELS.windowDrag, windowDragListener);
-  const chatPanelVisibilityListener = createChatPanelVisibilityListener({ window: avatarWindow, windowMetrics });
+  const chatPanelVisibilityListener = createChatPanelVisibilityListener({
+    window: avatarWindow,
+    windowMetrics,
+    screen,
+    display
+  });
   ipcMain.on(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
   const chatPanelToggleListener = createChatPanelToggleListener({
     window: avatarWindow,
@@ -957,7 +1492,7 @@ async function startDesktopSuite({
   const bubbleMetricsListener = createBubbleMetricsListener({
     window: bubbleWindow,
     onBubbleMetrics: (metrics) => {
-      const workArea = display?.workArea;
+      const workArea = resolveAvatarDisplay(avatarWindow.getBounds())?.workArea;
       const maxBubbleWidth = Math.max(120, (Number(workArea?.width) || 520) - 32);
       const maxBubbleHeight = Math.max(44, (Number(workArea?.height) || 1000) - 32);
       bubbleState.width = clamp(metrics.width + 20, 120, maxBubbleWidth);
@@ -977,9 +1512,27 @@ async function startDesktopSuite({
   const windowControlListener = createWindowControlListener({
     windows: [avatarWindow, chatWindow],
     onHide: hidePetWindows,
-    onClosePet: hidePetWindows
+    onHideChat: hideChatWindow,
+    onClosePet: hidePetWindows,
+    onOpenWebUi: openWebUi,
+    onCloseResizeMode: () => {
+      setResizeModeEnabled(false);
+    },
+    onSaveLayoutOverrides: (layoutOverrides) => {
+      persistLayoutOverrides(layoutOverrides);
+    }
   });
   ipcMain.on(CHANNELS.windowControl, windowControlListener);
+  const windowResizeListener = createWindowResizeListener({
+    window: avatarWindow,
+    windowMetrics,
+    screen,
+    display,
+    maxOffscreenRatio: AVATAR_WINDOW_MAX_OFFSCREEN_RATIO,
+    onStateChange: syncWindowStateToRenderer,
+    onResizeCommitted: persistAvatarWindowState
+  });
+  ipcMain.on(CHANNELS.windowResizeRequest, windowResizeListener);
 
   const qwenTtsClient = new QwenTtsClient();
 
@@ -1200,8 +1753,8 @@ async function startDesktopSuite({
   await rendererReadyPromise;
   syncChatStateToRenderer();
   syncBubbleStateToRenderer();
+  syncWindowStateToRenderer();
   if (chatState.visible) {
-    updateChatWindowBounds();
     chatWindow.show();
   }
 
@@ -1272,6 +1825,7 @@ async function startDesktopSuite({
     ipcMain.off(CHANNELS.bubbleMetricsUpdate, bubbleMetricsListener);
     ipcMain.off(CHANNELS.actionTelemetry, actionTelemetryListener);
     ipcMain.off(CHANNELS.windowControl, windowControlListener);
+    ipcMain.off(CHANNELS.windowResizeRequest, windowResizeListener);
     ipcMain.off(CHANNELS.chatInputSubmit, chatInputListener);
 
     if (rpcServerRef) {
@@ -1305,6 +1859,8 @@ async function startDesktopSuite({
     avatarWindow,
     chatWindow,
     bubbleWindow,
+    setResizeModeEnabled,
+    isResizeModeEnabled,
     showPetWindows,
     hidePetWindows,
     stop
@@ -1428,14 +1984,15 @@ async function handleDesktopRpcRequest({
   });
 }
 
-function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windowMetrics }) {
+function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windowMetrics, initialSizeOverride = null }) {
   const windowConfig = uiConfig?.window || {};
-  const initialSize = {
+  const aspectRatio = resolveWindowAspectRatio(windowMetrics);
+  const initialSize = normalizePersistedWindowState(initialSizeOverride, { windowMetrics }) || {
     width: windowMetrics?.expandedWidth || 320,
     height: windowMetrics?.expandedHeight || 500
   };
   const placement = windowConfig.placement || {};
-  const windowBounds = computeWindowBounds({
+  const unclampedWindowBounds = computeWindowBounds({
     width: initialSize.width,
     height: initialSize.height,
     display,
@@ -1447,14 +2004,31 @@ function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windo
     x: placement.x,
     y: placement.y
   });
+  const windowBounds = clampWindowBoundsToWorkArea({
+    bounds: {
+      x: unclampedWindowBounds.x,
+      y: unclampedWindowBounds.y,
+      width: initialSize.width,
+      height: initialSize.height
+    },
+    display,
+    minWidth: windowMetrics?.minWidth || 220,
+    minHeight: windowMetrics?.minHeight || 320,
+    maxWidth: windowMetrics?.maxWidth || Number.POSITIVE_INFINITY,
+    maxHeight: windowMetrics?.maxHeight || Number.POSITIVE_INFINITY,
+    maxOffscreenRatio: AVATAR_WINDOW_MAX_OFFSCREEN_RATIO
+  });
 
   const win = new BrowserWindow({
-    width: initialSize.width,
-    height: initialSize.height,
+    width: windowBounds.width,
+    height: windowBounds.height,
     x: windowBounds.x,
     y: windowBounds.y,
     minWidth: windowMetrics?.minWidth || 220,
     minHeight: windowMetrics?.minHeight || 320,
+    maxWidth: windowMetrics?.maxWidth || undefined,
+    maxHeight: windowMetrics?.maxHeight || undefined,
+    resizable: false,
     frame: false,
     transparent: true,
     hasShadow: false,
@@ -1469,6 +2043,10 @@ function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windo
       autoplayPolicy: 'no-user-gesture-required'
     }
   });
+
+  if (typeof win.setAspectRatio === 'function' && Number.isFinite(aspectRatio) && aspectRatio > 0) {
+    win.setAspectRatio(aspectRatio);
+  }
 
   return win;
 }
@@ -1496,7 +2074,7 @@ function createChatWindow({ BrowserWindow, preloadPath, uiConfig, avatarBounds, 
     hasShadow: true,
     alwaysOnTop: true,
     show: false,
-    movable: false,
+    movable: true,
     backgroundColor: '#00000000',
     webPreferences: {
       preload: preloadPath,
@@ -1613,9 +2191,10 @@ function computeFittedAvatarWindowBounds({
   maxWidth = 900,
   maxHeight = 1400,
   paddingX = 18,
-  paddingTop = 18,
-  paddingBottom = 14,
-  margin = 8
+  paddingTop = 8,
+  paddingBottom = 4,
+  margin = 8,
+  anchor = 'model'
 }) {
   if (!windowBounds || !modelBounds) {
     return null;
@@ -1627,14 +2206,23 @@ function computeFittedAvatarWindowBounds({
   const width = clamp(desiredWidth, minWidth, maxWidth);
   const height = clamp(desiredHeight, minHeight, maxHeight);
 
-  let x = Math.round(windowBounds.x + modelBounds.x - paddingX - (width - desiredWidth) / 2);
-  let y = Math.round(windowBounds.y + modelBounds.y - paddingTop - (height - desiredHeight) / 2);
+  let x;
+  let y;
+  if (anchor === 'bottom-right') {
+    const right = windowBounds.x + windowBounds.width;
+    const bottom = windowBounds.y + windowBounds.height;
+    x = Math.round(right - width);
+    y = Math.round(bottom - height);
+  } else {
+    x = Math.round(windowBounds.x + modelBounds.x - paddingX - (width - desiredWidth) / 2);
+    y = Math.round(windowBounds.y + modelBounds.y - paddingTop - (height - desiredHeight) / 2);
+  }
 
   if (workArea && typeof workArea === 'object') {
-    const maxAllowedWidth = Math.max(minWidth, workArea.width - margin * 2);
-    const maxAllowedHeight = Math.max(minHeight, workArea.height - margin * 2);
-    const safeWidth = Math.min(width, maxAllowedWidth);
-    const safeHeight = Math.min(height, maxAllowedHeight);
+    const maxAllowedWidth = Math.max(1, workArea.width - margin * 2);
+    const maxAllowedHeight = Math.max(1, workArea.height - margin * 2);
+    const safeWidth = clamp(width, Math.min(minWidth, maxAllowedWidth), Math.min(maxWidth, maxAllowedWidth));
+    const safeHeight = clamp(height, Math.min(minHeight, maxAllowedHeight), Math.min(maxHeight, maxAllowedHeight));
     const minX = workArea.x + margin;
     const minY = workArea.y + margin;
     const maxX = workArea.x + workArea.width - safeWidth - margin;
@@ -1759,6 +2347,8 @@ module.exports = {
   createMainWindow,
   computeWindowBounds,
   computeRightBottomWindowBounds,
+  resolveDisplayForBounds,
+  clampWindowBoundsToWorkArea,
   resolveWindowMetrics,
   resolveWindowSizeForChatPanel,
   resizeWindowKeepingBottomRight,
@@ -1771,9 +2361,15 @@ module.exports = {
   normalizeModelBoundsPayload,
   normalizeBubbleMetricsPayload,
   normalizeActionTelemetryPayload,
+  normalizeWindowResizePayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
+  buildWindowStatePayload,
+  createWindowResizeListener,
+  normalizePersistedWindowState,
+  loadPersistedWindowState,
+  writePersistedWindowState,
   createChatPanelToggleListener,
   createModelBoundsListener,
   createBubbleMetricsListener,
