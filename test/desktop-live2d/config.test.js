@@ -4,7 +4,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { resolveDesktopLive2dConfig } = require('../../apps/desktop-live2d/main/config');
+const {
+  resolveDesktopLive2dConfig,
+  upsertDesktopLive2dLayoutOverrides,
+  parseJsonWithComments
+} = require('../../apps/desktop-live2d/main/config');
 
 test('resolveDesktopLive2dConfig applies defaults and model relative path', () => {
   const yachiyoHome = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-home-'));
@@ -119,6 +123,38 @@ test('resolveDesktopLive2dConfig loads overrides from YACHIYO_HOME/config/deskto
   assert.equal(config.uiConfig.actionQueue.idleAction.name, 'smile');
 });
 
+test('resolveDesktopLive2dConfig accepts comments in desktop-live2d.json', () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-config-'));
+  const yachiyoHome = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-home-'));
+  fs.mkdirSync(path.join(yachiyoHome, 'config'), { recursive: true });
+  fs.writeFileSync(
+    path.join(yachiyoHome, 'config', 'desktop-live2d.json'),
+    `{
+      // Keep the avatar slightly larger than code defaults.
+      "window": {
+        "width": 410,
+        "height": 640
+      },
+      /* Chat panel starts hidden for desktop mode. */
+      "chat": {
+        "panel": {
+          "defaultVisible": false
+        }
+      }
+    }`,
+    'utf8'
+  );
+
+  const config = resolveDesktopLive2dConfig({
+    env: { YACHIYO_HOME: yachiyoHome },
+    projectRoot
+  });
+
+  assert.equal(config.uiConfig.window.width, 410);
+  assert.equal(config.uiConfig.window.height, 640);
+  assert.equal(config.uiConfig.chat.panel.defaultVisible, false);
+});
+
 test('resolveDesktopLive2dConfig writes generated rpc token back to process.env', () => {
   const previousToken = process.env.DESKTOP_LIVE2D_RPC_TOKEN;
   const yachiyoHome = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-home-'));
@@ -136,4 +172,28 @@ test('resolveDesktopLive2dConfig writes generated rpc token back to process.env'
     else delete process.env.DESKTOP_LIVE2D_RPC_TOKEN;
     delete process.env.YACHIYO_HOME;
   }
+});
+
+test('upsertDesktopLive2dLayoutOverrides writes layout overrides as commented jsonc', () => {
+  const configPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-layout-')), 'desktop-live2d.json');
+  fs.writeFileSync(configPath, '{\n  // Keep custom window size.\n  "window": {\n    "width": 380\n  }\n}\n', 'utf8');
+
+  const nextRaw = upsertDesktopLive2dLayoutOverrides(configPath, {
+    offsetX: 12,
+    offsetY: -18,
+    scaleMultiplier: 1.13
+  });
+
+  const savedText = fs.readFileSync(configPath, 'utf8');
+  const saved = parseJsonWithComments(savedText);
+
+  assert.equal(nextRaw.window.width, 380);
+  assert.equal(nextRaw.layout.offsetX, 12);
+  assert.equal(nextRaw.layout.offsetY, -18);
+  assert.equal(nextRaw.layout.scaleMultiplier, 1.13);
+  assert.match(savedText, /Layout tuner overrides/);
+  assert.equal(saved.window.width, 380);
+  assert.equal(saved.layout.offsetX, 12);
+  assert.equal(saved.layout.offsetY, -18);
+  assert.equal(saved.layout.scaleMultiplier, 1.13);
 });

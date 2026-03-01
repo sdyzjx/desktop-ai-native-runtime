@@ -1,4 +1,30 @@
 (function initLayout(globalScope) {
+  const sharedDefaults = (
+    globalScope.DesktopLive2dDefaults
+    || ((typeof module !== 'undefined' && module.exports)
+      ? require('../shared/defaultUiConfig')
+      : null)
+  );
+  const DEFAULT_LAYOUT_CONFIG = sharedDefaults?.DEFAULT_LAYOUT_CONFIG || {
+    targetWidthRatio: 0.94,
+    targetHeightRatio: 0.985,
+    anchorXRatio: 0.5,
+    anchorYRatio: 1,
+    offsetX: 0,
+    offsetY: 0,
+    marginX: 2,
+    marginY: 0,
+    minVisibleRatioX: 0.2,
+    minVisibleRatioY: 0.2,
+    pivotXRatio: 0.5,
+    pivotYRatio: 1,
+    scaleMultiplier: 1.16,
+    minScale: 0.04,
+    maxScale: 2,
+    lockScaleOnResize: true,
+    lockPositionOnResize: true
+  };
+
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
   }
@@ -16,6 +42,36 @@
       return clamp(value, min, max);
     }
     return (min + max) / 2;
+  }
+
+  function computeVisibleClampRange({
+    stageSize,
+    marginStart,
+    marginEnd,
+    scaledOffset,
+    scaledSize,
+    minVisibleRatio
+  }) {
+    const fullVisibleMin = marginStart - scaledOffset;
+    const fullVisibleMax = stageSize - marginEnd - (scaledOffset + scaledSize);
+    if (fullVisibleMin <= fullVisibleMax) {
+      return {
+        min: fullVisibleMin,
+        max: fullVisibleMax
+      };
+    }
+
+    const availableSize = Math.max(1, stageSize - marginStart - marginEnd);
+    const requiredVisibleSize = clamp(
+      scaledSize * clamp(toFiniteNumber(minVisibleRatio, 0.2), 0.05, 1),
+      1,
+      availableSize
+    );
+
+    return {
+      min: marginStart + requiredVisibleSize - (scaledOffset + scaledSize),
+      max: stageSize - marginEnd - requiredVisibleSize - scaledOffset
+    };
   }
 
   function computeVisibleModelBounds(input) {
@@ -60,16 +116,35 @@
     const marginRight = Math.max(0, toFiniteNumber(input?.visibleMarginRight, 0));
     const marginTop = Math.max(0, toFiniteNumber(input?.visibleMarginTop, 0));
     const marginBottom = Math.max(0, toFiniteNumber(input?.visibleMarginBottom, 0));
+    const minVisibleRatioX = clamp(toFiniteNumber(input?.minVisibleRatioX, DEFAULT_LAYOUT_CONFIG.minVisibleRatioX), 0.05, 1);
+    const minVisibleRatioY = clamp(toFiniteNumber(input?.minVisibleRatioY, DEFAULT_LAYOUT_CONFIG.minVisibleRatioY), 0.05, 1);
 
     const scaledLeftOffset = (boundsX - pivotX) * scale;
     const scaledTopOffset = (boundsY - pivotY) * scale;
     const scaledWidth = boundsWidth * scale;
     const scaledHeight = boundsHeight * scale;
 
-    const minPositionX = marginLeft - scaledLeftOffset;
-    const maxPositionX = stageWidth - marginRight - (scaledLeftOffset + scaledWidth);
-    const minPositionY = marginTop - scaledTopOffset;
-    const maxPositionY = stageHeight - marginBottom - (scaledTopOffset + scaledHeight);
+    const xRange = computeVisibleClampRange({
+      stageSize: stageWidth,
+      marginStart: marginLeft,
+      marginEnd: marginRight,
+      scaledOffset: scaledLeftOffset,
+      scaledSize: scaledWidth,
+      minVisibleRatio: minVisibleRatioX
+    });
+    const yRange = computeVisibleClampRange({
+      stageSize: stageHeight,
+      marginStart: marginTop,
+      marginEnd: marginBottom,
+      scaledOffset: scaledTopOffset,
+      scaledSize: scaledHeight,
+      minVisibleRatio: minVisibleRatioY
+    });
+
+    const minPositionX = xRange.min;
+    const maxPositionX = xRange.max;
+    const minPositionY = yRange.min;
+    const maxPositionY = yRange.max;
 
     const nextPositionX = clampRange(positionX, minPositionX, maxPositionX);
     const nextPositionY = clampRange(positionY, minPositionY, maxPositionY);
@@ -107,24 +182,26 @@
     const safeBoundsWidth = Math.max(1, boundsWidth);
     const safeBoundsHeight = Math.max(1, boundsHeight);
 
-    const targetWidthRatio = clamp(toFiniteNumber(input?.targetWidthRatio, 0.72), 0.1, 1);
-    const targetHeightRatio = clamp(toFiniteNumber(input?.targetHeightRatio, 0.86), 0.1, 1);
-    const bottomOffsetRatio = clamp(toFiniteNumber(input?.bottomOffsetRatio, 0.97), 0.1, 1);
-    const rightOffsetRatio = clamp(toFiniteNumber(input?.rightOffsetRatio, 0.97), 0.1, 1);
-    const leftOffsetRatio = clamp(toFiniteNumber(input?.leftOffsetRatio, 0.03), 0, 0.9);
-    const horizontalAlign = String(input?.horizontalAlign || 'center');
-    const marginX = Math.max(0, toFiniteNumber(input?.marginX, 0));
-    const marginY = Math.max(0, toFiniteNumber(input?.marginY, 0));
+    const targetWidthRatio = clamp(toFiniteNumber(input?.targetWidthRatio, DEFAULT_LAYOUT_CONFIG.targetWidthRatio), 0.1, 1);
+    const targetHeightRatio = clamp(toFiniteNumber(input?.targetHeightRatio, DEFAULT_LAYOUT_CONFIG.targetHeightRatio), 0.1, 1);
+    const anchorXRatio = clamp(toFiniteNumber(input?.anchorXRatio, DEFAULT_LAYOUT_CONFIG.anchorXRatio), 0, 1);
+    const anchorYRatio = clamp(toFiniteNumber(input?.anchorYRatio, DEFAULT_LAYOUT_CONFIG.anchorYRatio), 0, 1);
+    const offsetX = toFiniteNumber(input?.offsetX, DEFAULT_LAYOUT_CONFIG.offsetX);
+    const offsetY = toFiniteNumber(input?.offsetY, DEFAULT_LAYOUT_CONFIG.offsetY);
+    const marginX = Math.max(0, toFiniteNumber(input?.marginX, DEFAULT_LAYOUT_CONFIG.marginX));
+    const marginY = Math.max(0, toFiniteNumber(input?.marginY, DEFAULT_LAYOUT_CONFIG.marginY));
+    const minVisibleRatioX = clamp(toFiniteNumber(input?.minVisibleRatioX, DEFAULT_LAYOUT_CONFIG.minVisibleRatioX), 0.05, 1);
+    const minVisibleRatioY = clamp(toFiniteNumber(input?.minVisibleRatioY, DEFAULT_LAYOUT_CONFIG.minVisibleRatioY), 0.05, 1);
     const visibleMarginLeft = Math.max(0, toFiniteNumber(input?.visibleMarginLeft, marginX));
     const visibleMarginRight = Math.max(0, toFiniteNumber(input?.visibleMarginRight, marginX));
     const visibleMarginTop = Math.max(0, toFiniteNumber(input?.visibleMarginTop, marginY));
     const visibleMarginBottom = Math.max(0, toFiniteNumber(input?.visibleMarginBottom, marginY));
-    const pivotXRatio = clamp(toFiniteNumber(input?.pivotXRatio, 0.5), 0, 1);
-    const pivotYRatio = clamp(toFiniteNumber(input?.pivotYRatio, 0.94), 0, 1);
-    const scaleMultiplier = clamp(toFiniteNumber(input?.scaleMultiplier, 1), 0.2, 2.5);
+    const pivotXRatio = clamp(toFiniteNumber(input?.pivotXRatio, DEFAULT_LAYOUT_CONFIG.pivotXRatio), 0, 1);
+    const pivotYRatio = clamp(toFiniteNumber(input?.pivotYRatio, DEFAULT_LAYOUT_CONFIG.pivotYRatio), 0, 1);
+    const scaleMultiplier = clamp(toFiniteNumber(input?.scaleMultiplier, DEFAULT_LAYOUT_CONFIG.scaleMultiplier), 0.2, 2.5);
 
-    const minScale = Math.max(0.001, toFiniteNumber(input?.minScale, 0.05));
-    const maxScale = Math.max(minScale, toFiniteNumber(input?.maxScale, 2));
+    const minScale = Math.max(0.001, toFiniteNumber(input?.minScale, DEFAULT_LAYOUT_CONFIG.minScale));
+    const maxScale = Math.max(minScale, toFiniteNumber(input?.maxScale, DEFAULT_LAYOUT_CONFIG.maxScale));
 
     const targetWidth = stageWidth * targetWidthRatio;
     const targetHeight = stageHeight * targetHeightRatio;
@@ -132,20 +209,13 @@
     const scaledFit = fitScale * scaleMultiplier;
     const scale = clamp(scaledFit, minScale, maxScale);
 
-    let positionX = stageWidth * 0.5;
-    if (horizontalAlign === 'right') {
-      positionX = stageWidth * rightOffsetRatio - marginX;
-    } else if (horizontalAlign === 'left') {
-      positionX = stageWidth * leftOffsetRatio + marginX;
-    }
-
     const pivotX = boundsX + safeBoundsWidth * pivotXRatio;
     const pivotY = boundsY + safeBoundsHeight * pivotYRatio;
     const clampedPosition = clampModelPositionToViewport({
       stageWidth,
       stageHeight,
-      positionX,
-      positionY: stageHeight * bottomOffsetRatio - marginY,
+      positionX: stageWidth * anchorXRatio + offsetX,
+      positionY: stageHeight * anchorYRatio + offsetY,
       scale,
       boundsX,
       boundsY,
@@ -153,6 +223,8 @@
       boundsHeight: safeBoundsHeight,
       pivotX,
       pivotY,
+      minVisibleRatioX,
+      minVisibleRatioY,
       visibleMarginLeft,
       visibleMarginRight,
       visibleMarginTop,
