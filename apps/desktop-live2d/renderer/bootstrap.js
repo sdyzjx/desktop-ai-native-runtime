@@ -22,6 +22,7 @@
   const systemAudio = new Audio();
   systemAudio.autoplay = true;
   systemAudio.preload = 'auto';
+  let currentVoiceObjectUrl = null;
   let lipsyncCtx = null;
   let lipsyncAnalyser = null;
   let lipsyncSource = null;
@@ -688,6 +689,53 @@
       return { ok: true, deduplicated: true, audioUrl };
     }
     return playAudioWithLipSync(audioUrl);
+  }
+
+  async function handleVoicePlaybackMemoryRequest(payload = {}) {
+    const audioBase64 = String(payload.audioBase64 || '').trim();
+    if (!audioBase64) {
+      throw createRpcError(-32602, 'voice playback memory requires audioBase64');
+    }
+    const mimeType = String(payload.mimeType || payload.mime_type || 'audio/ogg');
+    const requestId = String(payload.requestId || payload.request_id || `${Date.now()}-voice`);
+    
+    const playbackKey = buildVoicePlaybackKey({
+      idempotencyKey: requestId,
+      turnId: payload.turnId || payload.turn_id
+    }, `blob:memory:${requestId}`);
+    
+    if (shouldSkipDuplicateVoicePlayback(playbackKey)) {
+      console.log('[lipsync] skip duplicate voice playback (memory)', JSON.stringify({
+        playbackKey,
+        requestId
+      }));
+      return { ok: true, deduplicated: true, requestId };
+    }
+    
+    const binaryString = atob(audioBase64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    releaseCurrentVoiceObjectUrl();
+    const blob = new Blob([bytes], { type: mimeType });
+    const objectUrl = URL.createObjectURL(blob);
+    currentVoiceObjectUrl = objectUrl;
+    
+    return playAudioWithLipSync(objectUrl);
+  }
+
+  function releaseCurrentVoiceObjectUrl() {
+    if (currentVoiceObjectUrl) {
+      try {
+        URL.revokeObjectURL(currentVoiceObjectUrl);
+      } catch {
+        // ignore revoke errors
+      }
+      currentVoiceObjectUrl = null;
+    }
   }
 
   function positionBubbleNearModelHead() {
@@ -1588,6 +1636,11 @@
       bridge.onVoicePlay?.((payload) => {
         void handleVoicePlaybackRequest(payload).catch((err) => {
           console.error('[Renderer] desktop:voice:play failed', err);
+        });
+      });
+      bridge.onVoicePlayMemory?.((payload) => {
+        void handleVoicePlaybackMemoryRequest(payload).catch((err) => {
+          console.error('[Renderer] desktop:voice:play-memory failed', err);
         });
       });
 
