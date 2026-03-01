@@ -14,8 +14,9 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
   const runner = {
     async run({ sessionId, input, seedMessages, runtimeContext, onEvent }) {
       seedMessagesSeen = seedMessages;
-       runtimeContextSeen = runtimeContext;
+      runtimeContextSeen = runtimeContext;
       onEvent({ event: 'plan', payload: { input } });
+      onEvent({ event: 'llm.final', payload: { decision: { type: 'final', preview: 'ok:hello' } }, trace_id: 't-1', step_index: 1 });
       return { output: `ok:${input}`, traceId: 't-1', state: 'DONE', sessionId };
     }
   };
@@ -73,8 +74,11 @@ test('RuntimeRpcWorker processes runtime.run and emits rpc result', async () => 
 
   const hasStart = sendEvents.some((evt) => evt.method === 'runtime.start');
   const hasFinal = sendEvents.some((evt) => evt.method === 'runtime.final');
+  const deltaEvent = sendEvents.find((evt) => evt.method === 'message.delta');
   assert.equal(hasStart, true);
   assert.equal(hasFinal, true);
+  assert.ok(deltaEvent);
+  assert.equal(deltaEvent.params.delta, 'ok:hello');
   assert.equal(startHookCalled, true);
   assert.equal(finalHookCalled, true);
   assert.equal(buildPromptCalled, true);
@@ -102,6 +106,38 @@ test('RuntimeRpcWorker returns method_not_found on unsupported method', async ()
 
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.equal(sends[0].error.code, -32601);
+
+  worker.stop();
+});
+
+test('RuntimeRpcWorker does not emit message.delta for non-final llm decisions', async () => {
+  const queue = new RpcInputQueue();
+  const bus = new RuntimeEventBus();
+
+  const runner = {
+    async run({ onEvent }) {
+      onEvent({ event: 'llm.final', payload: { decision: { type: 'tool', tools: [{ name: 'add' }] } } });
+      return { output: 'ok:tool', traceId: 't-tool-1', state: 'DONE' };
+    }
+  };
+
+  const worker = new RuntimeRpcWorker({ queue, runner, bus });
+  worker.start();
+
+  const sendEvents = [];
+  await queue.submit({
+    jsonrpc: '2.0',
+    id: 'tool-evt-1',
+    method: 'runtime.run',
+    params: { input: 'do tool' }
+  }, {
+    send: () => {},
+    sendEvent: (payload) => sendEvents.push(payload)
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const deltaEvents = sendEvents.filter((evt) => evt.method === 'message.delta');
+  assert.equal(deltaEvents.length, 0);
 
   worker.stop();
 });

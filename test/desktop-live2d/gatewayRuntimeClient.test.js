@@ -40,6 +40,21 @@ test('mapGatewayMessageToDesktopEvent maps runtime notifications', () => {
   });
   assert.equal(mapped.type, 'runtime.final');
   assert.equal(mapped.data.output, 'done');
+
+  const mappedDelta = mapGatewayMessageToDesktopEvent({
+    jsonrpc: '2.0',
+    method: 'message.delta',
+    params: { delta: 'part-1' }
+  });
+  assert.equal(mappedDelta.type, 'message.delta');
+  assert.equal(mappedDelta.data.delta, 'part-1');
+
+  const mappedLegacyDelta = mapGatewayMessageToDesktopEvent({
+    type: 'delta',
+    delta: 'legacy-part'
+  });
+  assert.equal(mappedLegacyDelta.type, 'legacy.delta');
+  assert.equal(mappedLegacyDelta.data.delta, 'legacy-part');
 });
 
 test('GatewayRuntimeClient forwards runtime notifications and resolves rpc result', async () => {
@@ -58,6 +73,11 @@ test('GatewayRuntimeClient forwards runtime notifications and resolves rpc resul
         jsonrpc: '2.0',
         method: 'runtime.event',
         params: { event: 'plan', payload: { step: 1 } }
+      }));
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'message.delta',
+        params: { delta: 'assistant-' }
       }));
       socket.send(JSON.stringify({
         jsonrpc: '2.0',
@@ -83,10 +103,11 @@ test('GatewayRuntimeClient forwards runtime notifications and resolves rpc resul
     const result = await client.runInput({ input: 'hello from panel' });
 
     assert.equal(result.output, 'assistant-final');
-    assert.equal(events.length, 3);
+    assert.equal(events.length, 4);
     assert.equal(events[0].type, 'runtime.start');
     assert.equal(events[1].type, 'runtime.event');
-    assert.equal(events[2].type, 'runtime.final');
+    assert.equal(events[2].type, 'message.delta');
+    assert.equal(events[3].type, 'runtime.final');
   } finally {
     await new Promise((resolve, reject) => wss.close((err) => (err ? reject(err) : resolve())));
   }

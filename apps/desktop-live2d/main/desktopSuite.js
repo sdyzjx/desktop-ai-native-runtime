@@ -1332,10 +1332,84 @@ async function startDesktopSuite({
     }
     bubbleState.visible = false;
     bubbleState.text = '';
+    bubbleState.streaming = false;
     syncBubbleStateToRenderer();
     if (!bubbleWindow.isDestroyed()) {
       bubbleWindow.hide();
     }
+  }
+
+  // Streaming state for bubble
+  let streamingState = {
+    active: false,
+    sessionId: null,
+    traceId: null,
+    accumulatedText: '',
+    lastUpdateTime: 0
+  };
+  let bubbleStreamingThrottle = null;
+
+  function updateBubbleStreaming(delta) {
+    const currentSessionId = streamingState.sessionId;
+    const currentTraceId = streamingState.traceId;
+
+    if (!streamingState.active) {
+      streamingState.active = true;
+      streamingState.accumulatedText = '';
+      emitDesktopDebug('chain.electron.bubble.streaming_started', 'bubble streaming started', {
+        session_id: currentSessionId,
+        trace_id: currentTraceId
+      });
+    }
+
+    streamingState.accumulatedText += delta;
+    streamingState.lastUpdateTime = Date.now();
+
+    // Throttle updates to avoid excessive IPC
+    if (bubbleStreamingThrottle) {
+      clearTimeout(bubbleStreamingThrottle);
+    }
+
+    bubbleStreamingThrottle = setTimeout(() => {
+      bubbleStreamingThrottle = null;
+      showBubble({
+        text: streamingState.accumulatedText,
+        durationMs: 30000, // Keep visible during streaming
+        streaming: true
+      });
+      emitDesktopDebug('chain.electron.bubble.streaming_update', 'bubble streaming update', {
+        session_id: currentSessionId,
+        trace_id: currentTraceId,
+        accumulated_chars: streamingState.accumulatedText.length
+      });
+    }, 50); // 50ms throttle
+  }
+
+  function finishBubbleStreaming(finalText) {
+    if (bubbleStreamingThrottle) {
+      clearTimeout(bubbleStreamingThrottle);
+      bubbleStreamingThrottle = null;
+    }
+
+    const currentSessionId = streamingState.sessionId;
+    const currentTraceId = streamingState.traceId;
+
+    streamingState.active = false;
+    const accumulatedChars = streamingState.accumulatedText.length;
+    streamingState.accumulatedText = '';
+
+    showBubble({
+      text: finalText,
+      durationMs: 5000,
+      streaming: false
+    });
+
+    emitDesktopDebug('chain.electron.bubble.streaming_finished', 'bubble streaming finished', {
+      session_id: currentSessionId,
+      trace_id: currentTraceId,
+      accumulated_chars: accumulatedChars,
+      final_chars: finalText.length
+    });
   }
 
   function showBubble(params) {
@@ -1346,8 +1420,11 @@ async function startDesktopSuite({
     const durationMs = Number.isFinite(Number(params?.durationMs))
       ? Math.max(500, Math.min(30000, Number(params.durationMs)))
       : 5000;
+    const streaming = Boolean(params?.streaming);
+
     bubbleState.visible = true;
     bubbleState.text = text;
+    bubbleState.streaming = streaming;
     const roughLines = Math.max(
       1,
       text.split('\n').length + Math.floor(text.length / 20)
@@ -1363,10 +1440,15 @@ async function startDesktopSuite({
     if (bubbleHideTimer) {
       clearTimeout(bubbleHideTimer);
     }
-    bubbleHideTimer = setTimeout(() => {
-      hideBubbleWindow();
-    }, durationMs);
-    return { ok: true, expiresAt: Date.now() + durationMs };
+
+    // Don't auto-hide during streaming
+    if (!streaming) {
+      bubbleHideTimer = setTimeout(() => {
+        hideBubbleWindow();
+      }, durationMs);
+    }
+
+    return { ok: true, expiresAt: Date.now() + durationMs, streaming };
   }
 
   function hidePetWindows() {
@@ -1603,6 +1685,35 @@ async function startDesktopSuite({
         }
       }
 
+      // Handle message.delta for streaming bubble output
+      if (desktopEvent.type === 'message.delta') {
+        const delta = String(desktopEvent.data?.delta || '').trim();
+        const currentSessionId = desktopEvent.data?.session_id;
+        const currentTraceId = desktopEvent.data?.trace_id;
+
+        // Reset streaming state if session/trace changed
+        if (streamingState.active &&
+            (streamingState.sessionId !== currentSessionId ||
+             streamingState.traceId !== currentTraceId)) {
+          emitDesktopDebug('chain.electron.bubble.streaming_reset', 'bubble streaming reset due to session/trace change', {
+            old_session_id: streamingState.sessionId,
+            old_trace_id: streamingState.traceId,
+            new_session_id: currentSessionId,
+            new_trace_id: currentTraceId
+          });
+          streamingState.active = false;
+          streamingState.accumulatedText = '';
+        }
+
+        streamingState.sessionId = currentSessionId;
+        streamingState.traceId = currentTraceId;
+
+        if (delta) {
+          updateBubbleStreaming(delta);
+        }
+        return;
+      }
+
       if (desktopEvent.type !== 'runtime.final') {
         return;
       }
@@ -1615,19 +1726,30 @@ async function startDesktopSuite({
         });
         return;
       }
+
       appendChatMessage({
         role: 'assistant',
         text: output,
         timestamp: Date.now()
       }, 'assistant');
-      showBubble({
-        text: output,
-        durationMs: 5000
-      });
+
+      // Handle streaming vs non-streaming mode
+      if (streamingState.active) {
+        // Streaming mode: finish with final output
+        finishBubbleStreaming(output);
+      } else {
+        // Non-streaming mode: show bubble directly
+        showBubble({
+          text: output,
+          durationMs: 5000
+        });
+      }
+
       emitDesktopDebug('chain.electron.ui.output_rendered', 'electron main rendered assistant output to chat+bubble', {
         session_id: desktopEvent?.data?.session_id || null,
         trace_id: desktopEvent?.data?.trace_id || null,
-        output_chars: output.length
+        output_chars: output.length,
+        was_streaming: streamingState.active
       });
     }
   });

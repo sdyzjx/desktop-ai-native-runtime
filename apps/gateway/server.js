@@ -1068,6 +1068,11 @@ async function enqueueRpc(ws, rpcPayload, mode) {
           return;
         }
 
+        if (eventPayload.method === 'message.delta') {
+          sendSafe(ws, { type: 'delta', ...eventPayload.params });
+          return;
+        }
+
         return;
       }
 

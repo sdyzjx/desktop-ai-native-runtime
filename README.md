@@ -92,6 +92,11 @@ Current baseline (already done):
 - chat panel header includes `Hide` / `Close` controls for pet window
 - chat panel hidden state triggers compact window mode to reduce desktop occlusion
 - tray icon stays available after hide; click tray icon to summon pet window again
+- **streaming bubble output**: real-time display of LLM response generation with blinking cursor animation
+  - listens to `message.delta` events from runtime
+  - 50ms throttle to prevent excessive IPC communication
+  - streaming bubbles stay visible for 30s (vs 5s for final)
+  - backward compatible: falls back to non-streaming mode if no delta events
 - rpc methods: `state.get`, `param.set`, `model.param.set`, `model.param.batchSet`, `model.motion.play`, `model.expression.set`, `chat.show`, `chat.bubble.show`, `chat.panel.show`, `chat.panel.hide`, `chat.panel.append`, `chat.panel.clear`, `tool.list`, `tool.invoke`
 - right-bottom placement + drag-ready window + configurable layout/clarity
 - renderer-to-main submit event: `live2d:chat:input:submit`

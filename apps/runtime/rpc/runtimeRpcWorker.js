@@ -43,6 +43,18 @@ function normalizeInputAudio(value) {
   };
 }
 
+function extractMessageDeltaFromRuntimeEvent(event) {
+  if (!event || typeof event !== 'object') return '';
+  if (event.event !== 'llm.final') return '';
+
+  const decision = event.payload?.decision;
+  if (!decision || typeof decision !== 'object') return '';
+  if (decision.type !== 'final') return '';
+
+  const preview = typeof decision.preview === 'string' ? decision.preview.trim() : '';
+  return preview;
+}
+
 class RuntimeRpcWorker {
   constructor({ queue, runner, bus }) {
     this.queue = queue;
@@ -250,6 +262,16 @@ class RuntimeRpcWorker {
         this.bus.publish('runtime.event', event);
         Promise.resolve(context.onRuntimeEvent?.(event)).catch(() => {});
         context.sendEvent?.(toRpcEvent('runtime.event', event));
+
+        const delta = extractMessageDeltaFromRuntimeEvent(event);
+        if (delta) {
+          context.sendEvent?.(toRpcEvent('message.delta', {
+            session_id: sessionId,
+            trace_id: event.trace_id || null,
+            step_index: event.step_index ?? null,
+            delta
+          }));
+        }
       }
     });
 

@@ -48,6 +48,50 @@
 - UI 追加：main 进程 `appendChatMessage()` -> `chatStateSync`
 - 气泡显示：main 进程 `showBubble()` -> `bubbleStateSync`
 
+### 2.4 流式气泡输出链（Streaming Bubble Output）
+
+**流式模式**（有 `message.delta` 事件）：
+
+```
+Runtime (LLM生成)
+  ↓ message.delta 事件（增量文本）
+GatewayRuntimeClient
+  ↓ desktopEvent { type: 'message.delta', data: { delta, session_id, trace_id } }
+desktopSuite.js
+  ↓ updateBubbleStreaming(delta) - 累积文本 + 50ms 节流
+  ↓ showBubble({ text, streaming: true, durationMs: 30000 })
+  ↓ IPC: bubbleStateSync
+bubble.js (Renderer)
+  ↓ applyBubbleState({ text, streaming: true })
+DOM 更新 + 闪烁光标动画
+  ↓ runtime.final 事件
+finishBubbleStreaming(finalText)
+  ↓ showBubble({ text: finalText, streaming: false, durationMs: 5000 })
+气泡显示 5 秒后自动隐藏
+```
+
+**非流式模式**（无 `message.delta` 事件）：
+
+```
+Runtime (LLM生成)
+  ↓ runtime.final 事件（完整文本）
+desktopSuite.js
+  ↓ showBubble({ text: output, durationMs: 5000 })
+  ↓ IPC: bubbleStateSync
+bubble.js (Renderer)
+  ↓ applyBubbleState({ text, streaming: false })
+DOM 更新
+气泡显示 5 秒后自动隐藏
+```
+
+**技术细节**：
+- 流式期间使用 50ms 节流避免过于频繁的 IPC 通信
+- 流式气泡保持显示 30 秒（vs 非流式 5 秒）
+- 通过 `session_id` 和 `trace_id` 隔离不同会话/追踪
+- 流式期间禁用自动隐藏计时器
+- 闪烁光标动画提供视觉反馈（CSS `.streaming::after`）
+- 向后兼容：无 delta 事件时自动降级为非流式模式
+
 ## 3. 协议与方法总览
 
 ### 3.1 IPC Channels（main <-> renderer）
@@ -357,8 +401,9 @@ Renderer 回包：
 实现方法要点：
 - 会话 bootstrap 通过 `PUT /api/sessions/:id/settings`
 - `runInput` 使用单次 WS 调用，超时受 `requestTimeoutMs` 控制
-- 将 `runtime.start/runtime.event/runtime.final` 映射为 desktop event
-- 兼容 legacy `start/event/final` 消息格式
+- 将 `runtime.start/runtime.event/runtime.final/message.delta` 映射为 desktop event
+- 兼容 legacy `start/event/final/delta` 消息格式
+- `message.delta` 建议字段：`{ session_id, trace_id, step_index, delta }`（用于前端渐进渲染）
 
 ## 4.6 `apps/desktop-live2d/main/rpcValidator.js`
 
