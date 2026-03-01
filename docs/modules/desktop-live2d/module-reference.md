@@ -80,7 +80,159 @@
 - `model.expression.set`
 - `chat.show` / `chat.bubble.show`
 - `chat.panel.show` / `chat.panel.hide` / `chat.panel.append` / `chat.panel.clear`
+- `voice.play`
+- `voice.play.test`
 - `tool.list` / `tool.invoke`
+
+#### 3.2.1 对外 `invoke` 协议结构
+
+桌宠对外暴露的是 WebSocket JSON-RPC 2.0：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-1",
+  "method": "tool.invoke",
+  "params": {
+    "name": "desktop_model_play_motion",
+    "arguments": {
+      "group": "TapBody",
+      "index": 0
+    },
+    "traceId": "optional-trace-id"
+  }
+}
+```
+
+成功回包：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-1",
+  "result": {
+    "ok": true,
+    "tool": "desktop_model_play_motion",
+    "result": {
+      "ok": true
+    }
+  }
+}
+```
+
+失败回包：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-1",
+  "error": {
+    "code": -32602,
+    "message": "invalid params"
+  }
+}
+```
+
+#### 3.2.2 对外可调用方法与参数结构
+
+- `state.get`
+  - `params: {}`
+- `param.set` / `model.param.set`
+  - `params: { "name": string, "value": number }`
+- `model.param.batchSet`
+  - `params: { "updates": [{ "name": string, "value": number }] }`
+- `model.motion.play`
+  - `params: { "group": string, "index"?: integer }`
+- `model.expression.set`
+  - `params: { "name": string }`
+- `chat.show` / `chat.bubble.show`
+  - `params: { "text": string, "durationMs"?: integer, "mood"?: string }`
+- `chat.panel.show`
+  - `params: {}`
+- `chat.panel.hide`
+  - `params: {}`
+- `chat.panel.append`
+  - `params: { "role"?: "user" | "assistant" | "system" | "tool", "text": string, "timestamp"?: integer, "requestId"?: string }`
+- `chat.panel.clear`
+  - `params: {}`
+- `voice.play`
+  - `params: { "audioPath": string }`
+- `voice.play.test`
+  - `params: { "audioRef": string, "gatewayUrl"?: string }`
+- `tool.list`
+  - `params: {}`
+- `tool.invoke`
+  - `params: { "name": string, "arguments"?: object, "traceId"?: string }`
+
+#### 3.2.3 `tool.invoke` 白名单
+
+定义位置：`apps/desktop-live2d/main/toolRegistry.js`
+
+- `desktop_chat_show`
+  - 映射到 `chat.bubble.show`
+  - `arguments: { "text": string, "durationMs"?: integer, "mood"?: string }`
+- `desktop_chat_panel_append`
+  - 映射到 `chat.panel.append`
+  - `arguments: { "role"?: string, "text": string, "timestamp"?: integer, "requestId"?: string }`
+- `desktop_model_set_param`
+  - 映射到 `model.param.set`
+  - `arguments: { "name": string, "value": number }`
+- `desktop_model_batch_set`
+  - 映射到 `model.param.batchSet`
+  - `arguments: { "updates": [{ "name": string, "value": number }] }`
+- `desktop_model_play_motion`
+  - 映射到 `model.motion.play`
+  - `arguments: { "group": string, "index"?: integer }`
+- `desktop_model_set_expression`
+  - 映射到 `model.expression.set`
+  - `arguments: { "name": string }`
+
+#### 3.2.4 Main -> Renderer 内部 `invoke` 结构
+
+Main 不把 JSON-RPC 原样发给 renderer，而是经由 `ipcBridge` 包装成内部 IPC 请求：
+
+```json
+{
+  "requestId": "uuid",
+  "method": "model.motion.play",
+  "params": {
+    "group": "TapBody",
+    "index": 0
+  },
+  "deadlineMs": 3000
+}
+```
+
+Renderer 回包：
+
+```json
+{
+  "requestId": "uuid",
+  "result": {
+    "ok": true
+  }
+}
+```
+
+或：
+
+```json
+{
+  "requestId": "uuid",
+  "error": {
+    "code": -32005,
+    "message": "internal error"
+  }
+}
+```
+
+#### 3.2.5 当前语音主链不是 `invoke`
+
+当前语音播放主链已经从 RPC `invoke` 分离：
+
+`runtime voice.playback.electron -> desktopSuite runtime.event listener -> desktop:voice:play -> preload.onVoicePlay() -> renderer handleVoicePlaybackRequest()`
+
+兼容链仍保留 `voice.play`，但 renderer 内部最终也会走同一个播放器函数。
 
 ### 3.3 JSON-RPC 错误码
 
