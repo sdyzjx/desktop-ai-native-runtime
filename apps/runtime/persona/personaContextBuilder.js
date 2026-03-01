@@ -68,18 +68,21 @@ class PersonaContextBuilder {
     const autoVoiceReplyMaxChars = voicePolicy.auto_voice_reply?.max_chars || 50;
 
     const voiceReplyPrompt = autoVoiceReplyEnabled
-      ? `Voice Reply Mode: 在每次回复后，你应该主动调用 voice.tts_aliyun_vc 工具生成一段简短的语音回复（不超过${autoVoiceReplyMaxChars}字）。
+      ? `IMPORTANT - Auto Voice Reply Mode (ENABLED):
+你必须在每次文本回复后立即调用 voice.tts_aliyun_vc 工具生成语音回复。这是强制要求，不是可选的。
 
-重要提示：
-- 语音内容应该是独立的、口语化的短句，不是直接朗读你的文字回复
-- 即使你的文字回复包含代码、表格等技术内容，语音回复也应该是简单的总结或评论
-- 例如：文字回复是代码示例时，语音可以说"代码已经写好了，试试看吧"
-- 语音可以是：对回复内容的精炼总结、对用户问题的轻松吐槽、简短的互动性回应
-- 根据对话氛围自行决定风格，保持自然和个性化
+语音回复要求：
+- 长度：不超过${autoVoiceReplyMaxChars}字
+- 内容：独立的口语化短句，不是朗读文字回复
+- 风格：可以是总结、吐槽或评论，根据氛围决定
+- 示例：
+  * 文字回复是代码 → 语音说"代码写好了，试试看"
+  * 文字回复是解释 → 语音说"明白了吗？有问题再问我"
+  * 文字回复是建议 → 语音说"按这个方法试试吧"
 
-调用示例：
+调用格式（必须严格遵守）：
 {
-  "text": "你的简短语音文本",
+  "text": "你的简短语音文本（不超过${autoVoiceReplyMaxChars}字）",
   "voiceTag": "zh",
   "replyMeta": {
     "isAutoVoiceReply": true,
@@ -88,7 +91,7 @@ class PersonaContextBuilder {
   }
 }
 
-注意：必须设置 isAutoVoiceReply: true 来标记这是自动语音回复。`
+记住：每次回复后都必须调用一次 voice.tts_aliyun_vc，这是系统要求。`
       : '';
 
     const parts = [
