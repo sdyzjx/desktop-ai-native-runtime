@@ -201,8 +201,9 @@
 实现方法要点：
 - 会话 bootstrap 通过 `PUT /api/sessions/:id/settings`
 - `runInput` 使用单次 WS 调用，超时受 `requestTimeoutMs` 控制
-- 将 `runtime.start/runtime.event/runtime.final` 映射为 desktop event
-- 兼容 legacy `start/event/final` 消息格式
+- 将 `runtime.start/runtime.event/runtime.final/message.delta` 映射为 desktop event
+- 兼容 legacy `start/event/final/delta` 消息格式
+- `message.delta` 建议字段：`{ session_id, trace_id, step_index, delta }`（用于前端渐进渲染）
 
 ## 4.6 `apps/desktop-live2d/main/rpcValidator.js`
 

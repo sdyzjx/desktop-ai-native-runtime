@@ -291,7 +291,7 @@ flowchart LR
 - `runtime.final` 与 UI 状态对齐
 
 测试：
-- 网关事件转发单测（start/event/final）
+- 网关事件转发单测（start/event/final + message.delta）
 - 断线重连与消息丢失保护测试
 - 压测：高频 `chat.panel.append` 不阻塞渲染
 
@@ -378,7 +378,7 @@ flowchart LR
   - M1 基线：模型渲染、透明气泡、基础 RPC、配置文件、右下角放置、拖拽
   - Phase A：协议冻结与文档同步
   - Phase B：聊天框 UI（历史/输入/显隐）+ `chat.panel.*` RPC + `chat.input.submit` IPC
-  - Phase C：runtime 事件转发（gateway runtime notification -> `desktop.event` -> renderer `runtime.final` 对齐）
+  - Phase C：runtime 事件转发（gateway runtime notification -> `desktop.event` -> renderer `runtime.final` 对齐；阶段二新增 `message.delta` 渐进事件映射）
   - Phase D：tool-calling 暴露（`tool.list` / `tool.invoke`）+ `model.*` 最小控制能力
   - Phase F：启动新会话 + `/new` 切换会话 + 网页会话消息同步 + 点击角色弹框/避脸布局
 - 进行中

@@ -48,6 +48,13 @@ test('mapGatewayMessageToDesktopEvent maps runtime notifications', () => {
   });
   assert.equal(mappedDelta.type, 'message.delta');
   assert.equal(mappedDelta.data.delta, 'part-1');
+
+  const mappedLegacyDelta = mapGatewayMessageToDesktopEvent({
+    type: 'delta',
+    delta: 'legacy-part'
+  });
+  assert.equal(mappedLegacyDelta.type, 'legacy.delta');
+  assert.equal(mappedLegacyDelta.data.delta, 'legacy-part');
 });
 
 test('GatewayRuntimeClient forwards runtime notifications and resolves rpc result', async () => {

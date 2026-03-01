@@ -110,6 +110,38 @@ test('RuntimeRpcWorker returns method_not_found on unsupported method', async ()
   worker.stop();
 });
 
+test('RuntimeRpcWorker does not emit message.delta for non-final llm decisions', async () => {
+  const queue = new RpcInputQueue();
+  const bus = new RuntimeEventBus();
+
+  const runner = {
+    async run({ onEvent }) {
+      onEvent({ event: 'llm.final', payload: { decision: { type: 'tool', tools: [{ name: 'add' }] } } });
+      return { output: 'ok:tool', traceId: 't-tool-1', state: 'DONE' };
+    }
+  };
+
+  const worker = new RuntimeRpcWorker({ queue, runner, bus });
+  worker.start();
+
+  const sendEvents = [];
+  await queue.submit({
+    jsonrpc: '2.0',
+    id: 'tool-evt-1',
+    method: 'runtime.run',
+    params: { input: 'do tool' }
+  }, {
+    send: () => {},
+    sendEvent: (payload) => sendEvents.push(payload)
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const deltaEvents = sendEvents.filter((evt) => evt.method === 'message.delta');
+  assert.equal(deltaEvents.length, 0);
+
+  worker.stop();
+});
+
 test('RuntimeRpcWorker accepts image-only input_images and forwards to runner', async () => {
   const queue = new RpcInputQueue();
   const bus = new RuntimeEventBus();
