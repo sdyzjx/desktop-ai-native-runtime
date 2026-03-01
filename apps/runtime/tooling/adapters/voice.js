@@ -1,7 +1,5 @@
-const fs = require('node:fs/promises');
-const os = require('node:os');
+const fsSync = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { loadVoicePolicy, evaluateVoicePolicy } = require('../voice/policy');
 const { InMemoryVoiceCooldownStore, InMemoryVoiceIdempotencyStore, InMemoryVoiceActiveJobStore } = require('../voice/cooldownStore');
@@ -9,6 +7,8 @@ const { ProviderConfigStore } = require('../../config/providerConfigStore');
 
 // TTS provider name in providers.yaml
 const TTS_PROVIDER_KEY = process.env.TTS_PROVIDER_KEY || 'qwen3_tts';
+const DESKTOP_LIVE2D_CONFIG_PATH = process.env.DESKTOP_LIVE2D_CONFIG_PATH
+  || path.resolve(process.cwd(), 'config/desktop-live2d.json');
 
 function loadTtsProviderConfig() {
   try {
@@ -199,6 +199,29 @@ function incMetric(key) {
   voiceMetrics[key] = Number(voiceMetrics[key] || 0) + 1;
 }
 
+function loadVoicePathMode() {
+  const envMode = String(process.env.VOICE_PATH_MODE || '').trim();
+  if (envMode === 'electron_native' || envMode === 'runtime_legacy') {
+    return envMode;
+  }
+
+  try {
+    if (!fsSync.existsSync(DESKTOP_LIVE2D_CONFIG_PATH)) {
+      return 'runtime_legacy';
+    }
+    const raw = fsSync.readFileSync(DESKTOP_LIVE2D_CONFIG_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    const mode = String(parsed?.voice?.path || '').trim();
+    if (mode === 'electron_native' || mode === 'runtime_legacy') {
+      return mode;
+    }
+  } catch (_) {
+    // ignore config parse errors and fallback to legacy path
+  }
+
+  return 'runtime_legacy';
+}
+
 function snapshotMetrics() {
   return {
     ...voiceMetrics,
@@ -267,6 +290,40 @@ async function ttsAliyunVc(args = {}, context = {}) {
       voiceId: args.voiceId,
       registry: context.voiceRegistry || {}
     });
+
+    const voicePathMode = loadVoicePathMode();
+    if (voicePathMode === 'electron_native') {
+      const payload = {
+        request_id: jobId,
+        session_id: sessionId,
+        text,
+        voiceTag,
+        model: String(args.model || 'qwen3-tts-vc-2026-01-22'),
+        voiceId: String(args.voiceId || ''),
+        policyReason: policyResult.reason,
+        idempotencyKey: idempotencyKey || null,
+        turnId: args.turnId ? String(args.turnId) : null,
+        timeoutSec: Math.max(1, Number(args.timeoutSec || 45))
+      };
+
+      cooldownStore.addCall(sessionId, nowMs);
+      idempotencyStore.set(sessionId, idempotencyKey, {
+        status: 'accepted',
+        route: 'electron_native',
+        requestId: jobId,
+        sessionId,
+        turnId: payload.turnId
+      });
+
+      publishVoiceEvent(context, 'voice.requested', payload);
+      incMetric('tts_success');
+
+      return JSON.stringify({
+        status: 'accepted',
+        route: 'electron_native',
+        message: 'Voice request accepted and forwarded to desktop playback pipeline.'
+      });
+    }
 
     const timeoutMs = Math.max(1, Number(args.timeoutSec || 45)) * 1000;
 
@@ -391,6 +448,7 @@ module.exports = {
     activeJobStore,
     snapshotMetrics,
     resetMetrics,
-    callDashscopeTts
+    callDashscopeTts,
+    loadVoicePathMode
   }
 };

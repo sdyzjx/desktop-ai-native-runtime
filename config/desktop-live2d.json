@@ -61,5 +61,8 @@
         "index": 0
       }
     }
+  },
+  "voice": {
+    "path": "electron_native"
   }
 }

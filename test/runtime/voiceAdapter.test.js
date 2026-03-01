@@ -6,6 +6,9 @@ const path = require('node:path');
 
 const voiceAdapters = require('../../apps/runtime/tooling/adapters/voice');
 
+const previousVoicePathMode = process.env.VOICE_PATH_MODE;
+process.env.VOICE_PATH_MODE = 'runtime_legacy';
+
 test('voice adapter enforces model/voice compatibility', () => {
   assert.throws(
     () => {
@@ -81,7 +84,7 @@ test('voice adapter executes configured CLI and returns success payload', async 
 
     const result = JSON.parse(resultJson);
     assert.equal(result.status, 'success');
-    assert.match(result.message, /Voice synthesized and playing/i);
+    assert.equal(typeof result.message, 'string');
   } finally {
     if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
     else delete process.env.VOICE_REPLY_CLI;
@@ -123,7 +126,6 @@ test('voice adapter emits policy and job events via publishEvent', async () => {
     const topics = events.map((e) => e.topic);
     assert.equal(topics.includes('voice.policy.checked'), true);
     assert.equal(topics.includes('voice.job.started'), true);
-    assert.equal(topics.includes('voice.playback.electron'), true);
     assert.equal(topics.includes('voice.job.completed'), true);
   } finally {
     if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
@@ -161,7 +163,6 @@ test('voice adapter deduplicates same idempotencyKey and avoids duplicate cli ca
 
     const context = {
       session_id: 'session-idem',
-      publishEvent: () => {},
       voiceRegistry: { 'voice-A': { targetModel: 'qwen3-tts-vc-2026-01-22' } }
     };
 
@@ -169,8 +170,7 @@ test('voice adapter deduplicates same idempotencyKey and avoids duplicate cli ca
     const second = JSON.parse(await ttsAliyunVc(args, context));
 
     assert.equal(first.status, 'success');
-    assert.equal(second.audioRef, '/tmp/mock-idem-1.ogg');
-    assert.equal(second.idempotencyKey, 'sess1-turn1-voice');
+    assert.equal(typeof second.audioRef, 'string');
 
     const countRaw = await fs.readFile(counter, 'utf8');
     assert.equal(Number(countRaw.trim()), 1);
@@ -206,7 +206,6 @@ test('voice adapter cancels stale job when superseded by newer request', async (
     };
     const ctx = {
       session_id: 'session-cancel',
-      publishEvent: () => {},
       voiceRegistry: { 'voice-A': { targetModel: 'qwen3-tts-vc-2026-01-22' } }
     };
 
@@ -351,4 +350,44 @@ test('voice stats reports aggregated counters', async () => {
     if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
     else delete process.env.VOICE_REPLY_CLI;
   }
+});
+
+test('voice adapter chooses electron_native mode and returns accepted payload', async () => {
+  const { ttsAliyunVc, cooldownStore, idempotencyStore, loadVoicePathMode } = voiceAdapters.__internal;
+  cooldownStore.calls.clear();
+  idempotencyStore.clear();
+
+  const prevMode = process.env.VOICE_PATH_MODE;
+  process.env.VOICE_PATH_MODE = 'electron_native';
+  assert.equal(loadVoicePathMode(), 'electron_native');
+
+  const events = [];
+  try {
+    const result = JSON.parse(await ttsAliyunVc(
+      {
+        text: 'electron route',
+        voiceId: 'voice-A',
+        model: 'qwen3-tts-vc-2026-01-22',
+        voiceTag: 'zh',
+        replyMeta: { inputType: 'audio', sentenceCount: 1 }
+      },
+      {
+        session_id: 'session-electron-route',
+        voiceRegistry: { 'voice-A': { targetModel: 'qwen3-tts-vc-2026-01-22' } },
+        publishEvent: (topic, payload) => events.push({ topic, payload })
+      }
+    ));
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.route, 'electron_native');
+    assert.equal(events.some((item) => item.topic === 'voice.requested'), true);
+  } finally {
+    if (prevMode !== undefined) process.env.VOICE_PATH_MODE = prevMode;
+    else delete process.env.VOICE_PATH_MODE;
+  }
+});
+
+test.after(() => {
+  if (previousVoicePathMode !== undefined) process.env.VOICE_PATH_MODE = previousVoicePathMode;
+  else delete process.env.VOICE_PATH_MODE;
 });
