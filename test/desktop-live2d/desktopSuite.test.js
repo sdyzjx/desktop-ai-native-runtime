@@ -12,6 +12,8 @@ const {
   writeRuntimeSummary,
   computeWindowBounds,
   computeRightBottomWindowBounds,
+  resolveDisplayForBounds,
+  clampWindowBoundsToWorkArea,
   resolveWindowMetrics,
   resolveWindowSizeForChatPanel,
   resizeWindowKeepingBottomRight,
@@ -19,12 +21,18 @@ const {
   normalizeWindowDragPayload,
   normalizeWindowControlPayload,
   normalizeChatPanelVisibilityPayload,
+  normalizeWindowResizePayload,
   normalizeModelBoundsPayload,
   normalizeBubbleMetricsPayload,
   normalizeActionTelemetryPayload,
   createWindowDragListener,
   createWindowControlListener,
   createChatPanelVisibilityListener,
+  buildWindowStatePayload,
+  createWindowResizeListener,
+  normalizePersistedWindowState,
+  loadPersistedWindowState,
+  writePersistedWindowState,
   createModelBoundsListener,
   createBubbleMetricsListener,
   createActionTelemetryListener,
@@ -208,7 +216,9 @@ test('resolveWindowMetrics returns compact profile and chat default visibility',
       height: 620,
       compactWidth: 280,
       compactHeight: 540,
-      compactWhenChatHidden: true
+      compactWhenChatHidden: true,
+      maxWidth: 880,
+      maxHeight: 1180
     },
     chat: {
       panel: {
@@ -222,6 +232,8 @@ test('resolveWindowMetrics returns compact profile and chat default visibility',
   assert.equal(metrics.expandedHeight, 620);
   assert.equal(metrics.compactWidth, 280);
   assert.equal(metrics.compactHeight, 540);
+  assert.equal(metrics.maxWidth, 880);
+  assert.equal(metrics.maxHeight, 1180);
   assert.equal(metrics.defaultChatPanelVisible, false);
 });
 
@@ -306,11 +318,49 @@ test('normalizeWindowDragPayload validates action and screen coordinates', () =>
 
 test('normalizeWindowControlPayload and normalizeChatPanelVisibilityPayload validate payloads', () => {
   assert.deepEqual(normalizeWindowControlPayload({ action: 'hide' }), { action: 'hide' });
+  assert.deepEqual(normalizeWindowControlPayload({ action: ' hide_chat ' }), { action: 'hide_chat' });
   assert.deepEqual(normalizeWindowControlPayload({ action: ' close_pet ' }), { action: 'close_pet' });
+  assert.deepEqual(normalizeWindowControlPayload({ action: ' open_webui ' }), { action: 'open_webui' });
+  assert.deepEqual(normalizeWindowControlPayload({ action: ' close_resize_mode ' }), { action: 'close_resize_mode' });
+  assert.deepEqual(normalizeWindowControlPayload({
+    action: ' save_layout_overrides ',
+    layout: { offsetX: 10.2, offsetY: -11.8, scaleMultiplier: 1.137 }
+  }), {
+    action: 'save_layout_overrides',
+    layout: { offsetX: 10, offsetY: -12, scaleMultiplier: 1.137 }
+  });
   assert.equal(normalizeWindowControlPayload({ action: 'quit' }), null);
+  assert.equal(normalizeWindowControlPayload({ action: 'save_layout_overrides', layout: { offsetX: 1 } }), null);
 
   assert.deepEqual(normalizeChatPanelVisibilityPayload({ visible: true }), { visible: true });
   assert.equal(normalizeChatPanelVisibilityPayload({ visible: 'true' }), null);
+});
+
+test('normalizeWindowResizePayload validates resize actions and dimensions', () => {
+  assert.deepEqual(normalizeWindowResizePayload({
+    action: ' set ',
+    width: 401.7,
+    height: 602.2,
+    source: 'toolbar'
+  }), {
+    action: 'set',
+    width: 402,
+    height: 602,
+    source: 'toolbar'
+  });
+
+  assert.deepEqual(normalizeWindowResizePayload({ action: 'grow', step: 80 }), {
+    action: 'grow',
+    step: 80,
+    source: 'avatar-window'
+  });
+  assert.deepEqual(normalizeWindowResizePayload({ action: 'reset', persist: false }), {
+    action: 'reset',
+    persist: false,
+    source: 'avatar-window'
+  });
+  assert.equal(normalizeWindowResizePayload({ action: 'set', width: 0, height: 10 }), null);
+  assert.equal(normalizeWindowResizePayload({ action: 'unknown' }), null);
 });
 
 test('normalizeModelBoundsPayload validates numeric bounds payload', () => {
@@ -358,10 +408,31 @@ test('computeFittedAvatarWindowBounds shrinks to model bounds and keeps screen s
   assert.ok(next.y >= 33);
 });
 
+test('computeFittedAvatarWindowBounds can preserve bottom-right anchor during resize mode', () => {
+  const next = computeFittedAvatarWindowBounds({
+    windowBounds: { x: 1300, y: 560, width: 320, height: 500 },
+    modelBounds: { x: 70, y: 20, width: 180, height: 430 },
+    display: {
+      workArea: {
+        x: 0,
+        y: 25,
+        width: 1728,
+        height: 1080
+      }
+    },
+    anchor: 'bottom-right'
+  });
+
+  assert.equal(next.x + next.width, 1620);
+  assert.equal(next.y + next.height, 1060);
+});
+
 test('createWindowDragListener repositions window across start/move/end', () => {
   const fakeWindow = {
     x: 300,
     y: 420,
+    width: 0,
+    height: 0,
     getPosition() {
       return [this.x, this.y];
     },
@@ -389,7 +460,143 @@ test('createWindowDragListener repositions window across start/move/end', () => 
   assert.deepEqual([fakeWindow.x, fakeWindow.y], [342, 475]);
 });
 
-test('createWindowControlListener handles hide and close actions for active window sender', () => {
+test('resolveDisplayForBounds and clampWindowBoundsToWorkArea keep bounds inside matching display', () => {
+  const primaryDisplay = {
+    id: 'primary',
+    workArea: { x: 0, y: 0, width: 1440, height: 900 }
+  };
+  const secondaryDisplay = {
+    id: 'secondary',
+    workArea: { x: 1440, y: 0, width: 1280, height: 900 }
+  };
+  const screen = {
+    getDisplayMatching(bounds) {
+      return bounds.x >= 1440 ? secondaryDisplay : primaryDisplay;
+    }
+  };
+
+  const display = resolveDisplayForBounds({
+    screen,
+    bounds: { x: 1700, y: 40, width: 460, height: 620 }
+  });
+  const clamped = clampWindowBoundsToWorkArea({
+    bounds: { x: 2500, y: 700, width: 600, height: 500 },
+    display,
+    minWidth: 200,
+    minHeight: 200,
+    maxWidth: 700,
+    maxHeight: 700
+  });
+
+  assert.equal(display.id, 'secondary');
+  assert.equal(clamped.width, 600);
+  assert.equal(clamped.height, 500);
+  assert.ok(clamped.x <= 2112);
+  assert.ok(clamped.y <= 392);
+});
+
+test('clampWindowBoundsToWorkArea allows avatar window to remain 20% visible', () => {
+  const display = {
+    id: 'secondary',
+    workArea: { x: 1440, y: 0, width: 1280, height: 900 }
+  };
+
+  const clamped = clampWindowBoundsToWorkArea({
+    bounds: { x: 3200, y: 1000, width: 900, height: 700 },
+    display,
+    minWidth: 200,
+    minHeight: 200,
+    maxWidth: 2000,
+    maxHeight: 2000,
+    maxOffscreenRatio: 0.8
+  });
+
+  assert.deepEqual(clamped, { x: 2532, y: 752, width: 900, height: 700 });
+});
+
+test('createWindowDragListener clamps moved window into display work area', () => {
+  const fakeWindow = {
+    x: 300,
+    y: 420,
+    width: 460,
+    height: 620,
+    getPosition() {
+      return [this.x, this.y];
+    },
+    getBounds() {
+      return { x: this.x, y: this.y, width: this.width, height: this.height };
+    },
+    setPosition(nextX, nextY) {
+      this.x = nextX;
+      this.y = nextY;
+    }
+  };
+
+  const BrowserWindow = {
+    fromWebContents(sender) {
+      return sender?.id === 17 ? fakeWindow : null;
+    }
+  };
+  const screen = {
+    getDisplayMatching() {
+      return {
+        workArea: { x: 0, y: 0, width: 1440, height: 900 }
+      };
+    }
+  };
+
+  const listener = createWindowDragListener({ BrowserWindow, screen });
+  const sender = { id: 17 };
+  listener({ sender }, { action: 'start', screenX: 1100, screenY: 700 });
+  listener({ sender }, { action: 'move', screenX: 2100, screenY: 1700 });
+
+  assert.deepEqual([fakeWindow.x, fakeWindow.y], [972, 272]);
+});
+
+test('createWindowDragListener allows dragging avatar window mostly off-screen when configured', () => {
+  const fakeWindow = {
+    x: 300,
+    y: 420,
+    width: 460,
+    height: 620,
+    getPosition() {
+      return [this.x, this.y];
+    },
+    getBounds() {
+      return { x: this.x, y: this.y, width: this.width, height: this.height };
+    },
+    setPosition(nextX, nextY) {
+      this.x = nextX;
+      this.y = nextY;
+    }
+  };
+
+  const BrowserWindow = {
+    fromWebContents(sender) {
+      return sender?.id === 17 ? fakeWindow : null;
+    }
+  };
+  const screen = {
+    getDisplayMatching() {
+      return {
+        workArea: { x: 0, y: 0, width: 1440, height: 900 }
+      };
+    }
+  };
+
+  const listener = createWindowDragListener({
+    BrowserWindow,
+    screen,
+    maxOffscreenRatio: 0.8
+  });
+  const sender = { id: 17 };
+  listener({ sender }, { action: 'start', screenX: 1100, screenY: 700 });
+  listener({ sender }, { action: 'move', screenX: 2300, screenY: 1900 });
+
+  assert.deepEqual([fakeWindow.x, fakeWindow.y], [1340, 768]);
+});
+
+test('createWindowControlListener handles chat, hide, close, webui, and resize actions for active window sender', () => {
   const webContents = { id: 3 };
   const window = {
     webContents,
@@ -398,19 +605,38 @@ test('createWindowControlListener handles hide and close actions for active wind
     }
   };
   let hideCount = 0;
+  let hideChatCount = 0;
   let closeCount = 0;
+  let openWebUiCount = 0;
+  let closeResizeModeCount = 0;
+  const savedLayouts = [];
   const listener = createWindowControlListener({
     window,
     onHide: () => { hideCount += 1; },
-    onClosePet: () => { closeCount += 1; }
+    onHideChat: () => { hideChatCount += 1; },
+    onClosePet: () => { closeCount += 1; },
+    onOpenWebUi: () => { openWebUiCount += 1; },
+    onCloseResizeMode: () => { closeResizeModeCount += 1; },
+    onSaveLayoutOverrides: (payload) => { savedLayouts.push(payload); }
   });
 
   listener({ sender: webContents }, { action: 'hide' });
+  listener({ sender: webContents }, { action: 'hide_chat' });
   listener({ sender: webContents }, { action: 'close_pet' });
+  listener({ sender: webContents }, { action: 'open_webui' });
+  listener({ sender: webContents }, { action: 'close_resize_mode' });
+  listener({ sender: webContents }, {
+    action: 'save_layout_overrides',
+    layout: { offsetX: 8, offsetY: -12, scaleMultiplier: 1.12 }
+  });
   listener({ sender: { id: 99 } }, { action: 'hide' });
 
   assert.equal(hideCount, 1);
+  assert.equal(hideChatCount, 1);
   assert.equal(closeCount, 1);
+  assert.equal(openWebUiCount, 1);
+  assert.equal(closeResizeModeCount, 1);
+  assert.deepEqual(savedLayouts, [{ offsetX: 8, offsetY: -12, scaleMultiplier: 1.12 }]);
 });
 
 test('createChatPanelVisibilityListener resizes when visibility changes', () => {
@@ -447,6 +673,143 @@ test('createChatPanelVisibilityListener resizes when visibility changes', () => 
   assert.deepEqual(setBoundsCalls[0], { x: 1160, y: 360, width: 300, height: 560 });
   assert.deepEqual(setBoundsCalls[1], { x: 1000, y: 300, width: 460, height: 620 });
 });
+
+test('buildWindowStatePayload returns normalized bounds and defaults', () => {
+  const payload = buildWindowStatePayload({
+    window: {
+      getBounds() {
+        return { x: 1000.4, y: 300.2, width: 460.7, height: 620.9 };
+      }
+    },
+    windowMetrics: {
+      minWidth: 280,
+      minHeight: 360,
+      expandedWidth: 460,
+      expandedHeight: 620
+    }
+  });
+
+  assert.deepEqual(payload, {
+    width: 461,
+    height: 621,
+    x: 1000,
+    y: 300,
+    minWidth: 280,
+    minHeight: 360,
+    maxWidth: 0,
+    maxHeight: 0,
+    defaultWidth: 460,
+    defaultHeight: 620,
+    aspectRatio: 460 / 620,
+    resizeModeEnabled: false
+  });
+});
+
+test('normalizePersistedWindowState clamps saved size into runtime bounds', () => {
+  const normalized = normalizePersistedWindowState({
+    width: 999,
+    height: 200
+  }, {
+    windowMetrics: {
+      minWidth: 280,
+      minHeight: 360,
+      maxWidth: 540,
+      maxHeight: 700,
+      expandedWidth: 460,
+      expandedHeight: 620
+    }
+  });
+
+  assert.deepEqual(normalized, {
+    width: 519,
+    height: 700
+  });
+});
+
+test('loadPersistedWindowState and writePersistedWindowState round-trip window size', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'live2d-window-state-'));
+  const statePath = path.join(tmpDir, 'desktop-live2d', 'window-state.json');
+
+  writePersistedWindowState(statePath, { width: 519, height: 700 });
+  const loaded = loadPersistedWindowState(statePath, {
+    windowMetrics: {
+      minWidth: 280,
+      minHeight: 360,
+      maxWidth: 540,
+      maxHeight: 700,
+      expandedWidth: 460,
+      expandedHeight: 620
+    },
+    logger: { warn() {} }
+  });
+
+  assert.deepEqual(loaded, { width: 519, height: 700 });
+});
+
+test('createWindowResizeListener resizes avatar window and publishes updated state', () => {
+  const webContents = { id: 16 };
+  const setBoundsCalls = [];
+  const emittedStates = [];
+  const state = { x: 1000, y: 300, width: 460, height: 620 };
+  const window = {
+    webContents,
+    isDestroyed() {
+      return false;
+    },
+    getBounds() {
+      return { ...state };
+    },
+    setBounds(bounds) {
+      setBoundsCalls.push(bounds);
+      state.x = bounds.x;
+      state.y = bounds.y;
+      state.width = bounds.width;
+      state.height = bounds.height;
+    }
+  };
+
+  const listener = createWindowResizeListener({
+    window,
+    windowMetrics: {
+      minWidth: 300,
+      minHeight: 420,
+      maxWidth: 540,
+      maxHeight: 700,
+      expandedWidth: 460,
+      expandedHeight: 620
+    },
+    screen: {
+      getDisplayMatching() {
+        return {
+          workArea: { x: 0, y: 0, width: 1440, height: 900 }
+        };
+      }
+    },
+    onStateChange: (payload) => emittedStates.push(payload)
+  });
+
+  listener({ sender: webContents }, { action: 'grow', step: 60 });
+  listener({ sender: webContents }, { action: 'grow', step: 80 });
+  listener({ sender: webContents }, { action: 'shrink', step: 500 });
+  listener({ sender: webContents }, { action: 'reset' });
+
+  assert.equal(setBoundsCalls[0].width, 519);
+  assert.equal(setBoundsCalls[0].height, 700);
+  assert.ok(setBoundsCalls[0].x >= 8);
+  assert.ok(setBoundsCalls[0].y >= 8);
+  assert.equal(setBoundsCalls[1].width, 312);
+  assert.equal(setBoundsCalls[1].height, 420);
+  assert.ok(setBoundsCalls[1].x >= 8);
+  assert.ok(setBoundsCalls[1].y >= 8);
+  assert.equal(setBoundsCalls[2].width, 460);
+  assert.equal(setBoundsCalls[2].height, 620);
+  assert.ok(setBoundsCalls[2].x >= 8);
+  assert.ok(setBoundsCalls[2].y >= 8);
+  assert.equal(emittedStates.length, 4);
+  assert.equal(emittedStates[3].width, 460);
+  assert.equal(emittedStates[3].height, 620);
+});
+
 
 test('createModelBoundsListener forwards normalized bounds for avatar sender only', () => {
   const webContents = { id: 10 };

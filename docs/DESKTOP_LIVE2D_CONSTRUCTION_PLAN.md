@@ -9,6 +9,15 @@
 - Main <-> Renderer IPC 转发
 - 基础配置文件：`~/yachiyo/config/desktop-live2d.json`
 
+当前实现补充说明（2026-03-01）：
+- resize 已切换为窗口驱动、锁定比例的 `Resize Mode`
+- 布局已简化为共享默认值 + `offsetX/offsetY/scaleMultiplier` 直控
+- renderer 内置 `Layout Tuner`，支持预览 / Reset / Save
+- 配置层已明确拆分为：
+  - code defaults: `apps/desktop-live2d/shared/defaultUiConfig.js`
+  - user overrides: `~/yachiyo/config/desktop-live2d.json`
+  - runtime window memory: `~/yachiyo/data/desktop-live2d/window-state.json`
+
 但与你要求相比，仍有三个核心缺口：
 1. 缺少“聊天框面板”（当前只有气泡，缺少对话历史与输入区）。
 2. 缺少“统一 RPC 消息传递链路”定义（请求、通知、事件流尚未标准化）。
@@ -202,6 +211,12 @@ flowchart LR
 
 ### 6.3 配置扩展（`~/yachiyo/config/desktop-live2d.json`）
 
+配置分层说明：
+- 代码默认值：`apps/desktop-live2d/shared/defaultUiConfig.js`
+- 用户覆盖：`~/yachiyo/config/desktop-live2d.json`
+- 运行时窗口状态：`~/yachiyo/data/desktop-live2d/window-state.json`
+- 启动时若观测到“默认布局不对”，优先检查 window-state 是否仍保存旧尺寸。
+
 新增建议字段：
 
 ```json
@@ -221,6 +236,23 @@ flowchart LR
   }
 }
 ```
+
+当前实现里，布局主参数已收敛到：
+
+```json
+{
+  "layout": {
+    "offsetX": 0,
+    "offsetY": 0,
+    "scaleMultiplier": 1
+  }
+}
+```
+
+说明：
+- `offsetX` / `offsetY`：相对于默认布局基线的直接像素偏移
+- `scaleMultiplier`：整体缩放倍率
+- 更细的产品默认值仍定义在 `defaultUiConfig.js`
 
 ## 7. Tool Calling 暴露策略
 

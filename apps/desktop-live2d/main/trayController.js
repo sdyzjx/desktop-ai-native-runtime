@@ -36,6 +36,8 @@ function createTrayController({
   tooltip = TRAY_TOOLTIP,
   onShow = null,
   onHide = null,
+  onToggleResizeMode = null,
+  isResizeModeEnabled = null,
   onQuit = null
 } = {}) {
   if (typeof Tray !== 'function' || !Menu || typeof Menu.buildFromTemplate !== 'function') {
@@ -50,35 +52,54 @@ function createTrayController({
     tray.setToolTip(tooltip);
   }
 
-  const menu = Menu.buildFromTemplate([
-    {
-      label: 'Show Pet',
-      click: () => {
-        if (typeof onShow === 'function') {
-          void onShow();
+  let resizeModeEnabled = typeof isResizeModeEnabled === 'function'
+    ? Boolean(isResizeModeEnabled())
+    : false;
+
+  function buildMenu() {
+    return Menu.buildFromTemplate([
+      {
+        label: 'Show Pet',
+        click: () => {
+          if (typeof onShow === 'function') {
+            void onShow();
+          }
+        }
+      },
+      {
+        label: 'Hide Pet',
+        click: () => {
+          if (typeof onHide === 'function') {
+            onHide();
+          }
+        }
+      },
+      {
+        label: 'Resize Mode',
+        type: 'checkbox',
+        checked: resizeModeEnabled,
+        click: (menuItem) => {
+          resizeModeEnabled = Boolean(menuItem?.checked);
+          if (typeof onToggleResizeMode === 'function') {
+            onToggleResizeMode(resizeModeEnabled);
+          }
+        }
+      },
+      {
+        type: 'separator'
+      },
+      {
+        label: 'Quit',
+        click: () => {
+          if (typeof onQuit === 'function') {
+            onQuit();
+          }
         }
       }
-    },
-    {
-      label: 'Hide Pet',
-      click: () => {
-        if (typeof onHide === 'function') {
-          onHide();
-        }
-      }
-    },
-    {
-      type: 'separator'
-    },
-    {
-      label: 'Quit',
-      click: () => {
-        if (typeof onQuit === 'function') {
-          onQuit();
-        }
-      }
-    }
-  ]);
+    ]);
+  }
+
+  let menu = buildMenu();
 
   if (typeof tray.setContextMenu === 'function') {
     tray.setContextMenu(menu);
@@ -94,8 +115,17 @@ function createTrayController({
 
   return {
     tray,
-    menu,
+    get menu() {
+      return menu;
+    },
     iconPath,
+    setResizeModeEnabled(enabled) {
+      resizeModeEnabled = Boolean(enabled);
+      menu = buildMenu();
+      if (typeof tray.setContextMenu === 'function') {
+        tray.setContextMenu(menu);
+      }
+    },
     destroy() {
       if (typeof tray?.destroy === 'function') {
         tray.destroy();

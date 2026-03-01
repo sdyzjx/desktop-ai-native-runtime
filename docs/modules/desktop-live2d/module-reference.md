@@ -314,12 +314,14 @@ Renderer 回包：
 
 ## 4.2 `apps/desktop-live2d/main/config.js`
 
-职责：解析环境变量 + JSON 配置，输出运行配置对象。
+职责：解析环境变量 + JSON/JSONC 配置，输出运行配置对象。
 
 导出方法：
 - `resolveDesktopLive2dConfig({ env, projectRoot })`
 - `loadDesktopLive2dUiConfig(configPath)`
 - `normalizeUiConfig(raw)`
+- `parseJsonWithComments(input)`
+- `upsertDesktopLive2dLayoutOverrides(configPath, overrides)`
 - `toPositiveInt(value, fallback)`
 - `DEFAULT_UI_CONFIG`
 
@@ -334,8 +336,10 @@ Renderer 回包：
 
 实现方法要点：
 - 优先读取 `DESKTOP_LIVE2D_CONFIG_PATH`，默认 `~/yachiyo/config/desktop-live2d.json`
+- 支持带注释的 JSONC 风格配置
 - 对 window/render/layout/chat 全字段做数值归一化和兜底
 - `lockScaleOnResize` / `lockPositionOnResize` 默认为 true
+- layout tuner 保存时只回写 `offsetX` / `offsetY` / `scaleMultiplier` 覆盖项
 
 ## 4.3 `apps/desktop-live2d/main/modelAssets.js`
 
@@ -599,6 +603,9 @@ Renderer 回包：
 
 关键 DOM：
 - `#stage`（Pixi canvas 容器）
+- `#resize-mode-close`
+- `#layout-tuner-toggle`
+- `#layout-tuner-panel`
 - `#chat-panel`（聊天框）
 - `#chat-panel-messages`
 - `#chat-input` / `#chat-send`
@@ -609,10 +616,11 @@ Renderer 回包：
 1. `pixi.min.js`
 2. `live2dcubismcore.min.js`
 3. `pixi-live2d-display`
-4. `layout.js`
-5. `interaction.js`
-6. `chatPanelState.js`
-7. `bootstrap.js`
+4. `../shared/defaultUiConfig.js`
+5. `layout.js`
+6. `interaction.js`
+7. `chatPanelState.js`
+8. `bootstrap.js`
 
 ## 5.2 `apps/desktop-live2d/renderer/layout.js`
 
@@ -620,13 +628,16 @@ Renderer 回包：
 
 导出：
 - `computeModelLayout(input)`
+- `clampModelPositionToViewport(input)`
+- `computeVisibleModelBounds(input)`
 
 调用方：`bootstrap.applyAdaptiveLayout`
 
 实现方法要点：
 - 输入：stage 尺寸、模型 bounds、布局参数
 - 输出：`scale` `positionX/Y` `pivotX/Y` + debug
-- 支持 `horizontalAlign`（left/center/right）和边距偏移
+- 当前主路径使用 `anchorXRatio/anchorYRatio + offsetX/offsetY` 直控位置
+- oversized 模型不再强制居中，而是按最小可见比例 clamp
 - 提供 `minScale/maxScale` 限制
 
 ## 5.3 `apps/desktop-live2d/renderer/chatPanelState.js`
@@ -686,6 +697,14 @@ RPC method -> 实现方法映射：
 - Pixi 初始化：`initPixi()`，按配置计算 DPR/resolution
 - 模型加载：`loadModel(modelRelativePath, modelName)`
 - 自适应布局：`applyAdaptiveLayout()` + `scheduleAdaptiveLayout()`
+- `Resize Mode`：
+  - renderer 决定目标窗口尺寸
+  - main 只执行原生窗口 resize / clamp / persist
+  - 锁定窗口比例，禁止自由 native resize
+- `Layout Tuner`：
+  - 直接调 `offsetX` / `offsetY` / `scaleMultiplier`
+  - `Reset` 回到共享默认值
+  - `Save` 回写 `~/yachiyo/config/desktop-live2d.json`
 - 点击切聊天框：`bindModelInteraction()`
   - 人物点击支持聊天框显隐切换（toggle）
   - 拖拽窗口：`bindWindowDragGesture(canvas)` -> IPC `windowDrag`
@@ -764,9 +783,14 @@ RPC method -> 实现方法映射：
 `~/yachiyo/config/desktop-live2d.json` 关键项：
 - `window.*`：窗口尺寸、紧凑模式、锚点
 - `render.*`：清晰度参数
-- `layout.*`：模型位置、比例、pivot、锁姿态
+- `layout.offsetX` / `layout.offsetY` / `layout.scaleMultiplier`：用户可保存的布局覆盖
 - `chat.panel.*`：聊天框开关、默认显隐、容量
 - `chat.bubble.mirrorToPanel`
+
+配置层优先级：
+1. `apps/desktop-live2d/shared/defaultUiConfig.js`
+2. `~/yachiyo/config/desktop-live2d.json`
+3. `~/yachiyo/data/desktop-live2d/window-state.json`（仅窗口尺寸记忆）
 
 ### 7.2 RPC 调用示例
 

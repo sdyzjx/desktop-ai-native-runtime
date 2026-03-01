@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage } = require('electron');
 
 const { startDesktopSuite } = require('./desktopSuite');
 const { createTrayController } = require('./trayController');
@@ -18,7 +18,17 @@ async function bootstrap() {
       return suite;
     }
 
-    suite = await startDesktopSuite({ app, BrowserWindow, ipcMain, screen, logger: console });
+    suite = await startDesktopSuite({
+      app,
+      BrowserWindow,
+      ipcMain,
+      screen,
+      shell,
+      onResizeModeChange: (enabled) => {
+        trayController?.setResizeModeEnabled(enabled);
+      },
+      logger: console
+    });
     if (!trayController) {
       trayController = createTrayController({
         Tray,
@@ -31,10 +41,19 @@ async function bootstrap() {
         onHide: () => {
           hidePetWindow();
         },
+        onToggleResizeMode: (enabled) => {
+          const nextEnabled = suite?.setResizeModeEnabled
+            ? suite.setResizeModeEnabled(enabled)
+            : Boolean(enabled);
+          trayController?.setResizeModeEnabled(nextEnabled);
+        },
+        isResizeModeEnabled: () => suite?.isResizeModeEnabled?.() || false,
         onQuit: () => {
           app.quit();
         }
       });
+    } else if (suite?.isResizeModeEnabled) {
+      trayController.setResizeModeEnabled(suite.isResizeModeEnabled());
     }
 
     console.log('[desktop-live2d] up', {

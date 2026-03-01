@@ -45,6 +45,7 @@ test('createTrayController wires click and menu actions', async () => {
   let destroyed = false;
   let showCount = 0;
   let hideCount = 0;
+  let resizeModeValues = [];
   let quitCount = 0;
   const menuState = { template: null };
 
@@ -104,6 +105,10 @@ test('createTrayController wires click and menu actions', async () => {
     onHide: () => {
       hideCount += 1;
     },
+    onToggleResizeMode: (enabled) => {
+      resizeModeValues.push(enabled);
+    },
+    isResizeModeEnabled: () => false,
     onQuit: () => {
       quitCount += 1;
     }
@@ -115,13 +120,19 @@ test('createTrayController wires click and menu actions', async () => {
   clickHandlers.get('click')();
   assert.equal(showCount, 1);
 
-  const [showItem, hideItem, , quitItem] = menuState.template;
+  const [showItem, hideItem, resizeItem, , quitItem] = menuState.template;
   showItem.click();
   hideItem.click();
+  resizeItem.click({ checked: true });
   quitItem.click();
   assert.equal(showCount, 2);
   assert.equal(hideCount, 1);
+  assert.deepEqual(resizeModeValues, [true]);
   assert.equal(quitCount, 1);
+
+  controller.setResizeModeEnabled(true);
+  assert.equal(contextMenus.length, 2);
+  assert.equal(menuState.template[2].checked, true);
 
   controller.destroy();
   assert.equal(destroyed, true);
