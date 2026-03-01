@@ -144,6 +144,12 @@ class ToolLoopRunner {
       ? 'User intent likely about persona/addressing. Prefer persona.update_profile tool call with {custom_name}.'
       : null;
 
+    // Check if auto voice reply is enabled from persona context
+    const autoVoiceReplyEnabled = personaContext?.prompt?.includes('Auto Voice Reply Mode');
+    const voiceToolHint = autoVoiceReplyEnabled
+      ? 'When auto voice reply is enabled, call voice.tts_aliyun_vc with a short voice text before final text response.'
+      : null;
+
     const ctx = {
       sessionId,
       traceId,
@@ -159,6 +165,7 @@ class ToolLoopRunner {
             'Long-term memory operations must go through tools (memory_write / memory_search).',
             'For every reply turn, decide one Live2D action and a duration_sec based on the chat context.',
             'When live2d tools are available, call exactly one live2d.* tool with valid preset/action names and explicit duration_sec before final text response.',
+            'When auto voice reply is enabled, call voice.tts_aliyun_vc with a short voice text (max 100 chars) before final text response.',
             'When user asks to modify persona/addressing/custom title (e.g. 修改人格/修改称呼/叫我xxx), call persona.update_profile with {custom_name}.',
             'Use persona.update_profile even in low permission sessions; this is globally allowed.',
             'Keep answers concise.'
@@ -167,6 +174,7 @@ class ToolLoopRunner {
         ...(personaPrompt ? [{ role: 'system', content: personaPrompt }] : []),
         ...(skillsPrompt ? [{ role: 'system', content: skillsPrompt }] : []),
         ...(personaToolHint ? [{ role: 'system', content: personaToolHint }] : []),
+        ...(voiceToolHint ? [{ role: 'system', content: voiceToolHint }] : []),
         ...priorMessages,
         currentUserMessage
       ]
