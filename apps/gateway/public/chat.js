@@ -345,6 +345,54 @@ function escapeHtml(text) {
     .replaceAll("'", '&#39;');
 }
 
+async function renderMarkdownWithMermaid(text) {
+  if (typeof marked === 'undefined') {
+    return escapeHtml(text);
+  }
+
+  try {
+    // Configure marked to handle code blocks
+    const html = marked.parse(text, {
+      breaks: true,
+      gfm: true,
+      highlight: function(code, lang) {
+        if (lang === 'mermaid') {
+          // Return a placeholder for mermaid diagrams
+          return `<div class="mermaid-diagram" data-mermaid="${escapeHtml(code)}">${escapeHtml(code)}</div>`;
+        }
+        return escapeHtml(code);
+      }
+    });
+
+    return html;
+  } catch (err) {
+    console.error('Markdown parse error:', err);
+    return escapeHtml(text);
+  }
+}
+
+async function renderMermaidDiagrams(container) {
+  if (typeof window.mermaid === 'undefined') {
+    return;
+  }
+
+  const diagrams = container.querySelectorAll('.mermaid-diagram');
+  for (const diagram of diagrams) {
+    const code = diagram.getAttribute('data-mermaid');
+    if (!code) continue;
+
+    try {
+      const { svg } = await window.mermaid.render(`mermaid-${Date.now()}-${Math.random()}`, code);
+      diagram.innerHTML = svg;
+      diagram.classList.add('mermaid-rendered');
+    } catch (err) {
+      console.error('Mermaid render error:', err);
+      diagram.innerHTML = `<pre><code>${escapeHtml(code)}</code></pre>`;
+      diagram.classList.add('mermaid-error');
+    }
+  }
+}
+
 function formatBytes(size) {
   const n = Number(size) || 0;
   if (n < 1024) return `${n}B`;
@@ -666,7 +714,7 @@ async function onImageFilesSelected(fileList) {
   updateComposerState();
 }
 
-function renderMessages() {
+async function renderMessages() {
   const session = getActiveSession();
 
   if (!session || session.messages.length === 0) {
@@ -687,7 +735,7 @@ function renderMessages() {
 
   elements.messageList.innerHTML = '';
 
-  session.messages.forEach((msg) => {
+  for (const msg of session.messages) {
     const wrap = document.createElement('div');
     wrap.className = `message-wrap ${msg.role}`;
 
@@ -695,7 +743,9 @@ function renderMessages() {
     bubble.className = 'message-bubble';
     const body = document.createElement('div');
     body.className = 'message-body';
-    body.innerHTML = escapeHtml(msg.content);
+
+    // Render markdown with mermaid support
+    body.innerHTML = await renderMarkdownWithMermaid(msg.content);
     bubble.appendChild(body);
 
     if (Array.isArray(msg.images) && msg.images.length > 0) {
@@ -746,7 +796,10 @@ function renderMessages() {
     wrap.appendChild(bubble);
     wrap.appendChild(meta);
     elements.messageList.appendChild(wrap);
-  });
+  }
+
+  // Render mermaid diagrams after all messages are added
+  await renderMermaidDiagrams(elements.messageList);
 
   // 只在用户本来就在底部时才自动滚底，不强制打断用户滚动
   if (atBottom) {

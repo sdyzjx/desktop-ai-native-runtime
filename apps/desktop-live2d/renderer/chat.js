@@ -19,6 +19,33 @@
     return allowedRoles.has(normalized) ? normalized : 'assistant';
   }
 
+  function renderMarkdown(text) {
+    if (typeof marked === 'undefined') {
+      return text;
+    }
+    try {
+      return marked.parse(text, {
+        breaks: true,
+        gfm: true
+      });
+    } catch (err) {
+      console.error('Markdown parse error:', err);
+      return text;
+    }
+  }
+
+  function renderToolCall(toolData) {
+    if (!toolData || !toolData.name) {
+      return '';
+    }
+    const name = String(toolData.name || '');
+    const args = toolData.arguments ? JSON.stringify(toolData.arguments, null, 2) : '';
+    return `<div class="tool-call">
+      <div class="tool-call-name">🔧 ${name}</div>
+      ${args ? `<div class="tool-call-args">${args}</div>` : ''}
+    </div>`;
+  }
+
   function renderMessages() {
     if (!messagesElement) {
       return;
@@ -28,7 +55,18 @@
     for (const message of state.messages) {
       const node = document.createElement('div');
       node.className = `chat-message ${normalizeRole(message.role)}`;
-      node.textContent = String(message.text || '');
+
+      let content = String(message.text || '');
+
+      // Render tool calls if present
+      if (message.role === 'tool' && message.toolCall) {
+        content = renderToolCall(message.toolCall) + (content ? `<div>${renderMarkdown(content)}</div>` : '');
+        node.innerHTML = content;
+      } else {
+        // Render markdown for all other messages
+        node.innerHTML = renderMarkdown(content);
+      }
+
       fragment.appendChild(node);
     }
     messagesElement.appendChild(fragment);

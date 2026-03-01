@@ -45,7 +45,22 @@
       bubbleElement.textContent = '';
       return;
     }
-    bubbleElement.textContent = String(payload?.text || '');
+
+    const text = String(payload?.text || '');
+
+    // Render markdown for bubble (inline only, no complex structures)
+    if (typeof marked !== 'undefined' && text) {
+      try {
+        const html = marked.parseInline(text);
+        bubbleElement.innerHTML = html;
+      } catch (err) {
+        console.error('Bubble markdown parse error:', err);
+        bubbleElement.textContent = text;
+      }
+    } else {
+      bubbleElement.textContent = text;
+    }
+
     bubbleElement.classList.add('visible');
 
     if (streaming) {

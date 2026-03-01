@@ -60,7 +60,30 @@
           opacity: 0;
         }
       }
+
+      /* Markdown styles for bubble */
+      #bubble code {
+        background: rgba(255, 255, 255, 0.15);
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 12px;
+      }
+
+      #bubble strong {
+        font-weight: 600;
+      }
+
+      #bubble em {
+        font-style: italic;
+      }
+
+      #bubble a {
+        color: #7db3ff;
+        text-decoration: underline;
+      }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
   </head>
   <body>
     <div id="bubble"></div>
