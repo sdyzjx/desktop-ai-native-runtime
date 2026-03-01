@@ -20,6 +20,7 @@
   let hideBubbleTimer = null;
   const systemAudio = new Audio();
   systemAudio.autoplay = true;
+  let currentVoiceObjectUrl = null;
   let dragPointerState = null;
   let suppressModelTapUntil = 0;
   let stableModelScale = null;
@@ -143,6 +144,49 @@
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
+  }
+
+  function releaseCurrentVoiceObjectUrl() {
+    if (currentVoiceObjectUrl) {
+      try {
+        URL.revokeObjectURL(currentVoiceObjectUrl);
+      } catch {
+        // ignore revoke errors
+      }
+      currentVoiceObjectUrl = null;
+    }
+  }
+
+  async function playVoiceFromBase64({ audioBase64, mimeType = 'audio/ogg' } = {}) {
+    const base64 = String(audioBase64 || '').trim();
+    if (!base64) {
+      throw createRpcError(-32602, 'audioBase64 is required');
+    }
+
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    releaseCurrentVoiceObjectUrl();
+    const blob = new Blob([bytes], { type: String(mimeType || 'audio/ogg') });
+    const objectUrl = URL.createObjectURL(blob);
+    currentVoiceObjectUrl = objectUrl;
+
+    systemAudio.src = objectUrl;
+    await systemAudio.play();
+
+    const cleanup = () => {
+      if (currentVoiceObjectUrl === objectUrl) {
+        releaseCurrentVoiceObjectUrl();
+      }
+      systemAudio.removeEventListener('ended', cleanup);
+      systemAudio.removeEventListener('error', cleanup);
+    };
+    systemAudio.addEventListener('ended', cleanup);
+    systemAudio.addEventListener('error', cleanup);
   }
 
   function positionBubbleNearModelHead() {
@@ -1040,6 +1084,12 @@
 
       bridge.onInvoke((payload) => {
         void handleInvoke(payload);
+      });
+
+      bridge.onVoicePlayMemory?.((payload) => {
+        void playVoiceFromBase64(payload).catch((err) => {
+          console.error('[Renderer] voice memory playback failed', err);
+        });
       });
 
       bridge.notifyReady({ ok: true });

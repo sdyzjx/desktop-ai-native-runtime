@@ -9,6 +9,7 @@ const { Live2dRpcServer } = require('./rpcServer');
 const { IpcRpcBridge } = require('./ipcBridge');
 const { GatewayRuntimeClient, createDesktopSessionId } = require('./gatewayRuntimeClient');
 const { listDesktopTools, resolveToolInvoke } = require('./toolRegistry');
+const { QwenTtsClient } = require('./voice/qwenTtsClient');
 const {
   ACTION_EVENT_NAME,
   ACTION_ENQUEUE_METHOD,
@@ -481,6 +482,96 @@ async function forwardLive2dActionEvent({
   }
 }
 
+async function processVoiceRequestedOnDesktop({
+  eventPayload,
+  ttsClient,
+  avatarWindow,
+  rpcServerRef,
+  logger = console
+} = {}) {
+  const requestId = String(eventPayload?.request_id || `${Date.now()}-voice`);
+  const text = String(eventPayload?.text || '').trim();
+  if (!text) return;
+
+  const timeoutSec = Math.max(1, Number(eventPayload?.timeoutSec || 45));
+  const model = String(eventPayload?.model || '');
+  const voice = String(eventPayload?.voiceId || '');
+
+  rpcServerRef?.notify({
+    method: 'desktop.event',
+    params: {
+      type: 'voice.synthesis.started',
+      timestamp: Date.now(),
+      data: { request_id: requestId }
+    }
+  });
+
+  try {
+    const synthesis = await ttsClient.synthesizeNonStreaming({
+      text,
+      model,
+      voice,
+      timeoutMs: timeoutSec * 1000
+    });
+
+    const audioBuffer = await ttsClient.fetchAudioBuffer({
+      audioUrl: synthesis.audioUrl,
+      timeoutMs: timeoutSec * 1000
+    });
+
+    const audioBase64 = audioBuffer.toString('base64');
+
+    rpcServerRef?.notify({
+      method: 'desktop.event',
+      params: {
+        type: 'voice.synthesis.completed',
+        timestamp: Date.now(),
+        data: {
+          request_id: requestId,
+          bytes: audioBuffer.length,
+          mime_type: synthesis.mimeType,
+          model: synthesis.model
+        }
+      }
+    });
+
+    if (!avatarWindow.isDestroyed()) {
+      avatarWindow.webContents.send('desktop:voice:play-memory', {
+        requestId,
+        audioBase64,
+        mimeType: synthesis.mimeType || 'audio/ogg'
+      });
+      rpcServerRef?.notify({
+        method: 'desktop.event',
+        params: {
+          type: 'voice.playback.started',
+          timestamp: Date.now(),
+          data: { request_id: requestId }
+        }
+      });
+    }
+  } catch (err) {
+    logger.error?.('[desktop-live2d] voice requested process failed', {
+      requestId,
+      code: err?.code,
+      error: err?.message || String(err)
+    });
+
+    rpcServerRef?.notify({
+      method: 'desktop.event',
+      params: {
+        type: 'voice.synthesis.failed',
+        timestamp: Date.now(),
+        data: {
+          request_id: requestId,
+          code: String(err?.code || 'TTS_PROVIDER_DOWN'),
+          error: String(err?.message || 'unknown tts error')
+        }
+      }
+    });
+  }
+}
+
 async function startDesktopSuite({
   app,
   BrowserWindow,
@@ -890,6 +981,8 @@ async function startDesktopSuite({
   });
   ipcMain.on(CHANNELS.windowControl, windowControlListener);
 
+  const qwenTtsClient = new QwenTtsClient();
+
   const gatewayRuntimeClient = new GatewayRuntimeClient({
     gatewayUrl: config.gatewayUrl,
     sessionId: 'desktop-live2d-chat',
@@ -920,6 +1013,14 @@ async function startDesktopSuite({
             onTelemetry: publishLive2dActionTelemetry,
             logger
           });
+        } else if (eventName === 'voice.requested') {
+          void processVoiceRequestedOnDesktop({
+            eventPayload: desktopEvent.data.data,
+            ttsClient: qwenTtsClient,
+            avatarWindow,
+            rpcServerRef,
+            logger
+          });
         } else if (eventName.startsWith('ui.') || eventName.startsWith('client.') || eventName.startsWith('voice.')) {
           activeBridge?.invoke({
             method: 'server_event_forward',
@@ -932,7 +1033,7 @@ async function startDesktopSuite({
         }
       }
 
-      // handle voice playback for electron mode
+      // backward-compatible legacy voice playback event
       if (desktopEvent.type === 'runtime.event') {
         const eventName = desktopEvent.data?.event || desktopEvent.data?.payload?.event;
         if (eventName === 'voice.playback.electron') {

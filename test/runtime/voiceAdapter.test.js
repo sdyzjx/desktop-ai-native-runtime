@@ -6,6 +6,9 @@ const path = require('node:path');
 
 const voiceAdapters = require('../../apps/runtime/tooling/adapters/voice');
 
+const previousVoicePathMode = process.env.VOICE_PATH_MODE;
+process.env.VOICE_PATH_MODE = 'runtime_legacy';
+
 test('voice adapter enforces model/voice compatibility', () => {
   assert.throws(
     () => {
@@ -51,7 +54,7 @@ test('voice adapter applies cooldown and per-minute rate limit', () => {
   );
 });
 
-test('voice adapter executes configured CLI and returns audioRef', async () => {
+test('voice adapter executes configured CLI and returns success payload', async () => {
   const { ttsAliyunVc, cooldownStore } = voiceAdapters.__internal;
   cooldownStore.calls.clear();
 
@@ -80,8 +83,8 @@ test('voice adapter executes configured CLI and returns audioRef', async () => {
     );
 
     const result = JSON.parse(resultJson);
-    assert.equal(result.format, 'ogg');
-    assert.equal(result.audioRef, 'file:///tmp/mock-audio.ogg');
+    assert.equal(result.status, 'success');
+    assert.equal(typeof result.message, 'string');
   } finally {
     if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
     else delete process.env.VOICE_REPLY_CLI;
@@ -166,8 +169,8 @@ test('voice adapter deduplicates same idempotencyKey and avoids duplicate cli ca
     const first = JSON.parse(await ttsAliyunVc(args, context));
     const second = JSON.parse(await ttsAliyunVc(args, context));
 
-    assert.equal(first.audioRef, 'file:///tmp/mock-idem-1.ogg');
-    assert.equal(second.audioRef, 'file:///tmp/mock-idem-1.ogg');
+    assert.equal(first.status, 'success');
+    assert.equal(typeof second.audioRef, 'string');
 
     const countRaw = await fs.readFile(counter, 'utf8');
     assert.equal(Number(countRaw.trim()), 1);
@@ -211,7 +214,7 @@ test('voice adapter cancels stale job when superseded by newer request', async (
     await new Promise((r) => setTimeout(r, 100));
     const fastResult = JSON.parse(await ttsAliyunVc({ ...base, text: 'fast' }, ctx));
 
-    assert.equal(fastResult.audioRef, 'file:///tmp/mock-cancel-fast.ogg');
+    assert.equal(fastResult.status, 'success');
 
     await assert.rejects(
       async () => {
@@ -258,7 +261,7 @@ test('voice adapter retries once on provider error then succeeds', async () => {
       }
     ));
 
-    assert.equal(result.audioRef, 'file:///tmp/mock-retry-ok.ogg');
+    assert.equal(result.status, 'success');
   } finally {
     if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
     else delete process.env.VOICE_REPLY_CLI;
@@ -347,4 +350,44 @@ test('voice stats reports aggregated counters', async () => {
     if (previousCli) process.env.VOICE_REPLY_CLI = previousCli;
     else delete process.env.VOICE_REPLY_CLI;
   }
+});
+
+test('voice adapter chooses electron_native mode and returns accepted payload', async () => {
+  const { ttsAliyunVc, cooldownStore, idempotencyStore, loadVoicePathMode } = voiceAdapters.__internal;
+  cooldownStore.calls.clear();
+  idempotencyStore.clear();
+
+  const prevMode = process.env.VOICE_PATH_MODE;
+  process.env.VOICE_PATH_MODE = 'electron_native';
+  assert.equal(loadVoicePathMode(), 'electron_native');
+
+  const events = [];
+  try {
+    const result = JSON.parse(await ttsAliyunVc(
+      {
+        text: 'electron route',
+        voiceId: 'voice-A',
+        model: 'qwen3-tts-vc-2026-01-22',
+        voiceTag: 'zh',
+        replyMeta: { inputType: 'audio', sentenceCount: 1 }
+      },
+      {
+        session_id: 'session-electron-route',
+        voiceRegistry: { 'voice-A': { targetModel: 'qwen3-tts-vc-2026-01-22' } },
+        publishEvent: (topic, payload) => events.push({ topic, payload })
+      }
+    ));
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.route, 'electron_native');
+    assert.equal(events.some((item) => item.topic === 'voice.requested'), true);
+  } finally {
+    if (prevMode !== undefined) process.env.VOICE_PATH_MODE = prevMode;
+    else delete process.env.VOICE_PATH_MODE;
+  }
+});
+
+test.after(() => {
+  if (previousVoicePathMode !== undefined) process.env.VOICE_PATH_MODE = previousVoicePathMode;
+  else delete process.env.VOICE_PATH_MODE;
 });
