@@ -16,6 +16,8 @@ test('resolveDesktopLive2dConfig applies defaults and model relative path', () =
   assert.equal(config.gatewayExternal, false);
   assert.equal(config.uiConfig.chat.panel.enabled, true);
   assert.equal(config.uiConfig.chat.panel.defaultVisible, false);
+  assert.equal(config.uiConfig.window.maxWidth, 900);
+  assert.equal(config.uiConfig.window.maxHeight, 1400);
   assert.equal(config.uiConfig.layout.lockScaleOnResize, true);
   assert.equal(config.uiConfig.layout.lockPositionOnResize, true);
   assert.equal(config.uiConfig.window.compactWhenChatHidden, false);
@@ -60,6 +62,7 @@ test('resolveDesktopLive2dConfig loads overrides from YACHIYO_HOME/config/deskto
     JSON.stringify({
       window: {
         width: 520,
+        maxWidth: 880,
         compactWidth: 280,
         placement: {
           anchor: 'top-left',
@@ -98,6 +101,7 @@ test('resolveDesktopLive2dConfig loads overrides from YACHIYO_HOME/config/deskto
     projectRoot
   });
   assert.equal(config.uiConfig.window.width, 520);
+  assert.equal(config.uiConfig.window.maxWidth, 880);
   assert.equal(config.uiConfig.window.compactWidth, 280);
   assert.equal(config.uiConfig.window.placement.anchor, 'top-left');
   assert.equal(config.uiConfig.window.placement.marginTop, 30);

@@ -17,6 +17,8 @@ const DEFAULT_UI_CONFIG = Object.freeze({
     height: 500,
     minWidth: 180,
     minHeight: 260,
+    maxWidth: 900,
+    maxHeight: 1400,
     compactWhenChatHidden: false,
     compactWidth: 260,
     compactHeight: 500,
@@ -186,6 +188,8 @@ function normalizeUiConfig(raw) {
   merged.window.height = toPositiveInt(merged.window.height, DEFAULT_UI_CONFIG.window.height);
   merged.window.minWidth = toPositiveInt(merged.window.minWidth, DEFAULT_UI_CONFIG.window.minWidth);
   merged.window.minHeight = toPositiveInt(merged.window.minHeight, DEFAULT_UI_CONFIG.window.minHeight);
+  merged.window.maxWidth = toPositiveInt(merged.window.maxWidth, DEFAULT_UI_CONFIG.window.maxWidth);
+  merged.window.maxHeight = toPositiveInt(merged.window.maxHeight, DEFAULT_UI_CONFIG.window.maxHeight);
   merged.window.compactWhenChatHidden = merged.window.compactWhenChatHidden !== false;
   merged.window.compactWidth = toPositiveInt(merged.window.compactWidth, DEFAULT_UI_CONFIG.window.compactWidth);
   merged.window.compactHeight = toPositiveInt(merged.window.compactHeight, DEFAULT_UI_CONFIG.window.compactHeight);

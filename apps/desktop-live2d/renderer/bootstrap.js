@@ -1407,7 +1407,9 @@
     if (stableModelScale === null || !Number.isFinite(stableModelScale)) {
       stableModelScale = layout.scale;
     }
-    const nextScale = lockScaleOnResize ? stableModelScale : layout.scale;
+    const nextScale = lockScaleOnResize
+      ? Math.min(stableModelScale, layout.scale)
+      : layout.scale;
     if (!lockScaleOnResize) {
       stableModelScale = layout.scale;
     }
@@ -1444,6 +1446,36 @@
       stableModelPose = {
         positionX: layout.positionX,
         positionY: layout.positionY,
+        stageWidth: stageSize.width,
+        stageHeight: stageSize.height
+      };
+    }
+
+    const clampedPose = typeof window.Live2DLayout?.clampModelPositionToViewport === 'function'
+      ? window.Live2DLayout.clampModelPositionToViewport({
+        stageWidth: stageSize.width,
+        stageHeight: stageSize.height,
+        positionX: nextPositionX,
+        positionY: nextPositionY,
+        scale: nextScale,
+        boundsX: bounds.x,
+        boundsY: bounds.y,
+        boundsWidth: bounds.width,
+        boundsHeight: bounds.height,
+        pivotX: layout.pivotX,
+        pivotY: layout.pivotY,
+        visibleMarginLeft: Number(layoutConfig.visibleMarginLeft),
+        visibleMarginRight: Number(layoutConfig.visibleMarginRight),
+        visibleMarginTop: Number(layoutConfig.visibleMarginTop),
+        visibleMarginBottom: Number(layoutConfig.visibleMarginBottom)
+      })
+      : null;
+    if (clampedPose) {
+      nextPositionX = clampedPose.positionX;
+      nextPositionY = clampedPose.positionY;
+      stableModelPose = {
+        positionX: nextPositionX,
+        positionY: nextPositionY,
         stageWidth: stageSize.width,
         stageHeight: stageSize.height
       };

@@ -86,7 +86,7 @@ function normalizeWindowDragPayload(payload) {
   };
 }
 
-function createWindowDragListener({ BrowserWindow } = {}) {
+function createWindowDragListener({ BrowserWindow, screen, margin = 8 } = {}) {
   const dragStates = new Map();
   return (event, payload) => {
     const normalized = normalizeWindowDragPayload(payload);
@@ -127,6 +127,33 @@ function createWindowDragListener({ BrowserWindow } = {}) {
       }
       const nextX = Math.round(state.windowX + normalized.screenX - state.cursorX);
       const nextY = Math.round(state.windowY + normalized.screenY - state.cursorY);
+      if (typeof win.getBounds === 'function') {
+        const currentBounds = win.getBounds();
+        const nextBounds = clampWindowBoundsToWorkArea({
+          bounds: {
+            x: nextX,
+            y: nextY,
+            width: currentBounds.width,
+            height: currentBounds.height
+          },
+          display: resolveDisplayForBounds({
+            screen,
+            bounds: {
+              x: nextX,
+              y: nextY,
+              width: currentBounds.width,
+              height: currentBounds.height
+            }
+          }),
+          minWidth: currentBounds.width,
+          minHeight: currentBounds.height,
+          maxWidth: currentBounds.width,
+          maxHeight: currentBounds.height,
+          margin
+        });
+        win.setPosition(nextBounds.x, nextBounds.y);
+        return;
+      }
       win.setPosition(nextX, nextY);
       return;
     }
@@ -157,6 +184,10 @@ function resolveWindowMetrics(uiConfig) {
 
   const minWidthRaw = toPositiveInt(windowConfig.minWidth, 360);
   const minHeightRaw = toPositiveInt(windowConfig.minHeight, 480);
+  const baseMinWidth = Math.max(120, Math.min(minWidthRaw, expandedWidth, compactWhenChatHidden ? compactWidth : expandedWidth));
+  const baseMinHeight = Math.max(160, Math.min(minHeightRaw, expandedHeight, compactWhenChatHidden ? compactHeight : expandedHeight));
+  const maxWidthRaw = toPositiveInt(windowConfig.maxWidth, 900);
+  const maxHeightRaw = toPositiveInt(windowConfig.maxHeight, 1400);
 
   return {
     expandedWidth,
@@ -164,8 +195,10 @@ function resolveWindowMetrics(uiConfig) {
     compactWidth,
     compactHeight,
     compactWhenChatHidden,
-    minWidth: Math.max(120, Math.min(minWidthRaw, expandedWidth, compactWhenChatHidden ? compactWidth : expandedWidth)),
-    minHeight: Math.max(160, Math.min(minHeightRaw, expandedHeight, compactWhenChatHidden ? compactHeight : expandedHeight)),
+    minWidth: baseMinWidth,
+    minHeight: baseMinHeight,
+    maxWidth: Math.max(baseMinWidth, expandedWidth, compactWidth, maxWidthRaw),
+    maxHeight: Math.max(baseMinHeight, expandedHeight, compactHeight, maxHeightRaw),
     defaultChatPanelVisible: Boolean(chatPanelConfig.enabled && chatPanelConfig.defaultVisible)
   };
 }
@@ -183,7 +216,88 @@ function resolveWindowSizeForChatPanel({ windowMetrics, chatPanelVisible }) {
   };
 }
 
-function resizeWindowKeepingBottomRight({ window, width, height }) {
+function resolveDisplayForBounds({ screen, bounds, fallbackDisplay = null } = {}) {
+  if (screen?.getDisplayMatching && bounds) {
+    try {
+      const matched = screen.getDisplayMatching(bounds);
+      if (matched?.workArea) {
+        return matched;
+      }
+    } catch {
+      // ignore electron screen lookup failures in tests/bootstrap
+    }
+  }
+  if (screen?.getPrimaryDisplay) {
+    const primary = screen.getPrimaryDisplay();
+    if (primary?.workArea) {
+      return primary;
+    }
+  }
+  return fallbackDisplay?.workArea ? fallbackDisplay : null;
+}
+
+function clampWindowBoundsToWorkArea({
+  bounds,
+  display,
+  minWidth = 120,
+  minHeight = 160,
+  maxWidth = Number.POSITIVE_INFINITY,
+  maxHeight = Number.POSITIVE_INFINITY,
+  margin = 8
+} = {}) {
+  if (!bounds) {
+    return null;
+  }
+
+  const workArea = display?.workArea;
+  const rawWidth = Math.max(1, Math.round(Number(bounds.width) || minWidth));
+  const rawHeight = Math.max(1, Math.round(Number(bounds.height) || minHeight));
+  const safeMinWidth = Math.max(1, Math.round(Number(minWidth) || 1));
+  const safeMinHeight = Math.max(1, Math.round(Number(minHeight) || 1));
+  const safeMaxWidth = Math.max(safeMinWidth, Math.round(Number.isFinite(maxWidth) ? maxWidth : rawWidth));
+  const safeMaxHeight = Math.max(safeMinHeight, Math.round(Number.isFinite(maxHeight) ? maxHeight : rawHeight));
+
+  if (!workArea || typeof workArea !== 'object') {
+    return {
+      x: Math.round(Number(bounds.x) || 0),
+      y: Math.round(Number(bounds.y) || 0),
+      width: clamp(rawWidth, safeMinWidth, safeMaxWidth),
+      height: clamp(rawHeight, safeMinHeight, safeMaxHeight)
+    };
+  }
+
+  const maxVisibleWidth = Math.max(1, Math.round(workArea.width - margin * 2));
+  const maxVisibleHeight = Math.max(1, Math.round(workArea.height - margin * 2));
+  const effectiveMinWidth = Math.min(safeMinWidth, maxVisibleWidth);
+  const effectiveMinHeight = Math.min(safeMinHeight, maxVisibleHeight);
+  const width = clamp(rawWidth, effectiveMinWidth, Math.min(safeMaxWidth, maxVisibleWidth));
+  const height = clamp(rawHeight, effectiveMinHeight, Math.min(safeMaxHeight, maxVisibleHeight));
+
+  const minX = Math.round(workArea.x + margin);
+  const minY = Math.round(workArea.y + margin);
+  const maxX = Math.round(workArea.x + workArea.width - width - margin);
+  const maxY = Math.round(workArea.y + workArea.height - height - margin);
+
+  return {
+    x: clamp(Math.round(Number(bounds.x) || minX), minX, maxX),
+    y: clamp(Math.round(Number(bounds.y) || minY), minY, maxY),
+    width,
+    height
+  };
+}
+
+function resizeWindowKeepingBottomRight({
+  window,
+  width,
+  height,
+  screen = null,
+  display = null,
+  minWidth = 120,
+  minHeight = 160,
+  maxWidth = Number.POSITIVE_INFINITY,
+  maxHeight = Number.POSITIVE_INFINITY,
+  margin = 8
+}) {
   if (!window || typeof window.getBounds !== 'function' || typeof window.setBounds !== 'function') {
     return;
   }
@@ -196,12 +310,31 @@ function resizeWindowKeepingBottomRight({ window, width, height }) {
   const right = bounds.x + bounds.width;
   const bottom = bounds.y + bounds.height;
 
-  window.setBounds({
-    x: Math.round(right - width),
-    y: Math.round(bottom - height),
-    width,
-    height
-  }, false);
+  const nextBounds = clampWindowBoundsToWorkArea({
+    bounds: {
+      x: Math.round(right - width),
+      y: Math.round(bottom - height),
+      width,
+      height
+    },
+    display: resolveDisplayForBounds({
+      screen,
+      bounds: {
+        x: Math.round(right - width),
+        y: Math.round(bottom - height),
+        width,
+        height
+      },
+      fallbackDisplay: display
+    }),
+    minWidth,
+    minHeight,
+    maxWidth,
+    maxHeight,
+    margin
+  });
+
+  window.setBounds(nextBounds, false);
 }
 
 function normalizeWindowControlPayload(payload) {
@@ -423,7 +556,7 @@ function createActionTelemetryListener({ window, onTelemetry = null } = {}) {
   };
 }
 
-function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
+function createChatPanelVisibilityListener({ window, windowMetrics, screen, display, margin = 8 } = {}) {
   let lastVisible = null;
   return (event, payload) => {
     if (!window || window.isDestroyed() || event?.sender !== window.webContents) {
@@ -443,7 +576,14 @@ function createChatPanelVisibilityListener({ window, windowMetrics } = {}) {
     resizeWindowKeepingBottomRight({
       window,
       width: nextSize.width,
-      height: nextSize.height
+      height: nextSize.height,
+      screen,
+      display,
+      minWidth: windowMetrics?.minWidth,
+      minHeight: windowMetrics?.minHeight,
+      maxWidth: windowMetrics?.maxWidth,
+      maxHeight: windowMetrics?.maxHeight,
+      margin
     });
   };
 }
@@ -466,7 +606,7 @@ function buildWindowStatePayload({ window, windowMetrics } = {}) {
   };
 }
 
-function createWindowResizeListener({ window, windowMetrics, onStateChange = null } = {}) {
+function createWindowResizeListener({ window, windowMetrics, screen, display, margin = 8, onStateChange = null } = {}) {
   return (event, payload) => {
     if (!window || window.isDestroyed?.() || event?.sender !== window.webContents) {
       return;
@@ -501,7 +641,14 @@ function createWindowResizeListener({ window, windowMetrics, onStateChange = nul
     resizeWindowKeepingBottomRight({
       window,
       width: Math.max(minWidth, Math.round(nextWidth)),
-      height: Math.max(minHeight, Math.round(nextHeight))
+      height: Math.max(minHeight, Math.round(nextHeight)),
+      screen,
+      display,
+      minWidth,
+      minHeight,
+      maxWidth: Number(windowMetrics?.maxWidth) || Number.POSITIVE_INFINITY,
+      maxHeight: Number(windowMetrics?.maxHeight) || Number.POSITIVE_INFINITY,
+      margin
     });
     onStateChange?.(buildWindowStatePayload({ window, windowMetrics }));
   };
@@ -659,10 +806,10 @@ async function startDesktopSuite({
   let bubbleHideTimer = null;
   const fitWindowConfig = {
     enabled: true,
-    minWidth: 180,
-    minHeight: 260,
-    maxWidth: 900,
-    maxHeight: 1400,
+    minWidth: windowMetrics.minWidth,
+    minHeight: windowMetrics.minHeight,
+    maxWidth: windowMetrics.maxWidth,
+    maxHeight: windowMetrics.maxHeight,
     paddingX: 18,
     paddingTop: 18,
     paddingBottom: 14
@@ -708,6 +855,15 @@ async function startDesktopSuite({
     }
   }
 
+  function resolveAvatarDisplay(bounds = null) {
+    const targetBounds = bounds || (avatarWindow.isDestroyed() ? null : avatarWindow.getBounds());
+    return resolveDisplayForBounds({
+      screen,
+      bounds: targetBounds,
+      fallbackDisplay: display
+    }) || display;
+  }
+
   function setWindowBoundsIfChanged(windowRef, nextBounds) {
     if (!windowRef || windowRef.isDestroyed?.() || !nextBounds) {
       return;
@@ -728,10 +884,11 @@ async function startDesktopSuite({
     if (!fitWindowConfig.enabled || avatarWindow.isDestroyed()) {
       return;
     }
+    const activeDisplay = resolveAvatarDisplay(avatarWindow.getBounds());
     const nextBounds = computeFittedAvatarWindowBounds({
       windowBounds: avatarWindow.getBounds(),
       modelBounds,
-      display,
+      display: activeDisplay,
       minWidth: fitWindowConfig.minWidth,
       minHeight: fitWindowConfig.minHeight,
       maxWidth: fitWindowConfig.maxWidth,
@@ -758,11 +915,12 @@ async function startDesktopSuite({
     if (!chatState.enabled || chatWindow.isDestroyed()) {
       return;
     }
+    const activeDisplay = resolveAvatarDisplay(avatarWindow.getBounds());
     const chatBounds = computeChatWindowBounds({
       avatarBounds: avatarWindow.getBounds(),
       chatWidth: toPositiveInt(chatPanelConfig.width, 320),
       chatHeight: toPositiveInt(chatPanelConfig.height, 220),
-      display
+      display: activeDisplay
     });
     setWindowBoundsIfChanged(chatWindow, chatBounds);
   }
@@ -771,7 +929,8 @@ async function startDesktopSuite({
     if (!bubbleState.visible || bubbleWindow.isDestroyed()) {
       return;
     }
-    const workArea = display?.workArea;
+    const activeDisplay = resolveAvatarDisplay(avatarWindow.getBounds());
+    const workArea = activeDisplay?.workArea;
     const maxBubbleWidth = Math.max(120, (Number(workArea?.width) || 520) - 32);
     const maxBubbleHeight = Math.max(44, (Number(workArea?.height) || 1000) - 32);
     const bubbleWidth = clamp(Number(bubbleState.width) || 320, 120, maxBubbleWidth);
@@ -780,7 +939,7 @@ async function startDesktopSuite({
       avatarBounds: avatarWindow.getBounds(),
       bubbleWidth,
       bubbleHeight,
-      display
+      display: activeDisplay
     });
     setWindowBoundsIfChanged(bubbleWindow, bubbleBounds);
   }
@@ -856,7 +1015,7 @@ async function startDesktopSuite({
       1,
       text.split('\n').length + Math.floor(text.length / 20)
     );
-    const workArea = display?.workArea;
+    const workArea = resolveAvatarDisplay(avatarWindow.getBounds())?.workArea;
     const maxBubbleHeight = Math.max(44, (Number(workArea?.height) || 1000) - 32);
     bubbleState.width = 320;
     bubbleState.height = clamp(44 + roughLines * 24, 60, maxBubbleHeight);
@@ -953,9 +1112,14 @@ async function startDesktopSuite({
     live2dPresets: live2dPresetConfig,
     uiConfig: event?.sender === avatarWindow.webContents ? avatarUiConfig : config.uiConfig
   }));
-  const windowDragListener = createWindowDragListener({ BrowserWindow });
+  const windowDragListener = createWindowDragListener({ BrowserWindow, screen });
   ipcMain.on(CHANNELS.windowDrag, windowDragListener);
-  const chatPanelVisibilityListener = createChatPanelVisibilityListener({ window: avatarWindow, windowMetrics });
+  const chatPanelVisibilityListener = createChatPanelVisibilityListener({
+    window: avatarWindow,
+    windowMetrics,
+    screen,
+    display
+  });
   ipcMain.on(CHANNELS.chatPanelVisibility, chatPanelVisibilityListener);
   const chatPanelToggleListener = createChatPanelToggleListener({
     window: avatarWindow,
@@ -974,7 +1138,7 @@ async function startDesktopSuite({
   const bubbleMetricsListener = createBubbleMetricsListener({
     window: bubbleWindow,
     onBubbleMetrics: (metrics) => {
-      const workArea = display?.workArea;
+      const workArea = resolveAvatarDisplay(avatarWindow.getBounds())?.workArea;
       const maxBubbleWidth = Math.max(120, (Number(workArea?.width) || 520) - 32);
       const maxBubbleHeight = Math.max(44, (Number(workArea?.height) || 1000) - 32);
       bubbleState.width = clamp(metrics.width + 20, 120, maxBubbleWidth);
@@ -1000,6 +1164,8 @@ async function startDesktopSuite({
   const windowResizeListener = createWindowResizeListener({
     window: avatarWindow,
     windowMetrics,
+    screen,
+    display,
     onStateChange: syncWindowStateToRenderer
   });
   ipcMain.on(CHANNELS.windowResizeRequest, windowResizeListener);
@@ -1452,7 +1618,7 @@ function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windo
     height: windowMetrics?.expandedHeight || 500
   };
   const placement = windowConfig.placement || {};
-  const windowBounds = computeWindowBounds({
+  const unclampedWindowBounds = computeWindowBounds({
     width: initialSize.width,
     height: initialSize.height,
     display,
@@ -1464,14 +1630,29 @@ function createMainWindow({ BrowserWindow, preloadPath, display, uiConfig, windo
     x: placement.x,
     y: placement.y
   });
+  const windowBounds = clampWindowBoundsToWorkArea({
+    bounds: {
+      x: unclampedWindowBounds.x,
+      y: unclampedWindowBounds.y,
+      width: initialSize.width,
+      height: initialSize.height
+    },
+    display,
+    minWidth: windowMetrics?.minWidth || 220,
+    minHeight: windowMetrics?.minHeight || 320,
+    maxWidth: windowMetrics?.maxWidth || Number.POSITIVE_INFINITY,
+    maxHeight: windowMetrics?.maxHeight || Number.POSITIVE_INFINITY
+  });
 
   const win = new BrowserWindow({
-    width: initialSize.width,
-    height: initialSize.height,
+    width: windowBounds.width,
+    height: windowBounds.height,
     x: windowBounds.x,
     y: windowBounds.y,
     minWidth: windowMetrics?.minWidth || 220,
     minHeight: windowMetrics?.minHeight || 320,
+    maxWidth: windowMetrics?.maxWidth || undefined,
+    maxHeight: windowMetrics?.maxHeight || undefined,
     frame: false,
     transparent: true,
     hasShadow: false,
@@ -1648,10 +1829,10 @@ function computeFittedAvatarWindowBounds({
   let y = Math.round(windowBounds.y + modelBounds.y - paddingTop - (height - desiredHeight) / 2);
 
   if (workArea && typeof workArea === 'object') {
-    const maxAllowedWidth = Math.max(minWidth, workArea.width - margin * 2);
-    const maxAllowedHeight = Math.max(minHeight, workArea.height - margin * 2);
-    const safeWidth = Math.min(width, maxAllowedWidth);
-    const safeHeight = Math.min(height, maxAllowedHeight);
+    const maxAllowedWidth = Math.max(1, workArea.width - margin * 2);
+    const maxAllowedHeight = Math.max(1, workArea.height - margin * 2);
+    const safeWidth = clamp(width, Math.min(minWidth, maxAllowedWidth), Math.min(maxWidth, maxAllowedWidth));
+    const safeHeight = clamp(height, Math.min(minHeight, maxAllowedHeight), Math.min(maxHeight, maxAllowedHeight));
     const minX = workArea.x + margin;
     const minY = workArea.y + margin;
     const maxX = workArea.x + workArea.width - safeWidth - margin;
@@ -1776,6 +1957,8 @@ module.exports = {
   createMainWindow,
   computeWindowBounds,
   computeRightBottomWindowBounds,
+  resolveDisplayForBounds,
+  clampWindowBoundsToWorkArea,
   resolveWindowMetrics,
   resolveWindowSizeForChatPanel,
   resizeWindowKeepingBottomRight,
