@@ -5,6 +5,7 @@
   const actionMutexApi = window.Live2DActionMutex || null;
   const actionQueueApi = window.Live2DActionQueuePlayer || null;
   const actionExecutorApi = window.Live2DActionExecutor || null;
+  const visemeLipSyncApi = window.Live2DVisemeLipSync || null;
   const state = {
     modelLoaded: false,
     modelName: null,
@@ -26,13 +27,20 @@
   let lipsyncSource = null;
   let lipsyncRafId = 0;
   let lipsyncSmoothed = 0;
+  let lipsyncSmoothedForm = 0;
   let lipsyncCurrentMouthOpen = 0;
+  let lipsyncCurrentMouthForm = 0;
   let lipsyncAudioEl = null;
   let lipsyncTimeDomainBuffer = null;
+  let lipsyncFrequencyBuffer = null;
+  let lipsyncParamMetaCache = null;
+  let lipsyncVisemeState = visemeLipSyncApi?.createRuntimeState?.() || null;
+  let lipsyncLastVisemeFrame = null;
   let detachLipSyncPlaybackListeners = null;
   let detachLipSyncTicker = null;
   let detachLipSyncModelHook = null;
   let lastLipSyncDebugLogAt = 0;
+  let lipsyncLastVoiceAt = 0;
   let dragPointerState = null;
   let suppressModelTapUntil = 0;
   let stableModelScale = null;
@@ -83,12 +91,27 @@
   const MODEL_TAP_SUPPRESS_AFTER_DRAG_MS = 220;
   const MODEL_TAP_SUPPRESS_AFTER_FOCUS_MS = 240;
   const LIPSYNC_MOUTH_PARAM = 'ParamMouthOpenY';
+  const LIPSYNC_MOUTH_FORM_PARAM = 'ParamMouthForm';
   const LIPSYNC_FFT_SIZE = 256;
   const LIPSYNC_THRESHOLD = 0.004;
   const LIPSYNC_RANGE = 0.06;
   const LIPSYNC_CURVE_EXPONENT = 0.65;
-  const LIPSYNC_SMOOTHING_ALPHA = 0.38;
+  const LIPSYNC_HARD_CLOSE_RMS_THRESHOLD = 0.014;
+  const LIPSYNC_HARD_CLOSE_NORMALIZED_THRESHOLD = 0.14;
+  const LIPSYNC_ATTACK_ALPHA = 0.56;
+  const LIPSYNC_RELEASE_ALPHA = 0.18;
+  const LIPSYNC_FORM_ATTACK_ALPHA = 0.42;
+  const LIPSYNC_FORM_RELEASE_ALPHA = 0.22;
+  const LIPSYNC_ACTIVE_BASELINE = 0.08;
+  const LIPSYNC_SILENCE_HANGOVER_MS = 100;
   const LIPSYNC_MAX_MOUTH = 0.95;
+  const LIPSYNC_FORM_MAX_ABS = 0.16;
+  const LIPSYNC_FORM_DEADZONE = 0.18;
+  const LIPSYNC_FORM_CURVE_EXPONENT = 0.82;
+  const LIPSYNC_FORM_NEGATIVE_SCALE = 0.55;
+  const LIPSYNC_FORM_POSITIVE_SCALE = 0.8;
+  const LIPSYNC_FORM_LOW_BAND_HZ = [180, 900];
+  const LIPSYNC_FORM_HIGH_BAND_HZ = [1200, 3600];
 
   function nearlyEqual(left, right, epsilon = 1e-4) {
     if (typeof interactionApi?.nearlyEqual === 'function') {
@@ -169,6 +192,40 @@
     return live2dModel?.internalModel?.coreModel || null;
   }
 
+  function getLipSyncParamMeta(parameterId) {
+    const coreModel = getCoreModel();
+    if (
+      !coreModel
+      || typeof coreModel.getParameterIndex !== 'function'
+      || typeof coreModel.getParameterDefaultValue !== 'function'
+      || typeof coreModel.getParameterMinimumValue !== 'function'
+      || typeof coreModel.getParameterMaximumValue !== 'function'
+    ) {
+      return null;
+    }
+
+    if (!lipsyncParamMetaCache) {
+      lipsyncParamMetaCache = new Map();
+    }
+    if (lipsyncParamMetaCache.has(parameterId)) {
+      return lipsyncParamMetaCache.get(parameterId);
+    }
+
+    const parameterIndex = coreModel.getParameterIndex(parameterId);
+    if (!Number.isInteger(parameterIndex) || parameterIndex < 0) {
+      lipsyncParamMetaCache.set(parameterId, null);
+      return null;
+    }
+
+    const meta = {
+      defaultValue: Number(coreModel.getParameterDefaultValue(parameterIndex)),
+      minValue: Number(coreModel.getParameterMinimumValue(parameterIndex)),
+      maxValue: Number(coreModel.getParameterMaximumValue(parameterIndex))
+    };
+    lipsyncParamMetaCache.set(parameterId, meta);
+    return meta;
+  }
+
   function applyMouthOpenToModel(value) {
     if (!state.modelLoaded) {
       return { ok: false, skipped: true, reason: 'model_not_loaded' };
@@ -188,8 +245,61 @@
     return applyMouthOpenToModel(lipsyncCurrentMouthOpen);
   }
 
+  function applyMouthFormToModel(value) {
+    if (!state.modelLoaded) {
+      return { ok: false, skipped: true, reason: 'model_not_loaded' };
+    }
+
+    const coreModel = getCoreModel();
+    if (!coreModel || typeof coreModel.setParameterValueById !== 'function') {
+      return { ok: false, skipped: true, reason: 'core_model_unavailable' };
+    }
+
+    const normalizedValue = clamp(Number(value) || 0, -1, 1);
+    const meta = getLipSyncParamMeta(LIPSYNC_MOUTH_FORM_PARAM);
+    if (!meta) {
+      coreModel.setParameterValueById(
+        LIPSYNC_MOUTH_FORM_PARAM,
+        clamp(normalizedValue * LIPSYNC_FORM_MAX_ABS, -LIPSYNC_FORM_MAX_ABS, LIPSYNC_FORM_MAX_ABS)
+      );
+      return { ok: true, calibrated: false };
+    }
+
+    const positiveSpan = Math.max(0, Math.min(meta.maxValue - meta.defaultValue, LIPSYNC_FORM_MAX_ABS));
+    const negativeSpan = Math.max(0, Math.min(meta.defaultValue - meta.minValue, LIPSYNC_FORM_MAX_ABS));
+    const delta = normalizedValue >= 0
+      ? normalizedValue * positiveSpan
+      : normalizedValue * negativeSpan;
+    const calibratedValue = clamp(meta.defaultValue + delta, meta.minValue, meta.maxValue);
+
+    coreModel.setParameterValueById(LIPSYNC_MOUTH_FORM_PARAM, calibratedValue);
+    return { ok: true };
+  }
+
+  function setMouthForm(value) {
+    lipsyncCurrentMouthForm = clamp(Number(value) || 0, -1, 1);
+    return applyMouthFormToModel(lipsyncCurrentMouthForm);
+  }
+
+  function getFrequencyBandEnergy(buffer, sampleRate, minHz, maxHz) {
+    if (!buffer || !buffer.length || !Number.isFinite(sampleRate) || sampleRate <= 0) {
+      return 0;
+    }
+
+    const nyquist = sampleRate / 2;
+    const minIndex = clamp(Math.floor((minHz / nyquist) * buffer.length), 0, buffer.length - 1);
+    const maxIndex = clamp(Math.ceil((maxHz / nyquist) * buffer.length), minIndex + 1, buffer.length);
+    let sum = 0;
+    let count = 0;
+    for (let index = minIndex; index < maxIndex; index += 1) {
+      sum += buffer[index] / 255;
+      count += 1;
+    }
+    return count > 0 ? sum / count : 0;
+  }
+
   function applyLipSyncForCurrentFrame() {
-    if (lipsyncCurrentMouthOpen <= 0) {
+    if (lipsyncCurrentMouthOpen <= 0 && Math.abs(lipsyncCurrentMouthForm) <= 1e-4) {
       return;
     }
 
@@ -200,19 +310,30 @@
 
     if (typeof coreModel.addParameterValueById === 'function') {
       coreModel.addParameterValueById(LIPSYNC_MOUTH_PARAM, lipsyncCurrentMouthOpen, 1);
+      applyMouthFormToModel(lipsyncCurrentMouthForm);
       const now = Date.now();
       if (now - lastLipSyncDebugLogAt >= 1000 && typeof coreModel.getParameterValueById === 'function') {
+        const formMeta = getLipSyncParamMeta(LIPSYNC_MOUTH_FORM_PARAM);
         lastLipSyncDebugLogAt = now;
         console.log('[lipsync] apply frame', JSON.stringify({
           source: 'beforeModelUpdate',
           target: lipsyncCurrentMouthOpen,
-          current: coreModel.getParameterValueById(LIPSYNC_MOUTH_PARAM)
+          current: coreModel.getParameterValueById(LIPSYNC_MOUTH_PARAM),
+          form_target: lipsyncCurrentMouthForm,
+          form_current: coreModel.getParameterValueById(LIPSYNC_MOUTH_FORM_PARAM),
+          form_default: formMeta?.defaultValue ?? null,
+          form_min: formMeta?.minValue ?? null,
+          form_max: formMeta?.maxValue ?? null,
+          viseme: lipsyncLastVisemeFrame?.dominantViseme ?? null,
+          viseme_confidence: lipsyncLastVisemeFrame?.confidence ?? null,
+          viseme_weights: lipsyncLastVisemeFrame?.weights ?? null
         }));
       }
       return;
     }
 
     applyMouthOpenToModel(lipsyncCurrentMouthOpen);
+    applyMouthFormToModel(lipsyncCurrentMouthForm);
   }
 
   function bindLipSyncTicker() {
@@ -283,6 +404,7 @@
       lipsyncSource = null;
       lipsyncAudioEl = null;
       lipsyncTimeDomainBuffer = null;
+      lipsyncFrequencyBuffer = null;
     }
 
     if (lipsyncCtx.state === 'suspended') {
@@ -293,6 +415,7 @@
       lipsyncAnalyser = lipsyncCtx.createAnalyser();
       lipsyncAnalyser.fftSize = LIPSYNC_FFT_SIZE;
       lipsyncTimeDomainBuffer = new Uint8Array(lipsyncAnalyser.fftSize);
+      lipsyncFrequencyBuffer = new Uint8Array(lipsyncAnalyser.frequencyBinCount);
     }
 
     if (!lipsyncSource) {
@@ -307,7 +430,8 @@
     return {
       ctx: lipsyncCtx,
       analyser: lipsyncAnalyser,
-      buffer: lipsyncTimeDomainBuffer
+      buffer: lipsyncTimeDomainBuffer,
+      frequencyBuffer: lipsyncFrequencyBuffer
     };
   }
 
@@ -324,8 +448,14 @@
       lipsyncRafId = 0;
     }
     lipsyncSmoothed = 0;
+    lipsyncSmoothedForm = 0;
     lipsyncCurrentMouthOpen = 0;
+    lipsyncCurrentMouthForm = 0;
+    lipsyncLastVoiceAt = 0;
+    lipsyncVisemeState = visemeLipSyncApi?.createRuntimeState?.() || null;
+    lipsyncLastVisemeFrame = null;
     setMouthOpen(0);
+    setMouthForm(0);
   }
 
   function stopLipSync() {
@@ -338,21 +468,91 @@
     stopLipSyncFrame();
 
     const step = () => {
-      if (!graph.analyser || !graph.buffer) {
+      if (!graph.analyser || !graph.buffer || !graph.frequencyBuffer) {
         return;
       }
 
       graph.analyser.getByteTimeDomainData(graph.buffer);
+      graph.analyser.getByteFrequencyData(graph.frequencyBuffer);
       const rms = computeRmsFromTimeDomain(graph.buffer);
+      const now = performance.now();
       const normalized = rms <= LIPSYNC_THRESHOLD
         ? 0
         : clamp((rms - LIPSYNC_THRESHOLD) / LIPSYNC_RANGE, 0, 1);
-      const target = normalized <= 0
-        ? 0
-        : Math.pow(normalized, LIPSYNC_CURVE_EXPONENT) * LIPSYNC_MAX_MOUTH;
+      const hardSilent = rms < LIPSYNC_HARD_CLOSE_RMS_THRESHOLD || normalized < LIPSYNC_HARD_CLOSE_NORMALIZED_THRESHOLD;
+      if (hardSilent) {
+        lipsyncSmoothed = 0;
+        lipsyncSmoothedForm = 0;
+        lipsyncLastVoiceAt = 0;
+        lipsyncLastVisemeFrame = null;
+        lipsyncVisemeState = visemeLipSyncApi?.createRuntimeState?.() || null;
+        setMouthOpen(0);
+        setMouthForm(0);
+        lipsyncRafId = window.requestAnimationFrame(step);
+        return;
+      }
+      let target = 0;
+      if (normalized > 0) {
+        lipsyncLastVoiceAt = now;
+        const shaped = Math.pow(normalized, LIPSYNC_CURVE_EXPONENT);
+        target = LIPSYNC_ACTIVE_BASELINE + shaped * (LIPSYNC_MAX_MOUTH - LIPSYNC_ACTIVE_BASELINE);
+      } else if (lipsyncLastVoiceAt > 0 && now - lipsyncLastVoiceAt <= LIPSYNC_SILENCE_HANGOVER_MS) {
+        target = LIPSYNC_ACTIVE_BASELINE;
+      }
 
-      lipsyncSmoothed += (target - lipsyncSmoothed) * LIPSYNC_SMOOTHING_ALPHA;
-      setMouthOpen(lipsyncSmoothed);
+      const smoothingAlpha = target > lipsyncSmoothed ? LIPSYNC_ATTACK_ALPHA : LIPSYNC_RELEASE_ALPHA;
+      lipsyncSmoothed += (target - lipsyncSmoothed) * smoothingAlpha;
+      const lowBandEnergy = getFrequencyBandEnergy(
+        graph.frequencyBuffer,
+        graph.ctx?.sampleRate || 0,
+        LIPSYNC_FORM_LOW_BAND_HZ[0],
+        LIPSYNC_FORM_LOW_BAND_HZ[1]
+      );
+      const highBandEnergy = getFrequencyBandEnergy(
+        graph.frequencyBuffer,
+        graph.ctx?.sampleRate || 0,
+        LIPSYNC_FORM_HIGH_BAND_HZ[0],
+        LIPSYNC_FORM_HIGH_BAND_HZ[1]
+      );
+      const spectralBalance = clamp(
+        (highBandEnergy - lowBandEnergy) / Math.max(1e-4, highBandEnergy + lowBandEnergy),
+        -1,
+        1
+      );
+      const mouthOpenWeight = clamp((lipsyncSmoothed - LIPSYNC_ACTIVE_BASELINE) / Math.max(1e-4, LIPSYNC_MAX_MOUTH), 0, 1);
+      const spectralMagnitude = Math.abs(spectralBalance);
+      const normalizedFormMagnitude = spectralMagnitude <= LIPSYNC_FORM_DEADZONE
+        ? 0
+        : clamp((spectralMagnitude - LIPSYNC_FORM_DEADZONE) / Math.max(1e-4, 1 - LIPSYNC_FORM_DEADZONE), 0, 1);
+      const shapedFormBalance = Math.sign(spectralBalance) * Math.pow(normalizedFormMagnitude, LIPSYNC_FORM_CURVE_EXPONENT);
+      const directionalFormScale = shapedFormBalance < 0 ? LIPSYNC_FORM_NEGATIVE_SCALE : LIPSYNC_FORM_POSITIVE_SCALE;
+      const fallbackFormTarget = shapedFormBalance * mouthOpenWeight * directionalFormScale;
+      const formSmoothingAlpha = Math.abs(fallbackFormTarget) > Math.abs(lipsyncSmoothedForm)
+        ? LIPSYNC_FORM_ATTACK_ALPHA
+        : LIPSYNC_FORM_RELEASE_ALPHA;
+      lipsyncSmoothedForm += (fallbackFormTarget - lipsyncSmoothedForm) * formSmoothingAlpha;
+
+      let nextMouthOpen = lipsyncSmoothed;
+      let nextMouthForm = lipsyncSmoothedForm;
+      const visemeFrame = visemeLipSyncApi?.resolveVisemeFrame?.({
+        frequencyBuffer: graph.frequencyBuffer,
+        sampleRate: graph.ctx?.sampleRate || 0,
+        voiceEnergy: normalized,
+        speaking: normalized > 0 || target > 0,
+        fallbackOpen: lipsyncSmoothed,
+        fallbackForm: lipsyncSmoothedForm,
+        state: lipsyncVisemeState
+      }) || null;
+      if (visemeFrame) {
+        lipsyncLastVisemeFrame = visemeFrame;
+        nextMouthOpen = clamp(Number(visemeFrame.mouthOpen) || 0, 0, 1);
+        nextMouthForm = clamp(Number(visemeFrame.mouthForm) || 0, -1, 1);
+      } else {
+        lipsyncLastVisemeFrame = null;
+      }
+
+      setMouthOpen(nextMouthOpen);
+      setMouthForm(nextMouthForm);
       lipsyncRafId = window.requestAnimationFrame(step);
     };
 
