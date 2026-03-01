@@ -36,6 +36,7 @@
   let lipsyncParamMetaCache = null;
   let lipsyncVisemeState = visemeLipSyncApi?.createRuntimeState?.() || null;
   let lipsyncLastVisemeFrame = null;
+  let recentVoicePlaybackKeys = new Map();
   let detachLipSyncPlaybackListeners = null;
   let detachLipSyncTicker = null;
   let detachLipSyncModelHook = null;
@@ -112,6 +113,7 @@
   const LIPSYNC_FORM_POSITIVE_SCALE = 0.8;
   const LIPSYNC_FORM_LOW_BAND_HZ = [180, 900];
   const LIPSYNC_FORM_HIGH_BAND_HZ = [1200, 3600];
+  const VOICE_PLAYBACK_DEDUPE_WINDOW_MS = 3500;
 
   function nearlyEqual(left, right, epsilon = 1e-4) {
     if (typeof interactionApi?.nearlyEqual === 'function') {
@@ -594,6 +596,44 @@
     return '';
   }
 
+  function buildVoicePlaybackKey(payload = {}, audioUrl = '') {
+    const idempotencyKey = String(payload.idempotencyKey || payload.idempotency_key || '').trim();
+    if (idempotencyKey) {
+      return `idem:${idempotencyKey}`;
+    }
+
+    const turnId = String(payload.turnId || payload.turn_id || '').trim();
+    if (turnId && audioUrl) {
+      return `turn:${turnId}|url:${audioUrl}`;
+    }
+    if (turnId) {
+      return `turn:${turnId}`;
+    }
+
+    return audioUrl ? `url:${audioUrl}` : '';
+  }
+
+  function shouldSkipDuplicateVoicePlayback(playbackKey) {
+    if (!playbackKey) {
+      return false;
+    }
+
+    const now = Date.now();
+    for (const [key, timestamp] of recentVoicePlaybackKeys.entries()) {
+      if (!Number.isFinite(timestamp) || now - timestamp > VOICE_PLAYBACK_DEDUPE_WINDOW_MS) {
+        recentVoicePlaybackKeys.delete(key);
+      }
+    }
+
+    const previousSeenAt = recentVoicePlaybackKeys.get(playbackKey);
+    if (Number.isFinite(previousSeenAt) && now - previousSeenAt <= VOICE_PLAYBACK_DEDUPE_WINDOW_MS) {
+      return true;
+    }
+
+    recentVoicePlaybackKeys.set(playbackKey, now);
+    return false;
+  }
+
   async function playAudioWithLipSync(audioUrl) {
     if (!audioUrl) {
       throw createRpcError(-32602, 'audio url is required for lip sync playback');
@@ -637,6 +677,15 @@
     const audioUrl = resolveAudioPlaybackUrl(payload);
     if (!audioUrl) {
       throw createRpcError(-32602, 'voice playback requires audio_ref, audioRef, or audioPath');
+    }
+    const playbackKey = buildVoicePlaybackKey(payload, audioUrl);
+    if (shouldSkipDuplicateVoicePlayback(playbackKey)) {
+      console.log('[lipsync] skip duplicate voice playback', JSON.stringify({
+        playbackKey,
+        turnId: payload.turnId || payload.turn_id || null,
+        idempotencyKey: payload.idempotencyKey || payload.idempotency_key || null
+      }));
+      return { ok: true, deduplicated: true, audioUrl };
     }
     return playAudioWithLipSync(audioUrl);
   }
@@ -1490,13 +1539,7 @@
         const { name, data } = params || {};
         console.log('[Renderer] Received RPC invoke:', name);
         if (name === 'voice.play') {
-          try {
-            systemAudio.src = `file://${data.audioPath}`;
-            systemAudio.play().catch(console.error);
-            result = { ok: true };
-          } catch (err) {
-            throw createRpcError(-32000, 'play failed');
-          }
+          result = await handleVoicePlaybackRequest(data || {});
         } else if (name === 'voice.playback.electron') {
           result = await handleVoicePlaybackRequest(data || {});
         } else {

@@ -323,27 +323,6 @@ async function ttsAliyunVc(args = {}, context = {}) {
 
     cooldownStore.addCall(sessionId, nowMs);
 
-    try {
-      const wavPath = audioPath.replace(/\.ogg$/, '.wav');
-
-      // 核心：强制用 await 锁住当前进程，不要让工具提前执行完！
-      await new Promise((resolve) => {
-        const { spawn } = require('node:child_process');
-        const ffmpeg = spawn('ffmpeg', ['-v', 'quiet', '-y', '-i', audioPath, wavPath]);
-
-        ffmpeg.on('close', (code) => {
-          if (code === 0) {
-            if (typeof context.publishEvent === 'function') {
-              context.publishEvent('voice.play', { audioPath: wavPath });
-            }
-          }
-          // 事件发完了，我才允许这个 Promise 结束，工具这时候才可以返回！
-          resolve();
-        });
-      });
-
-    } catch (_) { /* autoplay failure is non-fatal */ }
-
     const payload = {
       audioRef: `${audioPath}`,
       format: 'ogg',
@@ -356,6 +335,16 @@ async function ttsAliyunVc(args = {}, context = {}) {
     };
 
     incMetric('tts_success');
+    publishVoiceEvent(context, 'voice.playback.electron', {
+      session_id: sessionId,
+      audio_ref: payload.audioRef,
+      format: payload.format,
+      voice_tag: payload.voiceTag,
+      model: payload.model,
+      voice_id: payload.voiceId,
+      idempotency_key: payload.idempotencyKey,
+      turn_id: payload.turnId
+    });
     publishVoiceEvent(context, 'voice.job.completed', {
       session_id: sessionId,
       audio_ref: payload.audioRef,

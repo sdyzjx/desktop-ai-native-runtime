@@ -920,6 +920,25 @@ async function startDesktopSuite({
             onTelemetry: publishLive2dActionTelemetry,
             logger
           });
+        } else if (eventName === 'voice.playback.electron') {
+          const payload = desktopEvent.data.data || {};
+          const audioRef = payload.audio_ref || payload.audioRef || null;
+          if (audioRef && !avatarWindow.isDestroyed()) {
+            logger.info?.('[desktop-live2d] voice_playback_electron_ipc', {
+              audioRef: String(audioRef).split('/').pop(),
+              sessionId: payload.session_id || null,
+              turnId: payload.turn_id || null,
+              idempotencyKey: payload.idempotency_key || null
+            });
+            avatarWindow.webContents.send('desktop:voice:play', {
+              audioRef,
+              format: payload.format || 'ogg',
+              sessionId: payload.session_id || null,
+              turnId: payload.turn_id || null,
+              idempotencyKey: payload.idempotency_key || null,
+              gatewayUrl: config.gatewayUrl
+            });
+          }
         } else if (eventName.startsWith('ui.') || eventName.startsWith('client.') || eventName.startsWith('voice.')) {
           activeBridge?.invoke({
             method: 'server_event_forward',
@@ -929,23 +948,6 @@ async function startDesktopSuite({
             },
             timeoutMs: config.rendererTimeoutMs
           }).catch(() => { });
-        }
-      }
-
-      // handle voice playback for electron mode
-      if (desktopEvent.type === 'runtime.event') {
-        const eventName = desktopEvent.data?.event || desktopEvent.data?.payload?.event;
-        if (eventName === 'voice.playback.electron') {
-          const payload = desktopEvent.data?.payload || desktopEvent.data;
-          const audioRef = payload?.audio_ref || payload?.audioRef;
-          if (audioRef && !avatarWindow.isDestroyed()) {
-            logger.info?.('[desktop-live2d] voice_playback_electron_ipc', { audioRef: audioRef.split('/').pop() });
-            avatarWindow.webContents.send('desktop:voice:play', {
-              audioRef,
-              format: payload?.format || 'ogg',
-              gatewayUrl: config.gatewayUrl
-            });
-          }
         }
       }
 
